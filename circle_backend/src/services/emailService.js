@@ -1,7 +1,9 @@
 const transporter = require("../config/mailer");
 
 async function sendPasswordResetEmail({ to, name, token }) {
-  const resetUrl = `${process.env.FRONTEND_URL}/circle.html?token=${token}`;
+  //const resetUrl = `${process.env.FRONTEND_URL}/index.html?token=${token}`;
+  // emailService.js
+const resetUrl = `${process.env.FRONTEND_URL}/?token=${token}`;
 
   await transporter.sendMail({
     from: `"Circle" <${process.env.EMAIL_USER}>`,

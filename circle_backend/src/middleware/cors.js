@@ -5,7 +5,7 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5501',
   'http://localhost:7700',
   'https://circle-app-cm8qwkxqp-sizasutfus-projects.vercel.app',
-  'www.circlenet.social'
+  'https://www.circlenet.social'
 ];
 
 function cors(req, res, next) {

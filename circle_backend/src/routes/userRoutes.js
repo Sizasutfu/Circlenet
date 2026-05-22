@@ -7,7 +7,7 @@
 const router           = require('express').Router();
 const userController   = require('../controllers/userController');
 const { requireAuth }  = require('../middleware/auth');
-const { requestPasswordReset, confirmResetPassword } = require("../controllers/authController");
+const { requestPasswordReset, confirmResetPassword, sendVerification, verifyEmail } = require("../controllers/authController");
 const upload              = require('../middleware/upload');
 const { compressUploads } = require('../middleware/compress');
 
@@ -32,5 +32,8 @@ router.put('/:id',         requireAuth, userController.updateProfile);
 
 router.post("/reset-password",         requestPasswordReset);
 router.post("/reset-password/confirm", confirmResetPassword);
+
+router.post("/email/send-verification", sendVerification);
+router.post("/email/verify",            verifyEmail);
 
 module.exports = router;

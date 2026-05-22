@@ -784,6 +784,9 @@ window.goTo = function goTo(view, _opts = {}) {
 };
 
 /*AUTH  */
+// Stores the newly registered user data while waiting for email verification
+let _pendingVerifyUser = null;
+
 async function registerUser() {
   const name = document.getElementById("reg-name").value.trim();
   const email = document.getElementById("reg-email").value.trim();
@@ -807,7 +810,7 @@ async function registerUser() {
     return showAlert(el, "Password must be at least 6 characters.", "error");
   if (confirmPassword !== undefined && password !== confirmPassword)
     return showAlert(el, "Passwords do not match.", "error");
-  const btn = document.querySelector("#view-register .btn-primary");
+  const btn = document.getElementById("reg-email-submit-btn");
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
@@ -819,15 +822,110 @@ async function registerUser() {
       password,
       phone: phone || undefined,
     });
-    setCurrentUser(res.data);
-    showAlert(el, "Account created! Welcome 🎉", "success");
-    setTimeout(() => goTo("feed"), 900);
+    // Account created — now send a verification email and show the OTP step
+    _pendingVerifyUser = res.data;
+    // Ask the backend to send a verification code to the email
+    try {
+      await api("POST", "/api/auth/email/send-verification", { email });
+    } catch (_) {
+      // Non-fatal: backend might send automatically on register
+    }
+    // Show the verify step
+    document.getElementById("reg-email-step1").classList.remove("active");
+    document.getElementById("reg-email-step2").classList.add("active");
+    document.getElementById("reg-email-display").textContent = email;
+    _clearOtpDigits("email-verify");
+    el.className = "alert";
+    _startEmailVerifyTimer();
+    setTimeout(() => {
+      const firstDigit = document.querySelector("#email-verify-otp-group .otp-digit");
+      if (firstDigit) firstDigit.focus();
+    }, 120);
   } catch (e) {
     showAlert(el, e.message, "error");
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Create Account";
     }
+  }
+}
+
+/* ── EMAIL VERIFICATION ─────────────────────────────────────── */
+let _emailVerifyTimerInterval = null;
+
+function _startEmailVerifyTimer() {
+  if (_emailVerifyTimerInterval) clearTimeout(_emailVerifyTimerInterval);
+  let secs = 60;
+  const timerEl = document.getElementById("email-verify-otp-timer");
+  const resendBtn = document.getElementById("email-verify-resend-btn");
+  if (resendBtn) resendBtn.disabled = true;
+  const tick = () => {
+    if (timerEl) timerEl.textContent = `(${secs}s)`;
+    if (secs <= 0) {
+      if (_emailVerifyTimerInterval) clearTimeout(_emailVerifyTimerInterval);
+      _emailVerifyTimerInterval = null;
+      if (resendBtn) resendBtn.disabled = false;
+      if (timerEl) timerEl.textContent = "";
+      return;
+    }
+    secs--;
+    _emailVerifyTimerInterval = setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+async function emailVerifyOtp() {
+  const code = _getOtpValue("email-verify");
+  const el = document.getElementById("register-alert");
+  el.className = "alert";
+  if (code.length < 6) return showAlert(el, "Enter the full 6-digit code.", "error");
+  const email = document.getElementById("reg-email-display").textContent;
+  const btn = document.getElementById("email-verify-btn");
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
+  try {
+    await api("POST", "/api/auth/email/verify", { email, code });
+    // Mark user as verified and log them in
+    if (_pendingVerifyUser) {
+      setCurrentUser(_pendingVerifyUser);
+      _pendingVerifyUser = null;
+    }
+    showAlert(el, "Email verified! Welcome to Circle 🎉", "success");
+    setTimeout(() => goTo("feed"), 900);
+  } catch (e) {
+    showAlert(el, e.message || "Invalid code. Please try again.", "error");
+    _shakeOtpGroup("email-verify");
+    if (btn) { btn.disabled = false; btn.textContent = "Verify Email"; }
+  }
+}
+
+async function emailResendCode() {
+  const email = document.getElementById("reg-email-display").textContent;
+  const el = document.getElementById("register-alert");
+  el.className = "alert";
+  try {
+    await api("POST", "/api/auth/email/send-verification", { email });
+    showAlert(el, "New code sent! Check your inbox.", "success");
+    _clearOtpDigits("email-verify");
+    _startEmailVerifyTimer();
+    setTimeout(() => {
+      const firstDigit = document.querySelector("#email-verify-otp-group .otp-digit");
+      if (firstDigit) firstDigit.focus();
+    }, 120);
+  } catch (e) {
+    showAlert(el, e.message || "Could not resend. Try again shortly.", "error");
+  }
+}
+
+function emailVerifyBack() {
+  _pendingVerifyUser = null;
+  document.getElementById("reg-email-step2").classList.remove("active");
+  document.getElementById("reg-email-step1").classList.add("active");
+  const btn = document.getElementById("reg-email-submit-btn");
+  if (btn) { btn.disabled = false; btn.textContent = "Create Account"; }
+  document.getElementById("register-alert").className = "alert";
+  if (_emailVerifyTimerInterval) {
+    clearTimeout(_emailVerifyTimerInterval);
+    _emailVerifyTimerInterval = null;
   }
 }
 
@@ -1114,6 +1212,7 @@ async function phoneRegisterVerifyOtp() {
 function _otpAutoSubmit(prefix) {
   if (prefix === "login") phoneLoginVerifyOtp();
   else if (prefix === "reg") phoneRegisterVerifyOtp();
+  else if (prefix === "email-verify") emailVerifyOtp();
 }
 
 function otpInput(el, prefix) {

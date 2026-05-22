@@ -223,4 +223,52 @@ async function getNewMembers(viewerId, limit = 10) {
   return rows;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  PASTE THESE THREE METHODS INTO your models/userModel.js
+//
+//  They also require these two columns on your `users` table.
+//  Run this migration before deploying:
+//
+//    ALTER TABLE users
+//      ADD COLUMN verify_code         VARCHAR(6)   NULL,
+//      ADD COLUMN verify_code_expires DATETIME     NULL,
+//      ADD COLUMN email_verified      TINYINT(1)   NOT NULL DEFAULT 0;
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Saves the 6-digit code and its expiry against the user row.
+async function saveVerificationCode(userId, code, expires) {
+  await db.query(
+    `UPDATE users
+        SET verify_code = ?, verify_code_expires = ?
+      WHERE id = ?`,
+    [code, expires, userId]
+  );
+}
+
+// Returns the user row if the code matches and hasn't expired, otherwise null.
+async function findByValidVerificationCode(email, code) {
+  const [rows] = await db.query(
+    `SELECT * FROM users
+      WHERE email = ?
+        AND verify_code = ?
+        AND verify_code_expires > NOW()
+      LIMIT 1`,
+    [email, code]
+  );
+  return rows[0] || null;
+}
+
+// Marks the user as verified and clears the code so it can't be reused.
+async function markEmailVerified(userId) {
+  await db.query(
+    `UPDATE users
+        SET email_verified = 1,
+            verify_code = NULL,
+            verify_code_expires = NULL
+      WHERE id = ?`,
+    [userId]
+  );
+}
+
 module.exports = { ...UserModel, getNewMembers };

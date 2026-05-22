@@ -25,9 +25,9 @@ async function connectDB() {
     // ── RUN MIGRATIONS HERE ──
     await db.query(`
       ALTER TABLE users
-        ADD COLUMN IF NOT EXISTS verify_code VARCHAR(6) NULL,
-        ADD COLUMN IF NOT EXISTS verify_code_expires DATETIME NULL,
-        ADD COLUMN IF NOT EXISTS email_verified TINYINT(1) NOT NULL DEFAULT 0
+  ADD COLUMN IF NOT EXISTS verify_code VARCHAR(6) NULL,
+  ADD COLUMN IF NOT EXISTS verify_code_expires DATETIME NULL,
+  ADD COLUMN IF NOT EXISTS email_verified TINYINT(1) NOT NULL DEFAULT 0
     `);
 
     console.log('✅ Database migrations completed');

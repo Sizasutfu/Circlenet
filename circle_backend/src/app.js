@@ -6,14 +6,7 @@ const webpush            = require('web-push');
 const { cors }           = require('./middleware/cors');
 const { sendError }      = require('./middleware/response');
 
-const mysql = require('mysql2/promise');
 
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
 
 
 
@@ -120,15 +113,6 @@ console.log('Group auto-creation cron started.');
 // Safe to leave in permanently — IF NOT EXISTS means it's a no-op
 // once the columns exist.
 
-db.query(`
-  ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS verify_code         VARCHAR(6)  NULL,
-    ADD COLUMN IF NOT EXISTS verify_code_expires DATETIME    NULL,
-    ADD COLUMN IF NOT EXISTS email_verified      TINYINT(1)  NOT NULL DEFAULT 0
-`).then(() => {
-  console.log('✅ Email verification columns ready.');
-}).catch((err) => {
-  console.warn('⚠️  Migration skipped or failed:', err.message);
-});
+
 
 module.exports = app;

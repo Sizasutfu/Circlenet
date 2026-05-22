@@ -12,27 +12,75 @@ const db = process.env.DATABASE_URL
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
-
       connectTimeout: 10000,
     });
 
+/**
+ * Check if a column exists in a table
+ */
+async function columnExists(table, column) {
+  const [rows] = await db.query(
+    `
+    SELECT COUNT(*) as count
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND COLUMN_NAME = ?
+    `,
+    [table, column]
+  );
+
+  return rows[0].count > 0;
+}
+
+/**
+ * Run safe migrations
+ */
+async function runMigrations() {
+  try {
+    if (!(await columnExists('users', 'verify_code'))) {
+      await db.query(`
+        ALTER TABLE users
+        ADD COLUMN verify_code VARCHAR(6) NULL
+      `);
+      console.log('✅ Added verify_code');
+    }
+
+    if (!(await columnExists('users', 'verify_code_expires'))) {
+      await db.query(`
+        ALTER TABLE users
+        ADD COLUMN verify_code_expires DATETIME NULL
+      `);
+      console.log('✅ Added verify_code_expires');
+    }
+
+    if (!(await columnExists('users', 'email_verified'))) {
+      await db.query(`
+        ALTER TABLE users
+        ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0
+      `);
+      console.log('✅ Added email_verified');
+    }
+
+    console.log('✅ Database migrations completed');
+  } catch (err) {
+    console.error('❌ Migration error:', err.message);
+  }
+}
+
+/**
+ * Test DB connection
+ */
 async function connectDB() {
   try {
     const conn = await db.getConnection();
 
     console.log('✅ Successfully connected to MySQL');
 
-    // ── RUN MIGRATIONS HERE ──
-    await db.query(`
-      ALTER TABLE users
-        ADD COLUMN IF NOT EXISTS verify_code VARCHAR(6) NULL,
-        ADD COLUMN IF NOT EXISTS verify_code_expires DATETIME NULL,
-        ADD COLUMN IF NOT EXISTS email_verified TINYINT(1) NOT NULL DEFAULT 0
-    `);
-
-    console.log('✅ Database migrations completed');
-
     conn.release();
+
+    // Run migrations AFTER successful connection
+    await runMigrations();
   } catch (err) {
     console.error('❌ MySQL connection failed:', err.message);
     console.error('Host:', process.env.DB_HOST);

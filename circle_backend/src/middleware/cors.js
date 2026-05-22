@@ -5,27 +5,40 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5501',
   'http://localhost:7700',
   'https://circle-app-cm8qwkxqp-sizasutfus-projects.vercel.app'
-  
 ];
-
 
 function cors(req, res, next) {
   const origin = req.headers.origin;
+
+  // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+  if (!origin) {
+    return next();
+  }
+
   if (ALLOWED_ORIGINS.includes(origin)) {
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  } 
- res.setHeader('Access-Control-Allow-Origin', "*");
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, Authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-  //console.log('origin:', req.headers.origin);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET, POST, PUT, DELETE, OPTIONS'
+    );
+
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, X-User-Id, Authorization'
+    );
+
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+
+    return next();
+  }
+
+  return res.status(403).json({
+    error: 'CORS blocked'
+  });
 }
 
-
-
 module.exports = { cors };
-
-
-
-

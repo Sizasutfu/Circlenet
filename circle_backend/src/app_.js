@@ -33,9 +33,8 @@ const topicRoutes          = require('./routes/topicRoutes');
 const pushRoutes           = require('./routes/pushRoutes');
 const groupRoutes          = require('./routes/groupsRoutes');
 const phoneAuthRoutes      = require('./routes/phoneAuthRoutes');
-const linkPreviewRoutes     = require('./routes/linkpreviewRoutes'); // lightweight OG tag scraper for link previews
+const linkPreviewRoutes    = require('./routes/linkpreviewRoutes');
 
-// authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
 try { authRoutes = require('./routes/authRoutes'); } catch (_) {
   console.log('ℹ️  authRoutes not found — Google OAuth disabled.');
@@ -48,29 +47,27 @@ app.use(cors);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Serve uploaded images and videos as static files
+// Serve uploaded images and videos
 app.use('/uploads', express.static('uploads'));
 
-// Serve Circle frontend static files (JS, CSS, images, etc.)
-app.use(express.static(path.join(__dirname, '../../circle_frontend/frontend')));
+// Serve frontend static files from /public
+app.use(express.static(path.join(__dirname, '../public')));
 
-// ── Error handling middleware ─────────────────────────────
-// Explicitly serve sw.js and manifest.json from the frontend root
-// (required so they're scoped to '/' and not blocked by the static middleware)
+// Explicitly serve sw.js, manifest.json, icon.png from public root
 app.get('/sw.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Service-Worker-Allowed', '/');
-  res.sendFile(path.join(__dirname, '../../circle_frontend/frontend/sw.js'));
+  res.sendFile(path.join(__dirname, '../public/sw.js'));
 });
 
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');
-  res.sendFile(path.join(__dirname, '../../circle_frontend/frontend/manifest.json'));
+  res.sendFile(path.join(__dirname, '../public/manifest.json'));
 });
 
 app.get('/icon.png', (req, res) => {
-  res.setHeader('Content-Type', 'image/png'); 
-  res.sendFile(path.join(__dirname, '../../circle_frontend/frontend/icon.png'));
+  res.setHeader('Content-Type', 'image/png');
+  res.sendFile(path.join(__dirname, '../public/icon.png'));
 });
 
 // ── Mount API routes ──────────────────────────────────────
@@ -89,16 +86,13 @@ app.use('/api/topics',          topicRoutes);
 app.use('/api/push',            pushRoutes);
 app.use('/api/groups',          groupRoutes);
 app.use('/api/link-preview',    linkPreviewRoutes);
-// ── SPA fallback — serves index.html for all non-API routes ──
-// This allows the frontend router to handle routes like /home, /profile, etc.
+
+// ── SPA fallback ──────────────────────────────────────────
 app.get('/{*path}', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../circle_frontend/frontend/index.html'));
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// ── Start cron LAST — after all requires are fully resolved ──
-// Placing this after module.exports would be too late; placing
-// it before routes caused a circular-dependency ReferenceError.
-// Bottom of the file (before module.exports) is the safe spot.
+// ── Start cron ────────────────────────────────────────────
 const { startGroupCron } = require('./models/GroupModel');
 startGroupCron();
 console.log('Group auto-creation cron started.');

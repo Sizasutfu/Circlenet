@@ -4,12 +4,15 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5501',
   'http://127.0.0.1:5501',
   'http://localhost:7700',
+  'https://sizabeats:5000',  // add this
   'https://circle-app-cm8qwkxqp-sizasutfus-projects.vercel.app',
   'https://www.circlenet.social'
 ];
 
+
 function cors(req, res, next) {
   const origin = req.headers.origin;
+ 
 
   // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
   if (!origin) {

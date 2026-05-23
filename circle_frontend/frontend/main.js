@@ -3,7 +3,7 @@
 // or a real domain — no hardcoded IP needed.
 
 const API = window.location.hostname === 'www.circlenet.social'
-  ? 'https://api.circlenet.social'
+  ? 'https://circleappapp-production.up.railway.app'
   : window.location.origin;
 
 let posts = [],

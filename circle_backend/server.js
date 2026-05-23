@@ -1,17 +1,50 @@
+// server.js – Circle API entry point
+
 require('dotenv').config();
 
-const http  = require('http');  // plain HTTP — Railway handles HTTPS
 const { connectDB } = require('./src/config/db');
-const app   = require('./src/app');
+const app           = require('./src/app');
 
-const PORT = process.env.PORT || 5000;
+const PORT     = process.env.PORT || 5000;
+const isProd   = process.env.NODE_ENV === 'production';
 
 async function start() {
-  await connectDB(); // logs success/failure but no longer crashes (fixed in db.js)
+  await connectDB();
 
-  http.createServer(app).listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Circle API running on port ${PORT}`);
-  });
+  if (isProd) {
+    // Production: plain HTTP — Railway handles HTTPS externally
+    const http = require('http');
+    http.createServer(app).listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Circle API running on port ${PORT} (production)`);
+    });
+  } else {
+    // Development: HTTPS with mkcert certs
+    const https = require('https');
+    const fs    = require('fs');
+    const path  = require('path');
+
+    const certKey  = path.join(__dirname, 'src/sizabeats+2-key.pem');
+    const certFile = path.join(__dirname, 'src/sizabeats+2.pem');
+
+    if (!fs.existsSync(certKey) || !fs.existsSync(certFile)) {
+      console.warn('⚠️  SSL certs not found — falling back to HTTP for development');
+      const http = require('http');
+      http.createServer(app).listen(PORT, '0.0.0.0', () => {
+        console.log(`⚠️  Circle API running on http://localhost:${PORT} (no certs)`);
+      });
+      return;
+    }
+
+    const sslOptions = {
+      key:  fs.readFileSync(certKey),
+      cert: fs.readFileSync(certFile),
+    };
+
+    https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Circle API running on https://sizabeats:${PORT} (development)`);
+      console.log(`✅ Phone (same WiFi): https://192.168.10.203:${PORT}`);
+    });
+  }
 }
 
 start();

@@ -3,3 +3,10 @@ node_modules/
 uploads/
 circle_react/
 circle/
+src/circle.local-key.pem
+src/circle.local.pem
+src/sizaBeats+2-key.pem
+src/sizaBeats+2.pem
+src/sizaBeats+3-key.pem
+src/sizaBeats+3.pem
+src/mkcert.exe

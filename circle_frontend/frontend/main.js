@@ -2,8 +2,9 @@
 // Works on PC (localhost:5000), phone over LAN (192.168.x.x:5000),
 // or a real domain — no hardcoded IP needed.
 
-const API = window.location.origin;
-//const API = "https://circleappapp-production.up.railway.app";
+const API = window.location.hostname === 'www.circlenet.social'
+  ? 'https://circleappapp-production.up.railway.app'
+  : window.location.origin;
 
 let posts = [],
   currentUser = null,

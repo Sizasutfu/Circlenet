@@ -6,26 +6,18 @@ const API = window.location.hostname === 'www.circlenet.social'
   ? 'https://circleappapp-production.up.railway.app'
   : window.location.origin;
 
-let posts = [],
-  currentUser = null,
-  pendingImageDataUrl = null,
-  pendingVideoDataUrl = null,
-  pendingVideoCompressed = false, // true only when client compression succeeded
-  repostTargetId = null;
-let currentFeedTab = "global";
-const _followingSet = new Set(); // IDs of users the current user follows
+// ═══════════════════════════════════════════════════════════════
+//  FEED STATE  —  single source of truth, never mutated directly
+// ═══════════════════════════════════════════════════════════════
+let posts = [],           // posts currently rendered in the feed
+    currentUser = null,
+    pendingImageDataUrl = null,
+    pendingVideoDataUrl = null,
+    pendingVideoCompressed = false,
+    repostTargetId = null;
 
-// ── Feed state preservation ──────────────────────────────────────
-// Master post array — never wiped on tab switch, only on logout/full reload
-let _masterPosts = [];
-// Per-tab saved state: scroll position + page cursor
-const _tabState = {
-  global: { scrollY: 0, page: 1, hasMore: true },
-  following: { scrollY: 0, page: 1, hasMore: true },
-};
-// Scroll position saved when leaving the feed view
-let _feedScrollY = 0;
-
+// FeedController owns all feed state. Nothing outside it should
+// read/write these — use the public methods instead.
 // Register service worker for PWA + push notification functionality
 let _swRegistration = null;
 if ("serviceWorker" in navigator) {
@@ -49,56 +41,660 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+const Feed = (() => {
+  // ── Internal state ────────────────────────────────────────────
+  const _state = {
+    tab: "global",          // "global" | "following"
+    page: 1,
+    hasMore: true,
+    loading: false,         // TRUE while a fetch is in flight
+    posts: [],              // displayed posts
+    masterPosts: [],        // full global set (used for tab filtering)
+    scrollY: { global: 0, following: 0 },
+    pageState: {            // pagination cursor per tab
+      global:    { page: 1, hasMore: true },
+      following: { page: 1, hasMore: true },
+    },
+  };
+
+  // ── Following set (who current user follows) ──────────────────
+  const _followingSet = new Set();
+  let _followingSetLoaded = false;
+
+  async function _loadFollowingSet() {
+    if (!currentUser) {
+      _followingSet.clear();
+      _followingSetLoaded = false;
+      return;
+    }
+    try {
+      const res = await api("GET", `/api/users/${currentUser.id}/following`);
+      const list = res.data || res.following || res || [];
+      _followingSet.clear();
+      list.forEach((u) => _followingSet.add(u.id || u));
+    } catch (e) {
+      // non-critical
+    } finally {
+      _followingSetLoaded = true;
+    }
+  }
+
+  // ── Live polling ──────────────────────────────────────────────
+  let _liveTimer = null;
+  let _liveQueue = [];
+  let _liveSeenIds = new Set();
+  const LIVE_INTERVAL = 30_000;
+
+  // ── Prefetch ──────────────────────────────────────────────────
+  let _scrollObserver = null;
+  let _prefetchObserver = null;
+  let _prefetching = false;
+
+  // ── Skeleton HTML ─────────────────────────────────────────────
+  function _skelHTML() {
+    return [0, 1, 2].map((i) => `
+      <div class="skel-card" style="animation-delay:${i * 0.12}s">
+        <div class="skel-row">
+          <div class="skel-av"></div>
+          <div class="skel-meta">
+            <div class="skel-line w-40 h-14"></div>
+            <div class="skel-line w-60"></div>
+          </div>
+        </div>
+        <div class="skel-body">
+          <div class="skel-line w-90 h-14"></div>
+          <div class="skel-line w-75"></div>
+          <div class="skel-line w-50"></div>
+        </div>
+        ${i === 0 ? '<div class="skel-media"></div>' : ""}
+        <div class="skel-actions">
+          <div class="skel-btn"></div>
+          <div class="skel-btn"></div>
+          <div class="skel-btn"></div>
+        </div>
+      </div>`).join("");
+  }
+
+  // ── Normalise API response into { posts[], hasMore } ──────────
+  function _normalise(res) {
+    const payload = res.data ?? res;
+    if (Array.isArray(payload)) {
+      return { posts: payload, hasMore: payload.length > 0 };
+    }
+    if (Array.isArray(payload?.posts)) {
+      return { posts: payload.posts, hasMore: payload.hasMore ?? payload.posts.length > 0 };
+    }
+    return { posts: [], hasMore: false };
+  }
+
+  // ── Render ────────────────────────────────────────────────────
+  function _render() {
+    const c = document.getElementById("feed-list");
+    if (!c) return;
+
+    // ── GUARD: never show empty state while a fetch is in flight ──
+    // Skeleton cards are already showing; real posts are on the way.
+    if (!_state.posts.length) {
+      if (_state.loading) return;   // THE KEY FIX — no "Nothing here yet" flash
+
+      if (_state.tab === "following") {
+        c.innerHTML = `<div class="empty">
+          <div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
+          <h3>No posts yet</h3>
+          <p>Follow people to see their posts here.</p>
+          <button class="btn btn-primary" style="margin-top:14px;padding:10px 24px;border-radius:20px;font-size:14px" onclick="Feed.switchTab('global')">Explore Global Feed</button>
+        </div>`;
+      } else {
+        c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><h3>Nothing here yet</h3><p>Be the first to post something!</p></div>`;
+      }
+      return;
+    }
+
+    const parts = _state.posts.map((p) => buildPostCard(p));
+
+    // Inject inline suggestions card after 5th post if not dismissed
+    if (!_feedSugDismissed && currentUser && parts.length >= 5) {
+      parts.splice(5, 0, buildFeedSugCard());
+    }
+    // Inject new member card between positions 3-5 if not dismissed
+    if (!_feedNewDismissed && currentUser && _newMembers.length) {
+      const member = _newMembers[_feedNewIndex % _newMembers.length];
+      if (member) {
+        const injectAt = Math.floor(Math.random() * 3) + 3;
+        parts.splice(Math.min(injectAt, parts.length), 0, buildFeedNewCard(member));
+      }
+    }
+
+    c.innerHTML = parts.join("");
+    _initPostCardLinkPreviews();
+  }
+
+  // ── Update scroll sentinel (infinite scroll trigger) ──────────
+  function _updateSentinel() {
+    let s = document.getElementById("feed-sentinel");
+    if (!_state.hasMore) {
+      if (s) s.remove();
+      _cleanPrefetch();
+      return;
+    }
+    if (!s) {
+      s = document.createElement("div");
+      s.id = "feed-sentinel";
+      s.style.cssText = "height:40px;width:100%";
+      document.getElementById("feed-list").appendChild(s);
+    }
+    if (_scrollObserver) _scrollObserver.disconnect();
+    _scrollObserver = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) _fetchMore(); },
+      { rootMargin: "800px" }
+    );
+    _scrollObserver.observe(s);
+    _setupPrefetch();
+  }
+
+  // ── Prefetch observer ─────────────────────────────────────────
+  function _cleanPrefetch() {
+    if (_prefetchObserver) { _prefetchObserver.disconnect(); _prefetchObserver = null; }
+    _prefetching = false;
+  }
+
+  function _setupPrefetch() {
+    _cleanPrefetch();
+    const cards = document.querySelectorAll("#feed-list .post-card");
+    if (cards.length < 4) return;
+    const anchor = cards[Math.floor(cards.length * 0.6)];
+    if (!anchor) return;
+    _prefetchObserver = new IntersectionObserver((entries) => {
+      if (!entries[0].isIntersecting || _prefetching || _state.loading || !_state.hasMore) return;
+      if (PostCache.getFeedPage(_state.tab, _state.page)) return;
+      _prefetching = true;
+      _prefetchPage().finally(() => { _prefetching = false; });
+    }, { rootMargin: "0px" });
+    _prefetchObserver.observe(anchor);
+  }
+
+  async function _prefetchPage() {
+    if (!_state.hasMore || _state.loading) return;
+    try {
+      const feedTab = currentUser ? _state.tab : "global";
+      const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
+      const { posts: newPosts, hasMore } = _normalise(res);
+      PostCache.storeFeedPage(_state.tab, _state.page, newPosts, hasMore);
+    } catch (e) { /* silent — fetchMore will retry on scroll */ }
+  }
+
+  // ── Core fetch: first page ────────────────────────────────────
+  async function _fetchFirstPage() {
+    if (_state.loading) return;
+
+    const c = document.getElementById("feed-list");
+
+    // Check cache — paint instantly if fresh
+    const cached = PostCache.getFeedPage(_state.tab, 1);
+    if (cached) {
+      _state.posts = cached.posts;
+      posts = _state.posts;
+      if (_state.tab === "global") _state.masterPosts = [...cached.posts];
+      _state.hasMore = cached.hasMore;
+      _state.page = 2;
+      _state.pageState[_state.tab].page = 2;
+      _state.pageState[_state.tab].hasMore = cached.hasMore;
+      _state.loading = false;  // unblock _render() — posts are ready
+      _render();
+      _updateSentinel();
+      _backgroundRefresh();
+      return;
+    }
+
+    // No cache — show skeletons then fetch
+    _state.loading = true;
+    c.innerHTML = _skelHTML();
+
+    try {
+      const feedTab = currentUser ? _state.tab : "global";
+      const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
+      let { posts: newPosts, hasMore } = _normalise(res);
+
+      // New user fallback: personalised feed empty, show global
+      if (!newPosts.length && _state.tab === "global" && currentUser) {
+        const fb = await api("GET", "/api/posts?feed=global&page=1");
+        const n = _normalise(fb);
+        newPosts = n.posts;
+        hasMore = n.hasMore;
+      }
+
+      // Filter reposts on global tab (only from followed users)
+      if (currentUser && _state.tab !== "following" && _followingSetLoaded) {
+        newPosts = newPosts.filter((p) => !p.isRepost || _followingSet.has(p.userId));
+      }
+
+      PostCache.storeFeedPage(_state.tab, 1, newPosts, hasMore);
+      _state.posts = newPosts;
+      posts = _state.posts;
+      if (_state.tab === "global") _state.masterPosts = [...newPosts];
+      _state.hasMore = hasMore;
+      _state.page = 2;
+      _state.pageState[_state.tab].page = 2;
+      _state.pageState[_state.tab].hasMore = hasMore;
+
+      newPosts.forEach((p) => _liveSeenIds.add(p.id));
+      _render();
+      _startLivePolling();
+    } catch (e) {
+      // Error path: try stale cache rather than showing "Nothing here yet"
+      const stale = PostCache.getFeedPage(_state.tab, 1);
+      if (stale?.posts?.length) {
+        _state.posts = stale.posts;
+        posts = _state.posts;
+        _state.hasMore = stale.hasMore;
+        _state.page = 2;
+        showOfflineBanner();
+        _render();
+      } else {
+        c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><h3>You're offline</h3><p>No cached posts available yet. Connect to the internet to load your feed.</p></div>`;
+        showOfflineBanner();
+      }
+    } finally {
+      _state.loading = false;
+    }
+  }
+
+  // ── Core fetch: next pages (infinite scroll) ──────────────────
+  async function _fetchMore() {
+    if (_state.loading || !_state.hasMore) return;
+
+    // Serve from cache if available
+    const cached = PostCache.getFeedPage(_state.tab, _state.page);
+    if (cached) {
+      _state.posts = [..._state.posts, ...cached.posts];
+      posts = _state.posts;
+      _state.hasMore = cached.hasMore;
+      _state.page++;
+      const c = document.getElementById("feed-list");
+      const frag = document.createDocumentFragment();
+      const addedCards = [];
+      cached.posts.forEach((p) => {
+        const d = document.createElement("div");
+        d.innerHTML = buildPostCard(p);
+        const card = d.firstElementChild;
+        if (card) { frag.appendChild(card); addedCards.push(card); }
+      });
+      c.appendChild(frag);
+      _mixLivePosts(addedCards, c);
+      _updateSentinel();
+      return;
+    }
+
+    _state.loading = true;
+
+    // Show inline skeleton cards for pages 2+
+    const c = document.getElementById("feed-list");
+    const oldSentinel = document.getElementById("feed-sentinel");
+    if (oldSentinel) oldSentinel.remove();
+    const skelIds = [0, 1, 2].map((i) => {
+      const id = `feed-skel-${Date.now()}-${i}`;
+      const el = document.createElement("div");
+      el.id = id;
+      el.className = "skel-card";
+      el.style.animationDelay = `${i * 0.12}s`;
+      el.innerHTML = `
+        <div class="skel-row"><div class="skel-av"></div><div class="skel-meta">
+          <div class="skel-line w-40 h-14"></div><div class="skel-line w-60"></div>
+        </div></div>
+        <div class="skel-body">
+          <div class="skel-line w-90 h-14"></div>
+          <div class="skel-line w-75"></div>
+          <div class="skel-line w-50"></div>
+        </div>
+        <div class="skel-actions">
+          <div class="skel-btn"></div><div class="skel-btn"></div><div class="skel-btn"></div>
+        </div>`;
+      c.appendChild(el);
+      return id;
+    });
+
+    try {
+      const feedTab = currentUser ? _state.tab : "global";
+      const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
+      let { posts: newPosts, hasMore } = _normalise(res);
+
+      if (currentUser && _state.tab !== "following" && _followingSetLoaded) {
+        newPosts = newPosts.filter((p) => !p.isRepost || _followingSet.has(p.userId));
+      }
+
+      skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
+
+      PostCache.storeFeedPage(_state.tab, _state.page, newPosts, hasMore);
+      _state.posts = [..._state.posts, ...newPosts].slice(-100);
+      posts = _state.posts;
+      if (_state.tab === "global") _state.masterPosts = [..._state.posts];
+      _state.hasMore = hasMore;
+      _state.page++;
+      _state.pageState[_state.tab].page = _state.page;
+      _state.pageState[_state.tab].hasMore = hasMore;
+
+      const frag = document.createDocumentFragment();
+      const addedCards = [];
+      newPosts.forEach((p) => {
+        _liveSeenIds.add(p.id);
+        const d = document.createElement("div");
+        d.innerHTML = buildPostCard(p);
+        const card = d.firstElementChild;
+        if (card) { frag.appendChild(card); addedCards.push(card); }
+      });
+      c.appendChild(frag);
+      _mixLivePosts(addedCards, c);
+    } catch (e) {
+      skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
+    } finally {
+      _state.loading = false;
+      _updateSentinel();
+    }
+  }
+
+  // ── Background refresh (stale-while-revalidate) ───────────────
+  async function _backgroundRefresh() {
+    try {
+      const feedTab = currentUser ? _state.tab : "global";
+      const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
+      const { posts: fresh, hasMore } = _normalise(res);
+      // storeFeedPage is the ONLY place that writes to localStorage.
+      // invalidateFeed() intentionally never calls _save(), which prevents
+      // flushing an empty index that causes "Nothing here yet" on refresh.
+      PostCache.storeFeedPage(_state.tab, 1, fresh, hasMore);
+      if (feedTab === "global") _state.masterPosts = [...fresh];
+
+      // Patch like/comment/repost counts silently — no full re-render
+      fresh.forEach((fp) => {
+        const existing = _state.posts.find((p) => p.id === fp.id);
+        if (existing) {
+          existing.likes    = fp.likes;
+          existing.comments = fp.comments;
+          existing.reposts  = fp.reposts;
+          PostCache.putPost(existing);
+        }
+      });
+
+      // Update master array if new posts arrived (for next tab switch)
+      const currentIds = _state.posts.slice(0, fresh.length).map((p) => p.id).join(",");
+      const freshIds   = fresh.map((p) => p.id).join(",");
+      if (currentIds !== freshIds && feedTab === "global") {
+        _state.masterPosts = [...fresh];
+      }
+    } catch (e) { /* silent */ }
+  }
+
+  // ── Live polling ──────────────────────────────────────────────
+  function _startLivePolling() {
+    if (_liveTimer) return;
+    _state.posts.forEach((p) => _liveSeenIds.add(p.id));
+    _liveTimer = setInterval(_pollForNew, LIVE_INTERVAL);
+  }
+
+  function _stopLivePolling() {
+    if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; }
+    _liveQueue = [];
+    _liveSeenIds = new Set();
+    document.getElementById("new-posts-banner")?.remove();
+  }
+
+  async function _pollForNew() {
+    if (!document.getElementById("view-feed")?.classList.contains("active")) return;
+    try {
+      const feedTab = currentUser ? _state.tab : "global";
+      const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
+      const { posts: fresh } = _normalise(res);
+      let truly_new = fresh.filter((p) => !_liveSeenIds.has(p.id));
+      if (currentUser && _state.tab !== "following") {
+        truly_new = truly_new.filter((p) => !p.isRepost || _followingSet.has(p.userId));
+      }
+      if (!truly_new.length) return;
+      truly_new.forEach((p) => _liveSeenIds.add(p.id));
+      _liveQueue = [...truly_new, ..._liveQueue];
+      _showNewPostsBanner(_liveQueue.length);
+    } catch (_) { /* retry next interval */ }
+  }
+
+  function _drainQueueToTop(feedList) {
+    if (!_liveQueue.length) return;
+    const toInsert = _liveQueue.splice(0);
+    _state.posts = [...toInsert, ..._state.posts];
+    posts = _state.posts;
+    const frag = document.createDocumentFragment();
+    toInsert.reverse().forEach((p) => {
+      const d = document.createElement("div");
+      d.innerHTML = buildPostCard(p);
+      const card = d.firstElementChild;
+      if (card) {
+        card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
+        frag.prepend(card);
+      }
+    });
+    const firstCard = feedList.querySelector(".post-card");
+    if (firstCard) feedList.insertBefore(frag, firstCard);
+    else feedList.prepend(frag);
+    _initPostCardLinkPreviews();
+  }
+
+  function _mixLivePosts(newCards, feedList) {
+    if (!_liveQueue.length || !newCards.length) return;
+    const MIX_PER_PAGE = 2;
+    const toMix = _liveQueue.splice(0, MIX_PER_PAGE);
+    toMix.forEach((p) => {
+      _state.posts.push(p);
+      posts = _state.posts;
+      const d = document.createElement("div");
+      d.innerHTML = buildPostCard(p);
+      const card = d.firstElementChild;
+      if (!card) return;
+      card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
+      const insertAfter = newCards[Math.min(1, newCards.length - 1)];
+      if (insertAfter?.nextSibling) feedList.insertBefore(card, insertAfter.nextSibling);
+      else feedList.appendChild(card);
+    });
+  }
+
+  function _showNewPostsBanner(count) {
+    let banner = document.getElementById("new-posts-banner");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "new-posts-banner";
+      banner.style.cssText = `
+        position: sticky; top: 12px; z-index: 50; margin: 0 auto 12px;
+        max-width: 100px; background: var(--accent); color: #fff;
+        border-radius: 999px; padding: 10px 20px; font-size: 14px;
+        font-weight: 600; text-align: center; cursor: pointer;
+        box-shadow: 0 4px 16px var(--accent-glow);
+        animation: livePostIn 0.3s cubic-bezier(0.34,1.4,0.64,1);
+      `;
+      banner.onclick = () => {
+        const feedList = document.getElementById("feed-list");
+        if (feedList) _drainQueueToTop(feedList);
+        banner.remove();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      };
+      const feedList = document.getElementById("feed-list");
+      if (feedList) feedList.parentNode.insertBefore(banner, feedList);
+    }
+    banner.textContent = `↑ ${count} new posts`;
+  }
+
+  // ── Public API ────────────────────────────────────────────────
+  return {
+    // Called by goTo('feed') — restores feed without wiping it
+    resume() {
+      const feedList = document.getElementById("feed-list");
+      const hasRenderedDOM = feedList &&
+        feedList.children.length > 0 &&
+        !feedList.querySelector(".skel-card");
+
+      if (_state.posts.length > 0 && hasRenderedDOM) {
+        _updateSentinel();
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: _state.scrollY[_state.tab] || 0, behavior: "instant" });
+        });
+        _backgroundRefresh();
+        return;
+      }
+
+      // Don't start a second fetch if one is already in flight
+      if (_state.loading) return;
+
+      _fetchFirstPage();
+    },
+
+    // Full load from scratch (first visit, logout)
+    load() {
+      _state.page = 1;
+      _state.hasMore = true;
+      _state.loading = true;   // block _render() immediately — prevents "Nothing here yet"
+                                // during the synchronous gap before cache is read
+      _state.posts = [];
+      posts = [];
+      _fetchFirstPage();
+    },
+
+    // Switch between global/following tabs
+    switchTab(tab) {
+      if (!currentUser && tab === "following") {
+        showToast("Log in to see posts from people you follow.");
+        goTo("login");
+        return;
+      }
+
+      // Clear trending filter on tab switch
+      if (_activeFilter) {
+        _activeFilter = null;
+        document.getElementById("trending-filter-bar").style.display = "none";
+      }
+
+      // Save scroll position of the tab we're leaving
+      _state.scrollY[_state.tab] = window.scrollY;
+
+      // Update tab UI and legacy global
+      _state.tab = tab;
+      currentFeedTab = tab;
+      document.getElementById("ftab-global").classList.toggle("active", tab === "global");
+      document.getElementById("ftab-following").classList.toggle("active", tab === "following");
+
+      // In-memory tab switch: filter without a network call
+      if (_state.masterPosts.length > 0) {
+        const ps = _state.pageState[tab];
+        _state.page    = ps.page;
+        _state.hasMore = ps.hasMore;
+        _state.loading = false;
+
+        if (tab === "following") {
+          _state.posts = _state.masterPosts.filter(
+            (p) => (currentUser && p.userId === currentUser.id) || _followingSet.has(p.userId)
+          );
+        } else {
+          _state.posts = [..._state.masterPosts];
+        }
+        posts = _state.posts;
+
+        _render();
+        _updateSentinel();
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: _state.scrollY[tab] || 0, behavior: "instant" });
+        });
+        _backgroundRefresh();
+        loadTrending(true);
+        return;
+      }
+
+      // No master posts — full fetch
+      _state.page    = 1;
+      _state.hasMore = true;
+      _state.loading = false;
+      _state.posts   = [];
+      posts = [];
+      _fetchFirstPage();
+      loadTrending(true);
+    },
+
+    // Save scroll position when navigating away from feed
+    saveScroll() { _state.scrollY[_state.tab] = window.scrollY; },
+
+    // Called after post creation/deletion to re-render
+    renderFeed: _render,
+
+    // Called by infinite scroll machinery
+    fetchMore: _fetchMore,
+    updateSentinel: _updateSentinel,
+
+    // Stop live polling (navigating away from feed)
+    stopLivePolling: _stopLivePolling,
+
+    // Called on logout: wipe all feed state
+    reset() {
+      _stopLivePolling();
+      _cleanPrefetch();
+      if (_scrollObserver) { _scrollObserver.disconnect(); _scrollObserver = null; }
+      _state.tab     = "global";
+      _state.page    = 1;
+      _state.hasMore = true;
+      _state.loading = false;
+      _state.posts   = [];
+      _state.masterPosts = [];
+      _state.scrollY = { global: 0, following: 0 };
+      _state.pageState = {
+        global:    { page: 1, hasMore: true },
+        following: { page: 1, hasMore: true },
+      };
+      posts = [];
+      currentFeedTab = "global";
+    },
+
+    // Load following set after login
+    loadFollowingSet: _loadFollowingSet,
+
+    // Read-only state accessors for legacy code
+    get tab()                { return _state.tab; },
+    get loading()            { return _state.loading; },
+    get hasMore()            { return _state.hasMore; },
+    get page()               { return _state.page; },
+    get followingSet()       { return _followingSet; },
+    get followingSetLoaded() { return _followingSetLoaded; },
+  };
+})();
+
+// ── Legacy global shims ────────────────────────────────────────────
+// These keep the rest of the codebase (profile, groups, suggestions etc.)
+// working without changes. They proxy into Feed state so everything stays in sync.
+let currentFeedTab = "global";
+const _followingSet = Feed.followingSet;     // same Set reference — no duplication
 let _followingSetLoaded = false;
-async function _loadFollowingSet() {
-  if (!currentUser) {
-    _followingSet.clear();
-    _followingSetLoaded = false;
-    return;
-  }
-  try {
-    const res = await api("GET", `/api/users/${currentUser.id}/following`);
-    const list = res.data || res.following || res || [];
-    _followingSet.clear();
-    list.forEach((u) => _followingSet.add(u.id || u));
-  } catch (e) {
-    // non-critical; silently ignore
-  } finally {
-    _followingSetLoaded = true;
-  }
-}
-let feedPage = 1,
-  feedHasMore = true,
-  feedLoading = false;
+let _masterPosts = [];                       // kept for any external references
+let _feedScrollY = 0;
+const _tabState = {
+  global:    { scrollY: 0, page: 1, hasMore: true },
+  following: { scrollY: 0, page: 1, hasMore: true },
+};
+let feedPage = 1, feedHasMore = true, feedLoading = false;
 
 /* ═══════════════════════════════════════════════════════════════
-         POST CACHE  —  in-memory + localStorage persistence
-         ═══════════════════════════════════════════════════════════════
-         Strategy:
-           • In-memory Map for O(1) lookups by post id
-           • localStorage snapshot for instant paint on revisit
-           • Per-feed page cursors so pagination never re-fetches seen pages
-           • TTL of 5 min per feed; stale data shown instantly then
-             background-refreshed (stale-while-revalidate)
-           • Mutations (create/delete/like/comment/repost) update both
-             the in-memory cache and the rendered DOM surgically — no
-             full re-renders unless necessary
-      ═══════════════════════════════════════════════════════════════ */
+   POST CACHE  —  in-memory + localStorage persistence
+   ═══════════════════════════════════════════════════════════════
+   Key rules:
+     • storeFeedPage() is the ONLY method that writes to localStorage.
+     • invalidateFeed() is in-memory ONLY — it NEVER calls _save().
+       Persisting the emptied feed index to localStorage causes
+       "Nothing here yet" on the next page refresh if the API fetch
+       hasn't completed yet. The TTL handles stale data; storeFeedPage()
+       persists fresh data once the network fetch succeeds.
+   ═══════════════════════════════════════════════════════════════ */
 const PostCache = (() => {
   const STORAGE_KEY = "circle_post_cache_v1";
-  const TTL_MS = 5 * 60 * 1000; // 5 minutes
-  const MAX_STORED = 30; // max posts kept in localStorage
+  const TTL_MS = 5 * 60 * 1000;
+  const MAX_STORED = 30;
 
-  // In-memory structures
-  const _byId = new Map(); // postId → post object
-  const _feeds = {}; // "global|1" → { ids[], ts, hasMore }
-  const _profiles = {}; // userId → { ids[], ts }
+  const _byId = new Map();
+  const _feeds = {};
+  const _profiles = {};
 
-  // ── Persistence ─────────────────────────────────────────────
   let _saveTimer = null;
   function _save() {
-    // Debounce: batch rapid consecutive saves (e.g. rendering 20 posts)
-    // into a single write 200ms after the last call.
     if (_saveTimer) return;
     _saveTimer = setTimeout(() => {
       _saveTimer = null;
@@ -106,39 +702,21 @@ const PostCache = (() => {
         const recent = [..._byId.values()]
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
           .slice(0, MAX_STORED)
-          .map(p => ({
-            ...p,
-            // Strip all media — cache stores text only; media loads fresh from network
-            imageUrl: null,
-            videoUrl: null,
-            image:    null,
-            video:    null,
-          }));
-        const payload = {
-          posts: recent,
-          feeds: _feeds,
-          profiles: _profiles,
-          savedAt: Date.now(),
-        };
+          .map(p => ({ ...p, imageUrl: null, videoUrl: null, image: null, video: null }));
+        const payload = { posts: recent, feeds: _feeds, profiles: _profiles, savedAt: Date.now() };
         const serialized = JSON.stringify(payload);
-        // Guard: skip write if payload is suspiciously large (> 4 MB)
         if (serialized.length < 4 * 1024 * 1024) {
           localStorage.setItem(STORAGE_KEY, serialized);
         }
       } catch (e) {
-        // Storage quota exceeded — keep the 10 most recent posts instead of wiping everything
         try {
           const fallback = [..._byId.values()]
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
             .slice(0, 10)
-            .map(p => ({
-              ...p,
-              imageUrl: null,
-              videoUrl: null,
-              image:    null,
-              video:    null,
-            }));
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ posts: fallback, feeds: {}, profiles: {}, savedAt: Date.now() }));
+            .map(p => ({ ...p, imageUrl: null, videoUrl: null, image: null, video: null }));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            posts: fallback, feeds: {}, profiles: {}, savedAt: Date.now()
+          }));
         } catch (_) {}
       }
     }, 200);
@@ -149,93 +727,61 @@ const PostCache = (() => {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const { posts: stored, feeds, profiles } = JSON.parse(raw);
-      if (Array.isArray(stored)) {
-        stored.forEach((p) => _byId.set(p.id, p));
-      }
+      if (Array.isArray(stored)) stored.forEach((p) => _byId.set(p.id, p));
       if (feeds) Object.assign(_feeds, feeds);
       if (profiles) Object.assign(_profiles, profiles);
     } catch (e) {
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch (_) {}
+      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
     }
   }
 
-  // ── Cache key helpers ────────────────────────────────────────
-  function _feedKey(tab, page) {
-    return `${tab}|${page}`;
-  }
-  function _isStale(ts) {
-    return !ts || Date.now() - ts > TTL_MS;
-  }
+  function _feedKey(tab, page) { return `${tab}|${page}`; }
+  function _isStale(ts) { return !ts || Date.now() - ts > TTL_MS; }
 
-  // ── Public API ───────────────────────────────────────────────
   return {
-    // Called once at boot to hydrate from localStorage
-    init() {
-      _load();
-    },
+    init() { _load(); },
 
-    // Store a page of posts from the API
     storeFeedPage(tab, page, newPosts, hasMore) {
       newPosts.forEach((p) => _byId.set(p.id, p));
-      _feeds[_feedKey(tab, page)] = {
-        ids: newPosts.map((p) => p.id),
-        ts: Date.now(),
-        hasMore,
-      };
+      _feeds[_feedKey(tab, page)] = { ids: newPosts.map((p) => p.id), ts: Date.now(), hasMore };
       _save();
     },
 
-    // Get a cached page — returns null if missing or stale
     getFeedPage(tab, page) {
       const entry = _feeds[_feedKey(tab, page)];
       if (!entry || _isStale(entry.ts)) return null;
       const resolved = entry.ids.map((id) => _byId.get(id)).filter(Boolean);
-      if (resolved.length !== entry.ids.length) return null; // partial — refetch
+      if (resolved.length !== entry.ids.length) return null;
       return { posts: resolved, hasMore: entry.hasMore };
     },
 
-    // Check freshness without resolving posts
     isFeedPageFresh(tab, page) {
       const entry = _feeds[_feedKey(tab, page)];
       return entry && !_isStale(entry.ts);
     },
 
-    // Store profile posts
     storeProfile(userId, profilePosts) {
       profilePosts.forEach((p) => _byId.set(p.id, p));
-      _profiles[userId] = {
-        ids: profilePosts.map((p) => p.id),
-        ts: Date.now(),
-      };
+      _profiles[userId] = { ids: profilePosts.map((p) => p.id), ts: Date.now() };
       _save();
     },
 
-    // Get cached profile posts
     getProfile(userId) {
       const entry = _profiles[userId];
       if (!entry || _isStale(entry.ts)) return null;
       return entry.ids.map((id) => _byId.get(id)).filter(Boolean);
     },
 
-    // Get a single post by id
     getPost(id) {
       const p = _byId.get(id) || null;
       if (p) resolvePostMedia(p);
       return p;
     },
 
-    // Upsert a single post (create / update)
-    putPost(post) {
-      _byId.set(post.id, post);
-      _save();
-    },
+    putPost(post) { _byId.set(post.id, post); _save(); },
 
-    // Remove a post
     removePost(id) {
       _byId.delete(id);
-      // Purge from all feed pages and profiles
       Object.keys(_feeds).forEach((k) => {
         _feeds[k].ids = _feeds[k].ids.filter((i) => i !== id);
       });
@@ -245,39 +791,31 @@ const PostCache = (() => {
       _save();
     },
 
-    // Patch a post in-place (likes, comments, reposts)
     patchPost(id, patchFn) {
       const post = _byId.get(id);
-      if (post) {
-        patchFn(post);
-        _save();
-      }
+      if (post) { patchFn(post); _save(); }
     },
 
-    // Invalidate all pages for a feed tab (forces re-fetch on next load)
+    // ── CRITICAL: NEVER calls _save() ────────────────────────────
+    // Persisting the emptied feed index to localStorage causes the
+    // "Nothing here yet" flash on the next page refresh.
+    // The TTL handles stale data. storeFeedPage() persists fresh data
+    // once the network fetch succeeds.
+    // NEVER calls _save() — see PostCache header for why
     invalidateFeed(tab) {
       Object.keys(_feeds).forEach((k) => {
         if (k.startsWith(tab + "|")) delete _feeds[k];
       });
-      _save();
     },
 
-    // Invalidate everything (e.g. on logout)
     clear() {
       _byId.clear();
       Object.keys(_feeds).forEach((k) => delete _feeds[k]);
       Object.keys(_profiles).forEach((k) => delete _profiles[k]);
-      // Cancel any pending debounced save so stale data isn't written after logout
-      if (_saveTimer) {
-        clearTimeout(_saveTimer);
-        _saveTimer = null;
-      }
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch (_) {}
+      if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
+      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
     },
 
-    // Debug info
     stats() {
       return {
         posts: _byId.size,
@@ -317,9 +855,7 @@ async function api(method, path, body = null, signal = undefined) {
     localStorage.removeItem("circle_token");
     localStorage.removeItem("circle_user");
     PostCache.clear();
-    posts = [];
-    _masterPosts = [];
-    _feedScrollY = 0;
+    Feed.reset();
     // Redirect without calling logout() to avoid re-entering api()
     setTimeout(() => goTo("login"), 0);
     throw new Error("Session expired. Please log in again.");
@@ -697,8 +1233,7 @@ window.goTo = function goTo(view, _opts = {}) {
     : null;
   if (_leavingName === "feed") {
     _feedScrollY = window.scrollY;
-    if (_tabState[currentFeedTab])
-      _tabState[currentFeedTab].scrollY = window.scrollY;
+    Feed.saveScroll();
   }
 
   if (view === "messages") {
@@ -1325,12 +1860,7 @@ function logout() {
   localStorage.removeItem("circle_token");
   // ── Cache: clear all cached data on logout ──────────────────
   PostCache.clear();
-  posts = [];
-  _masterPosts = [];
-  _feedScrollY = 0;
-  _followingSetLoaded = false;
-  _tabState.global = { scrollY: 0, page: 1, hasMore: true };
-  _tabState.following = { scrollY: 0, page: 1, hasMore: true };
+  Feed.reset();     // wipes all feed state atomically
   _trendingLoaded = false;
   _trendingWords = [];
   _activeFilter = null;
@@ -1373,7 +1903,7 @@ function setCurrentUser(user) {
   currentUser = user;
   localStorage.setItem("circle_user", JSON.stringify(user));
   if (!user) return;
-  if (user) _loadFollowingSet();
+  if (user) Feed.loadFollowingSet();
   const initial = (user.name || "?").charAt(0).toUpperCase(),
     color = stringToColor(user.name || "");
   const pic = resolveMediaUrl(user.picture) || null;
@@ -1622,75 +2152,10 @@ async function saveProfile() {
 }
 
 /* FEED TABS */
+/* FEED TABS */
+// switchFeedTab — thin wrapper; all logic lives in Feed.switchTab().
 function switchFeedTab(tab) {
-  if (!currentUser && tab === "following") {
-    showToast("Log in to see posts from people you follow.");
-    goTo("login");
-    return;
-  }
-  // Clear any active trending filter when switching tabs
-  if (_activeFilter) {
-    _activeFilter = null;
-    document.getElementById("trending-filter-bar").style.display = "none";
-  }
-
-  // Save current tab's scroll position before switching
-  if (_tabState[currentFeedTab])
-    _tabState[currentFeedTab].scrollY = window.scrollY;
-
-  const prevTab = currentFeedTab;
-  currentFeedTab = tab;
-  document
-    .getElementById("ftab-global")
-    .classList.toggle("active", tab === "global");
-  document
-    .getElementById("ftab-following")
-    .classList.toggle("active", tab === "following");
-
-  // ── In-memory tab switch: no network call needed ─────────────
-  // If master posts are loaded, filter immediately without resetting the feed.
-  if (_masterPosts.length > 0) {
-    // Restore pagination state for this tab
-    const ts = _tabState[tab] || { page: 1, hasMore: true, scrollY: 0 };
-    feedPage = ts.page;
-    feedHasMore = ts.hasMore;
-    feedLoading = false;
-
-    if (tab === "following") {
-      // Show only posts from followed users (and own posts)
-      posts = _masterPosts.filter(
-        (p) =>
-          (currentUser && p.userId === currentUser.id) ||
-          _followingSet.has(p.userId),
-      );
-    } else {
-      posts = [..._masterPosts];
-    }
-
-    renderFeed();
-    updateScrollSentinel();
-
-    // Restore this tab's scroll position
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: ts.scrollY || 0, behavior: "instant" });
-    });
-
-    // Background-refresh to pick up any new posts since last fetch
-    _backgroundRefreshFeed();
-
-    // Refresh trending so it reflects the new tab context
-    loadTrending(true);
-    return;
-  }
-
-  // No master posts yet (e.g. first load) — fall through to full fetch
-  feedPage = 1;
-  feedHasMore = true;
-  feedLoading = false;
-  posts = [];
-  loadPosts();
-  // Refresh trending so it reflects followed-users posts
-  loadTrending(true);
+  Feed.switchTab(tab);
 }
 
 /* POSTS */
@@ -1701,524 +2166,38 @@ function switchFeedTab(tab) {
  * background refresh. Only falls through to a full loadPosts()
  * when the feed is genuinely empty (first load / after logout).
  */
+/* POSTS */
+
+// resumeFeed — called by goTo('feed').
+// Restores the feed without wiping it if posts are already loaded.
 function resumeFeed() {
-  const feedList = document.getElementById("feed-list");
-  const hasRenderedDOM =
-    feedList &&
-    feedList.children.length > 0 &&
-    !feedList.querySelector(".skel-card"); // not skeleton
-
-  if (posts.length > 0 && hasRenderedDOM) {
-    // Feed is already rendered — just restore scroll position and silently refresh
-    updateScrollSentinel();
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: _feedScrollY || 0, behavior: "instant" });
-    });
-    _backgroundRefreshFeed();
-    return;
-  }
-  loadPosts();
+  Feed.resume();
 }
 
-async function loadPosts() {
-  // Guests can view the global feed without logging in
-  feedPage = 1;
-  feedHasMore = true;
-  feedLoading = false;
-  posts = [];
-
-  // ── Cache: paint instantly if page 1 is fresh ────────────────
-  const cached = PostCache.getFeedPage(currentFeedTab, 1);
-  const c = document.getElementById("feed-list");
-  if (cached) {
-    posts = cached.posts;
-    // Seed master array — global feed is the canonical source
-    if (currentFeedTab === "global") _masterPosts = [...posts];
-    feedHasMore = cached.hasMore;
-    feedPage = 2;
-    // Save pagination state for this tab
-    if (_tabState[currentFeedTab]) {
-      _tabState[currentFeedTab].page = feedPage;
-      _tabState[currentFeedTab].hasMore = feedHasMore;
-    }
-    renderFeed();
-    updateScrollSentinel();
-    // Background refresh — update silently if data changed
-    _backgroundRefreshFeed();
-    return;
-  }
-
-  // No valid cache — show skeleton cards then fetch
-  c.innerHTML = [0, 1, 2]
-    .map(
-      (i) => `
-          <div class="skel-card" style="animation-delay:${i * 0.12}s">
-            <div class="skel-row">
-              <div class="skel-av"></div>
-              <div class="skel-meta">
-                <div class="skel-line w-40 h-14"></div>
-                <div class="skel-line w-60"></div>
-              </div>
-            </div>
-            <div class="skel-body">
-              <div class="skel-line w-90 h-14"></div>
-              <div class="skel-line w-75"></div>
-              <div class="skel-line w-50"></div>
-            </div>
-            ${i === 0 ? '<div class="skel-media"></div>' : ""}
-            <div class="skel-actions">
-              <div class="skel-btn"></div>
-              <div class="skel-btn"></div>
-              <div class="skel-btn"></div>
-            </div>
-          </div>`,
-    )
-    .join("");
-  await fetchMorePosts(true);
+// loadPosts — full reload from scratch.
+function loadPosts() {
+  Feed.load();
 }
 
-async function _backgroundRefreshFeed() {
-  try {
-    const feedTab = currentUser ? currentFeedTab : "global";
-    const qs = currentUser ? `?feed=${feedTab}&page=1` : `?feed=global&page=1`;
-    const res = await api("GET", `/api/posts${qs}`);
-    const _bgPayload = res.data ?? res;
-    const fresh = Array.isArray(_bgPayload)
-      ? _bgPayload
-      : (_bgPayload?.posts ?? []);
-    const hasMore = Array.isArray(_bgPayload)
-      ? _bgPayload.length > 0
-      : (_bgPayload?.hasMore ?? false);
-    PostCache.storeFeedPage(currentFeedTab, 1, fresh, hasMore);
-    // Keep master array in sync when global feed refreshes
-    if (feedTab === "global") _masterPosts = [...fresh];
-    // Always patch counts silently — never re-render in the background.
-    // Re-rendering while the user is scrolling or reading is jarring.
-    // New posts are surfaced via the live-polling banner instead.
-    fresh.forEach((fp) => {
-      const existing = posts.find((p) => p.id === fp.id);
-      if (existing) {
-        existing.likes = fp.likes;
-        existing.comments = fp.comments;
-        existing.reposts = fp.reposts;
-        PostCache.putPost(existing);
-      }
-    });
-    // If new posts arrived, update master array so next tab switch picks them up
-    const currentIds = posts.slice(0, fresh.length).map((p) => p.id).join(",");
-    const freshIds   = fresh.map((p) => p.id).join(",");
-    if (currentIds !== freshIds) {
-      PostCache.storeFeedPage(currentFeedTab, 1, fresh, hasMore);
-      if (feedTab === "global") _masterPosts = [...fresh];
-    }
-  } catch (e) {
-    /* silent — user already sees cached data */
-  }
+// fetchMorePosts — called by legacy scroll/sentinel code.
+function fetchMorePosts(isFirstPage = false) {
+  if (isFirstPage) Feed.load();
+  else Feed.fetchMore();
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  REAL-TIME NEW POST INJECTION
-//
-//  Every 30 s we poll page 1 to see if new posts appeared.
-//  New posts (ids not yet in the feed) are held in _liveQueue.
-//  As the user scrolls and fetchMorePosts() appends a new page,
-//  we splice a few queued posts naturally into that batch so they
-//  feel like organic feed content — not a jarring prepend.
-//
-//  Drip rate: up to MIX_PER_PAGE live posts per page load.
-//  If the user is near the top (page 1 area) we also prepend
-//  quietly so page-1 stays fresh without a full reload.
-// ═══════════════════════════════════════════════════════════════
-
-let _liveQueue = []; // new posts waiting to be injected
-let _liveSeenIds = new Set(); // all post ids currently in feed
-let _liveTimer = null;
-const LIVE_INTERVAL = 30_000; // poll every 30 s
-const MIX_PER_PAGE = 2; // inject up to 2 live posts per page
-
-function _startLivePolling() {
-  if (_liveTimer) return; // already running
-  // Seed seen-ids from whatever is loaded now
-  posts.forEach((p) => _liveSeenIds.add(p.id));
-  _liveTimer = setInterval(_pollForNewPosts, LIVE_INTERVAL);
-}
-
-function _stopLivePolling() {
-  if (_liveTimer) {
-    clearInterval(_liveTimer);
-    _liveTimer = null;
-  }
-  _liveQueue = [];
-  _liveSeenIds = new Set();
-  document.getElementById("new-posts-banner")?.remove();
-}
-
-async function _pollForNewPosts() {
-  // Only poll when the feed view is active
-  if (!document.getElementById("view-feed")?.classList.contains("active"))
-    return;
-  try {
-    const feedTab = currentUser ? currentFeedTab : "global";
-    const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
-    const { posts: fresh } = res.data ?? res;
-    if (!Array.isArray(fresh)) return;
-
-    let truly_new = fresh.filter((p) => !_liveSeenIds.has(p.id));
-    // Don't surface reposts from people the current user doesn't follow
-    if (currentUser && currentFeedTab !== "following") {
-      truly_new = truly_new.filter(
-        (p) => !p.isRepost || _followingSet.has(p.userId),
-      );
-    }
-    if (!truly_new.length) return;
-
-    // Mark them so we don't re-queue on next poll
-    truly_new.forEach((p) => _liveSeenIds.add(p.id));
-
-    // Add to front of queue (newest first)
-    _liveQueue = [...truly_new, ..._liveQueue];
-
-    // Show a "New posts" banner instead of auto-injecting
-    _showNewPostsBanner(_liveQueue.length);
-  } catch (_) {
-    /* silent — next interval will retry */
-  }
-}
-
-// Prepend all queued posts to the top of the feed DOM & posts array
-function _drainQueueToTop(feedList) {
-  if (!_liveQueue.length) return;
-  const toInsert = _liveQueue.splice(0); // take all
-  // Prepend to data array
-  posts = [...toInsert, ...posts];
-  // Prepend cards to DOM without re-rendering everything
-  const frag = document.createDocumentFragment();
-  toInsert.reverse().forEach((p) => {
-    // reverse so first ends up on top
-    const d = document.createElement("div");
-    d.innerHTML = buildPostCard(p);
-    const card = d.firstElementChild;
-    if (card) {
-      card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
-      frag.prepend(card);
-    }
-  });
-  // Insert after any sentinel/banner, before first real card
-  const firstCard = feedList.querySelector(".post-card");
-  if (firstCard) feedList.insertBefore(frag, firstCard);
-  else feedList.prepend(frag);
-  _initPostCardLinkPreviews();
-}
-
-// Show a sticky banner so the user can choose when to load new posts
-function _showNewPostsBanner(count) {
-  let banner = document.getElementById("new-posts-banner");
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.id = "new-posts-banner";
-    banner.style.cssText = `
-            position: sticky; top: 12px; z-index: 50; margin: 0 auto 12px;
-            max-width: 100px; background: var(--accent); color: #fff;
-            border-radius: 999px; padding: 10px 20px; font-size: 14px;
-            font-weight: 600; text-align: center; cursor: pointer;
-            box-shadow: 0 4px 16px var(--accent-glow);
-            animation: livePostIn 0.3s cubic-bezier(0.34,1.4,0.64,1);
-          `;
-    banner.onclick = () => {
-      const feedList = document.getElementById("feed-list");
-      if (feedList) _drainQueueToTop(feedList);
-      banner.remove();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-    const feedList = document.getElementById("feed-list");
-    if (feedList) feedList.parentNode.insertBefore(banner, feedList);
-  }
-  // Update count label on every poll
- // banner.textContent = `↑ ${count} new post${count !== 1 ? "s" : ""} — tap to load`;
-  banner.textContent = `↑ ${count} new posts`;
-}
-
-// Called by fetchMorePosts after it appends a new page —
-// splices up to MIX_PER_PAGE live posts into the just-added cards.
-function _mixLivePostsIntoPage(newCards, feedList) {
-  if (!_liveQueue.length || !newCards.length) return;
-  const toMix = _liveQueue.splice(0, MIX_PER_PAGE);
-  toMix.forEach((p) => {
-    posts.push(p); // keep data array consistent
-    const d = document.createElement("div");
-    d.innerHTML = buildPostCard(p);
-    const card = d.firstElementChild;
-    if (!card) return;
-    card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
-    // Insert at a natural-looking spot: after the 2nd card of the page
-    const insertAfter = newCards[Math.min(1, newCards.length - 1)];
-    if (insertAfter?.nextSibling)
-      feedList.insertBefore(card, insertAfter.nextSibling);
-    else feedList.appendChild(card);
-  });
-}
-
-async function fetchMorePosts(isFirstPage = false) {
-  if (feedLoading || !feedHasMore) return;
-
-  // ── Cache: serve subsequent pages from cache if fresh ─────────
-  const cached = PostCache.getFeedPage(currentFeedTab, feedPage);
-  if (cached && !isFirstPage) {
-    posts = [...posts, ...cached.posts];
-    feedHasMore = cached.hasMore;
-    feedPage++;
-    const c = document.getElementById("feed-list");
-    const frag = document.createDocumentFragment();
-    const addedCards = [];
-    cached.posts.forEach((p) => {
-      const d = document.createElement("div");
-      d.innerHTML = buildPostCard(p);
-      const card = d.firstElementChild;
-      if (card) {
-        frag.appendChild(card);
-        addedCards.push(card);
-      }
-    });
-    c.appendChild(frag);
-    _mixLivePostsIntoPage(addedCards, c);
-    updateScrollSentinel();
-    return;
-  }
-
-  feedLoading = true;
-
-  // ── Show inline skeleton cards while fetching page 2+ ────────
-  let _skelIds = [];
-  if (!isFirstPage) {
-    const c = document.getElementById("feed-list");
-    // Remove sentinel so skeletons go at the very bottom
-    const oldSentinel = document.getElementById("feed-sentinel");
-    if (oldSentinel) oldSentinel.remove();
-    _skelIds = [0, 1, 2].map((i) => {
-      const id = `feed-skel-${Date.now()}-${i}`;
-      const el = document.createElement("div");
-      el.id = id;
-      el.className = "skel-card";
-      el.style.animationDelay = `${i * 0.12}s`;
-      el.innerHTML = `
-              <div class="skel-row">
-                <div class="skel-av"></div>
-                <div class="skel-meta">
-                  <div class="skel-line w-40 h-14"></div>
-                  <div class="skel-line w-60"></div>
-                </div>
-              </div>
-              <div class="skel-body">
-                <div class="skel-line w-90 h-14"></div>
-                <div class="skel-line w-75"></div>
-                <div class="skel-line w-50"></div>
-              </div>
-              <div class="skel-actions">
-                <div class="skel-btn"></div>
-                <div class="skel-btn"></div>
-                <div class="skel-btn"></div>
-              </div>`;
-      c.appendChild(el);
-      return id;
-    });
-  }
-
-  try {
-    // Guests always see global; only logged-in users can switch to following
-    const feedTab = currentUser ? currentFeedTab : "global";
-    const qs = currentUser
-      ? `?feed=${feedTab}&page=${feedPage}`
-      : `?feed=global&page=${feedPage}`;
-    const res = await api("GET", `/api/posts${qs}`);
-
-    // ── Normalise response shape ────────────────────────────────
-    // Backend may return any of:
-    //   { data: { posts: [], hasMore } }   ← expected shape
-    //   { posts: [], hasMore }              ← flat wrapper
-    //   { data: [] }                        ← data is the array itself
-    //   []                                  ← bare array
-    const _payload = res.data ?? res;
-    let newPosts, hasMore;
-    if (Array.isArray(_payload)) {
-      newPosts = _payload;
-      hasMore = _payload.length > 0;
-    } else if (Array.isArray(_payload?.posts)) {
-      newPosts = _payload.posts;
-      hasMore = _payload.hasMore ?? _payload.posts.length > 0;
-    } else {
-      newPosts = [];
-      hasMore = false;
-    }
-
-    // ── New user with no interactions: fall back to all global posts ──
-    if (isFirstPage && currentFeedTab === "global" && !newPosts.length) {
-      const fallback = await api("GET", `/api/posts?feed=global&page=1`);
-      const _fp = fallback.data ?? fallback;
-      newPosts = (Array.isArray(_fp) ? _fp : _fp?.posts) || [];
-      hasMore = Array.isArray(_fp) ? _fp.length > 0 : (_fp?.hasMore ?? false);
-    }
-
-    // Remove skeleton cards before inserting real posts
-    _skelIds.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.remove();
-    });
-
-    // On non-following tabs, hide repost cards from people the current user doesn't follow.
-    // (On the "following" tab the server already scopes results correctly.)
-    // Skip this filter on the first page if _followingSet hasn't loaded yet —
-    // on refresh it's still empty and would incorrectly strip all reposts.
-    if (currentUser && currentFeedTab !== "following" && _followingSetLoaded) {
-      newPosts = newPosts.filter(
-        (p) => !p.isRepost || _followingSet.has(p.userId),
-      );
-    }
-
-    feedHasMore = hasMore;
-    PostCache.storeFeedPage(currentFeedTab, feedPage, newPosts, hasMore);
-    feedPage++;
-    posts = isFirstPage ? newPosts : [...posts, ...newPosts].slice(-100);
-    // Keep master array in sync so tab-switching can filter without a refetch
-    if (currentFeedTab === "global") _masterPosts = [...posts];
-    // Save pagination cursor for this tab
-    if (_tabState[currentFeedTab]) {
-      _tabState[currentFeedTab].page = feedPage;
-      _tabState[currentFeedTab].hasMore = feedHasMore;
-    }
-    if (isFirstPage) {
-      // Seed live-polling seen-ids from the first page
-      newPosts.forEach((p) => _liveSeenIds.add(p.id));
-      renderFeed();
-      _startLivePolling();
-    } else {
-      const c = document.getElementById("feed-list");
-      const frag = document.createDocumentFragment();
-      const addedCards = [];
-      newPosts.forEach((p) => {
-        _liveSeenIds.add(p.id);
-        const d = document.createElement("div");
-        d.innerHTML = buildPostCard(p);
-        const card = d.firstElementChild;
-        if (card) {
-          frag.appendChild(card);
-          addedCards.push(card);
-        }
-      });
-      c.appendChild(frag);
-      _mixLivePostsIntoPage(addedCards, c);
-    }
-    updateScrollSentinel();
-  } catch (e) {
-    // Remove skeletons on error too
-    _skelIds.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.remove();
-    });
-    if (isFirstPage) {
-      const cachedPage = PostCache.getFeedPage(currentFeedTab, 1);
-      if (cachedPage && cachedPage.posts.length) {
-        posts = cachedPage.posts;
-        feedHasMore = cachedPage.hasMore;
-        feedPage = 2;
-        showOfflineBanner();
-        renderFeed();
-      } else {
-        document.getElementById("feed-list").innerHTML =
-          `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><h3>You're offline</h3><p>No cached posts available yet. Connect to the internet to load your feed.</p></div>`;
-        showOfflineBanner();
-      }
-    }
-  } finally {
-    feedLoading = false;
-  }
-}
-
-let _scrollObserver = null;
-let _prefetchObserver = null;
-let _prefetching = false;
-
+// updateScrollSentinel — delegates to Feed.
 function updateScrollSentinel() {
-  let s = document.getElementById("feed-sentinel");
-  if (!feedHasMore) {
-    if (s) s.remove();
-    _cleanupPrefetchObserver();
-    return;
-  }
-  if (!s) {
-    s = document.createElement("div");
-    s.id = "feed-sentinel";
-    s.style.cssText = "height:40px;width:100%";
-    document.getElementById("feed-list").appendChild(s);
-  }
-
-  // ── Sentinel observer: fires ~800px before bottom ─────────────
-  // This is the safety net — by this point the prefetcher should
-  // have already loaded the next page silently.
-  if (_scrollObserver) _scrollObserver.disconnect();
-  _scrollObserver = new IntersectionObserver(
-    (entries) => {
-      if (entries[0].isIntersecting) fetchMorePosts();
-    },
-    { rootMargin: "800px" },
-  );
-  _scrollObserver.observe(s);
-
-  // ── Prefetch observer: fires when ~60% of feed is scrolled ────
-  // Watches a mid-feed anchor so we start loading the next page
-  // well before the user reaches the bottom.
-  _setupPrefetchObserver();
+  Feed.updateSentinel();
 }
 
-function _cleanupPrefetchObserver() {
-  if (_prefetchObserver) {
-    _prefetchObserver.disconnect();
-    _prefetchObserver = null;
-  }
-  _prefetching = false;
+// _backgroundRefreshFeed — no-op: Feed handles this internally.
+function _backgroundRefreshFeed() {}
+
+// _stopLivePolling — delegates to Feed.
+function _stopLivePolling() {
+  Feed.stopLivePolling();
 }
 
-function _setupPrefetchObserver() {
-  _cleanupPrefetchObserver();
-  const cards = document.querySelectorAll("#feed-list .post-card");
-  if (cards.length < 4) return; // not enough posts to warrant a mid-anchor
-  // Place the trigger at ~60% through the rendered cards
-  const anchorIdx = Math.floor(cards.length * 0.6);
-  const anchor = cards[anchorIdx];
-  if (!anchor) return;
-
-  _prefetchObserver = new IntersectionObserver(
-    (entries) => {
-      if (!entries[0].isIntersecting) return;
-      if (_prefetching || feedLoading || !feedHasMore) return;
-      // Check cache first — if page is already cached, nothing to prefetch
-      const cached = PostCache.getFeedPage(currentFeedTab, feedPage);
-      if (cached) return;
-      // Silently prefetch next page into cache so scroll-sentinel serves instantly
-      _prefetching = true;
-      _prefetchNextPage().finally(() => {
-        _prefetching = false;
-      });
-    },
-    { rootMargin: "0px" },
-  );
-  _prefetchObserver.observe(anchor);
-}
-
-async function _prefetchNextPage() {
-  if (!feedHasMore || feedLoading) return;
-  try {
-    const feedTab = currentUser ? currentFeedTab : "global";
-    const qs = currentUser
-      ? `?feed=${feedTab}&page=${feedPage}`
-      : `?feed=global&page=${feedPage}`;
-    const res = await api("GET", `/api/posts${qs}`);
-    const { posts: newPosts, hasMore } = res.data ?? res;
-    // Store in cache — fetchMorePosts() will pick it up instantly
-    PostCache.storeFeedPage(currentFeedTab, feedPage, newPosts, hasMore);
-  } catch (e) {
-    /* silent — fetchMorePosts() will retry on scroll */
-  }
-}
 async function createPost() {
   if (!currentUser) {
     showToast("Please log in first.");
@@ -2896,43 +2875,14 @@ function removeImage() {
 }
 
 /*  RENDER */
+/*  RENDER */
+// renderFeed — global wrapper kept because the rest of the codebase calls it directly
+// (createPost, deletePost, submitEditPost, confirmQuote, etc.).
+// It delegates to Feed.renderFeed() which owns the empty-state guard.
 function renderFeed() {
-  const c = document.getElementById("feed-list");
-  if (!posts.length) {
-    if (currentFeedTab === "following") {
-      // Following tab empty — nudge to discover people
-      c.innerHTML = `<div class="empty">
-              <div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-              <h3>No posts yet</h3>
-              <p>Follow people to see their posts here.</p>
-              <button class="btn btn-primary" style="margin-top:14px;padding:10px 24px;border-radius:20px;font-size:14px" onclick="switchFeedTab('global')">Explore Global Feed</button>
-            </div>`;
-    } else {
-      // Global tab truly empty — very unlikely but handle it
-      c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><h3>Nothing here yet</h3><p>Be the first to post something!</p></div>`;
-    }
-    return;
-  }
-  const parts = posts.map((p) => buildPostCard(p));
-  // Inject inline suggestions card after 5th post if not dismissed
-  if (!_feedSugDismissed && currentUser && parts.length >= 5) {
-    parts.splice(5, 0, buildFeedSugCard());
-  }
-  // Inject new member card at a random position between 3–5 if not dismissed
-  if (!_feedNewDismissed && currentUser && _newMembers.length) {
-    const member = _newMembers[_feedNewIndex % _newMembers.length];
-    if (member) {
-      const injectAt = Math.floor(Math.random() * 3) + 3; // positions 3,4,5
-      parts.splice(
-        Math.min(injectAt, parts.length),
-        0,
-        buildFeedNewCard(member),
-      );
-    }
-  }
-  c.innerHTML = parts.join("");
-  _initPostCardLinkPreviews();
+  Feed.renderFeed();
 }
+
 
 /* ── Trending in Your Circles ──────────────────────────────────── */
 const STOPWORDS = new Set([
@@ -8769,11 +8719,9 @@ function _populateDialSelects() {
 /*  BOOT*/
 (function boot() {
   PostCache.init(); // hydrate from localStorage
-  // Always fetch fresh posts on page load — invalidate feed page cache
-  // so loadPosts() never serves a stale cached page on boot.
-  // Individual post objects are kept for fast post-detail lookups.
-  PostCache.invalidateFeed("global");
-  PostCache.invalidateFeed("following");
+  // Feed freshness is managed by the 5-min TTL in PostCache.
+  // Invalidating here caused an empty feed flash on refresh because the
+  // feed index was wiped before loadPosts() could paint from cache.
   _populateDialSelects(); // fill country code dropdowns
   DM.init(); // load inbox from backend (no-ops if not logged in)
   applyTheme(localStorage.getItem("circle_theme") || "dark");

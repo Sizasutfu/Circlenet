@@ -2,6 +2,7 @@
 //  sw.js  –  Circle Service Worker
 //  Strategy:
 //    • App shell (HTML, icons, manifest) → Cache-first
+//    • Navigation requests               → Network-first, cache fallback
 //    • API calls (/api/*)                → Stale-while-revalidate
 //                                           (serve cache, update in bg)
 //    • Uploaded media (/uploads/*)       → Cache-first, network fallback
@@ -10,7 +11,7 @@
 //                                           + deep-link on click
 // ============================================================
 
-const CACHE_NAME    = 'circle-v5';
+const CACHE_NAME    = 'circle-v6';
 const API_CACHE     = 'circle-api-v4';
 const MEDIA_CACHE   = 'circle-media-v4';
 const OFFLINE_URL   = './index.html';
@@ -212,8 +213,6 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
   // ── Uploaded media → cache-first, network fallback ──
-  // Profile pictures and post images/videos are cached aggressively
-  // since they rarely change. Evict oldest when cache gets too large.
   if (url.pathname.startsWith('/uploads/')) {
     event.respondWith(
       caches.open(MEDIA_CACHE).then(async cache => {
@@ -228,7 +227,6 @@ self.addEventListener('fetch', event => {
           }
           return response;
         } catch {
-          // Media unavailable offline — return nothing (browser shows broken img)
           return new Response('', { status: 503 });
         }
       })
@@ -237,9 +235,6 @@ self.addEventListener('fetch', event => {
   }
 
   // ── API calls → stale-while-revalidate ──────────────
-  // Serve cached response immediately (so feed loads offline),
-  // then fetch fresh data in the background and update the cache.
-  // Skip caching for mutation-heavy or auth endpoints.
   if (url.pathname.startsWith('/api/')) {
     const SKIP_CACHE = [
       '/api/auth',
@@ -248,13 +243,12 @@ self.addEventListener('fetch', event => {
     ];
     const shouldSkip = SKIP_CACHE.some(p => url.pathname.startsWith(p));
 
-    if (shouldSkip) return; // network-only for auth/push/admin
+    if (shouldSkip) return;
 
     event.respondWith(
       caches.open(API_CACHE).then(async cache => {
         const cached = await cache.match(request);
 
-        // Always fire a background network request to refresh the cache
         const networkFetch = fetch(request)
           .then(async response => {
             if (response && response.status === 200) {
@@ -266,20 +260,11 @@ self.addEventListener('fetch', event => {
           })
           .catch(() => null);
 
-        // If we have a cached response, return it immediately
-        // — even if stale, the background fetch will update it
-        if (cached) {
-          // If cache is fresh, no need to wait for network
-          // If stale, still return cache but network update is in flight
-          return cached;
-        }
+        if (cached) return cached;
 
-        // No cache — wait for network
         const networkResponse = await networkFetch;
         if (networkResponse) return networkResponse;
 
-        // Fully offline and no cache — return empty JSON so the app
-        // can handle it gracefully instead of throwing a fetch error
         return new Response(JSON.stringify({ offline: true, data: [] }), {
           status:  200,
           headers: { 'Content-Type': 'application/json' },
@@ -289,9 +274,24 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // ── App shell + static assets → cache-first ─────────
+  // ── App shell + static assets ────────────────────────
+  // Navigation requests (page loads) → network-first so pages like
+  // /reset-password always get a fresh response, fall back to cache offline.
+  // Static assets → cache-first for performance.
   event.respondWith(
     caches.match(request).then(cached => {
+      if (request.mode === 'navigate') {
+        return fetch(request)
+          .then(response => {
+            if (!response || response.status !== 200) return cached || response;
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+            return response;
+          })
+          .catch(() => cached || caches.match(OFFLINE_URL));
+      }
+
+      // Static assets — cache first
       if (cached) return cached;
 
       return fetch(request)
@@ -303,9 +303,7 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
           return response;
         })
-        .catch(() => {
-          if (request.mode === 'navigate') return caches.match(OFFLINE_URL);
-        });
+        .catch(() => caches.match(OFFLINE_URL));
     })
   );
 });

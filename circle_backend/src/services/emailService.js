@@ -1,14 +1,16 @@
-const transporter = require("../config/mailer");
+const { sendEmail } = require('../config/mailer');
+
+const FROM = process.env.NODE_ENV === 'production'
+  ? '"Circle" <noreply@circlenet.social>'
+  : `"Circle" <${process.env.EMAIL_USER}>`;
 
 async function sendPasswordResetEmail({ to, name, token }) {
-  //const resetUrl = `${process.env.FRONTEND_URL}/index.html?token=${token}`;
-  // emailService.js
-const resetUrl = `${process.env.FRONTEND_URL}/?token=${token}`;
+  const resetUrl = `${process.env.FRONTEND_URL}/?token=${token}`;
 
-  await transporter.sendMail({
-    from: `"Circle" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
+    from: FROM,
     to,
-    subject: "Reset your Circle password",
+    subject: 'Reset your Circle password',
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
         <h2 style="color:#7c6bff">Reset your password</h2>
@@ -33,10 +35,10 @@ const resetUrl = `${process.env.FRONTEND_URL}/?token=${token}`;
 }
 
 async function sendVerificationEmail({ to, name, code }) {
-  await transporter.sendMail({
-    from: `"Circle" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
+    from: FROM,
     to,
-    subject: "Verify your Circle email",
+    subject: 'Verify your Circle email',
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
         <h2 style="color:#7c6bff">Verify your email</h2>

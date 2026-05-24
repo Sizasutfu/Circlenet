@@ -18,6 +18,31 @@ const { getPostsPage }      = require('../feed/feedPipeline');
 const { db }                = require('../config/db');
 const { sendOk, sendError } = require('../middleware/response');
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+/**
+ * Resolves the public URL for an uploaded file.
+ *
+ * Dev  → builds a local URL from the request host + /uploads/<filename>
+ * Prod → returns the Cloudinary secure_url directly
+ *
+ * @param {object|null} compressed - req.compressedFiles.image / .video
+ * @param {object}      req        - Express request (needed for host in dev)
+ * @returns {{ path: string|null, url: string|null }}
+ */
+function resolveFileUrl(compressed, req) {
+  if (!compressed) return { path: null, url: null };
+
+  if (IS_PROD) {
+    const url = compressed.secure_url;
+    return { path: url, url };           // store the CDN url directly in the DB
+  }
+
+  const relativePath = `/uploads/${compressed.filename}`;
+  const baseUrl      = `${req.protocol}://${req.get('host')}`;
+  return { path: relativePath, url: `${baseUrl}${relativePath}` };
+}
+
 // GET /api/posts?userId=<id>&feed=global|following&page=<n>&limit=<n>&media=video
 async function getPosts(req, res) {
   const profileUserId = req.query.userId ? parseInt(req.query.userId) : null;
@@ -89,17 +114,8 @@ async function createPost(req, res) {
   const userId = req.actorId;
   const text   = req.body.text || '';
 
-  const imageFilename = req.compressedFiles?.image?.filename || null;
-  const videoFilename = req.compressedFiles?.video?.filename || null;
-
-  // Save only the relative path in the DB — never a hardcoded host/IP.
-  const imagePath = imageFilename ? `/uploads/${imageFilename}` : null;
-  const videoPath = videoFilename ? `/uploads/${videoFilename}` : null;
-
-  // Build the full URL for the response using the current request's host
-  const baseUrl  = `${req.protocol}://${req.get('host')}`;
-  const imageUrl = imagePath ? `${baseUrl}${imagePath}` : null;
-  const videoUrl = videoPath ? `${baseUrl}${videoPath}` : null;
+  const { path: imagePath, url: imageUrl } = resolveFileUrl(req.compressedFiles?.image, req);
+  const { path: videoPath, url: videoUrl } = resolveFileUrl(req.compressedFiles?.video, req);
 
   if (!text && !imagePath && !videoPath)
     return sendError(res, 400, 'A post must have text, an image, or a video.');

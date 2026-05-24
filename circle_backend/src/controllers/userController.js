@@ -11,6 +11,20 @@ const FollowModel       = require('../models/followModel');
 const NotificationModel = require('../models/notificationModel');
 const { sendOk, sendError } = require('../middleware/response');
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+/**
+ * Resolves the stored URL for an uploaded image.
+ * Dev  → /uploads/<filename>  (served statically by Express)
+ * Prod → Cloudinary secure_url
+ */
+function resolveFileUrl(compressed) {
+  if (!compressed) return null;
+  return IS_PROD
+    ? compressed.secure_url
+    : `/uploads/${compressed.filename}`;
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -116,12 +130,9 @@ async function updatePicture(req, res) {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
 
-    // compressUploads middleware compresses the image to .webp and
-    // puts { filename, savedBytes } on req.compressedFiles.image
-    const compressed = req.compressedFiles?.image;
-    const pictureUrl = compressed
-      ? `/uploads/${compressed.filename}`
-      : null;
+    // compressUploads sets req.compressedFiles.image.
+    // resolveFileUrl returns a local path (dev) or Cloudinary URL (prod).
+    const pictureUrl = resolveFileUrl(req.compressedFiles?.image);
 
     await UserModel.updatePicture(userId, pictureUrl);
 
@@ -153,11 +164,9 @@ async function updateCoverImage(req, res) {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
 
-    // compressUploads middleware compresses the image to .webp
-    const compressed = req.compressedFiles?.image;
-    const coverUrl = compressed
-      ? `/uploads/${compressed.filename}`
-      : null;
+    // compressUploads sets req.compressedFiles.image.
+    // resolveFileUrl returns a local path (dev) or Cloudinary URL (prod).
+    const coverUrl = resolveFileUrl(req.compressedFiles?.image);
 
     await UserModel.updateCoverImage(userId, coverUrl);
 

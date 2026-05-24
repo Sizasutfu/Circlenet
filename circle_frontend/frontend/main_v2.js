@@ -2,22 +2,28 @@
 // Works on PC (localhost:5000), phone over LAN (192.168.x.x:5000),
 // or a real domain — no hardcoded IP needed.
 
-const API = window.location.hostname === 'www.circlenet.social'
-  ? 'https://circleappapp-production.up.railway.app'
-  : window.location.origin;
+const API = window.location.origin;
 
-// ═══════════════════════════════════════════════════════════════
-//  FEED STATE  —  single source of truth, never mutated directly
-// ═══════════════════════════════════════════════════════════════
-let posts = [],           // posts currently rendered in the feed
-    currentUser = null,
-    pendingImageDataUrl = null,
-    pendingVideoDataUrl = null,
-    pendingVideoCompressed = false,
-    repostTargetId = null;
+let posts = [],
+  currentUser = null,
+  pendingImageDataUrl = null,
+  pendingVideoDataUrl = null,
+  pendingVideoCompressed = false, // true only when client compression succeeded
+  repostTargetId = null;
+let currentFeedTab = "global";
+const _followingSet = new Set(); // IDs of users the current user follows
 
-// FeedController owns all feed state. Nothing outside it should
-// read/write these — use the public methods instead.
+// ── Feed state preservation ──────────────────────────────────────
+// Master post array — never wiped on tab switch, only on logout/full reload
+let _masterPosts = [];
+// Per-tab saved state: scroll position + page cursor
+const _tabState = {
+  global: { scrollY: 0, page: 1, hasMore: true },
+  following: { scrollY: 0, page: 1, hasMore: true },
+};
+// Scroll position saved when leaving the feed view
+let _feedScrollY = 0;
+
 // Register service worker for PWA + push notification functionality
 let _swRegistration = null;
 if ("serviceWorker" in navigator) {
@@ -41,683 +47,74 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const Feed = (() => {
-  // ── Internal state ────────────────────────────────────────────
-  const _state = {
-    tab: "global",          // "global" | "following"
-    page: 1,
-    hasMore: true,
-    loading: false,         // TRUE while a fetch is in flight
-    posts: [],              // displayed posts
-    masterPosts: [],        // full global set (used for tab filtering)
-    scrollY: { global: 0, following: 0 },
-    pageState: {            // pagination cursor per tab
-      global:    { page: 1, hasMore: true },
-      following: { page: 1, hasMore: true },
-    },
-  };
-
-  // ── Following set (who current user follows) ──────────────────
-  const _followingSet = new Set();
-  let _followingSetLoaded = false;
-
-  async function _loadFollowingSet() {
-    if (!currentUser) {
-      _followingSet.clear();
-      _followingSetLoaded = false;
-      return;
-    }
-    try {
-      const res = await api("GET", `/api/users/${currentUser.id}/following`);
-      const list = res.data || res.following || res || [];
-      _followingSet.clear();
-      list.forEach((u) => _followingSet.add(u.id || u));
-    } catch (e) {
-      // non-critical
-    } finally {
-      _followingSetLoaded = true;
-    }
-  }
-
-  // ── Live polling ──────────────────────────────────────────────
-  let _liveTimer = null;
-  let _liveQueue = [];
-  let _liveSeenIds = new Set();
-  const LIVE_INTERVAL = 30_000;
-
-  // ── Prefetch ──────────────────────────────────────────────────
-  let _scrollObserver = null;
-  let _prefetchObserver = null;
-  let _prefetching = false;
-
-  // ── Skeleton HTML ─────────────────────────────────────────────
-  function _skelHTML() {
-    return [0, 1, 2].map((i) => `
-      <div class="skel-card" style="animation-delay:${i * 0.12}s">
-        <div class="skel-row">
-          <div class="skel-av"></div>
-          <div class="skel-meta">
-            <div class="skel-line w-40 h-14"></div>
-            <div class="skel-line w-60"></div>
-          </div>
-        </div>
-        <div class="skel-body">
-          <div class="skel-line w-90 h-14"></div>
-          <div class="skel-line w-75"></div>
-          <div class="skel-line w-50"></div>
-        </div>
-        ${i === 0 ? '<div class="skel-media"></div>' : ""}
-        <div class="skel-actions">
-          <div class="skel-btn"></div>
-          <div class="skel-btn"></div>
-          <div class="skel-btn"></div>
-        </div>
-      </div>`).join("");
-  }
-
-  // ── Normalise API response into { posts[], hasMore } ──────────
-  function _normalise(res) {
-    const payload = res.data ?? res;
-    if (Array.isArray(payload)) {
-      return { posts: payload, hasMore: payload.length > 0 };
-    }
-    if (Array.isArray(payload?.posts)) {
-      return { posts: payload.posts, hasMore: payload.hasMore ?? payload.posts.length > 0 };
-    }
-    return { posts: [], hasMore: false };
-  }
-
-  // ── Render ────────────────────────────────────────────────────
-  function _render() {
-    const c = document.getElementById("feed-list");
-    if (!c) return;
-
-    // ── GUARD: never show empty state while a fetch is in flight ──
-    // Skeleton cards are already showing; real posts are on the way.
-    if (!_state.posts.length) {
-      if (_state.loading) return;   // THE KEY FIX — no "Nothing here yet" flash
-
-      if (_state.tab === "following") {
-        c.innerHTML = `<div class="empty">
-          <div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-          <h3>No posts yet</h3>
-          <p>Follow people to see their posts here.</p>
-          <button class="btn btn-primary" style="margin-top:14px;padding:10px 24px;border-radius:20px;font-size:14px" onclick="Feed.switchTab('global')">Explore Global Feed</button>
-        </div>`;
-      } else {
-        c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><h3>Nothing here yet</h3><p>Be the first to post something!</p></div>`;
-      }
-      return;
-    }
-
-    const parts = _state.posts.map((p) => buildPostCard(p));
-
-    // Inject inline suggestions card after 5th post if not dismissed
-    if (!_feedSugDismissed && currentUser && parts.length >= 5) {
-      parts.splice(5, 0, buildFeedSugCard());
-    }
-    // Inject new member card between positions 3-5 if not dismissed
-    if (!_feedNewDismissed && currentUser && _newMembers.length) {
-      const member = _newMembers[_feedNewIndex % _newMembers.length];
-      if (member) {
-        const injectAt = Math.floor(Math.random() * 3) + 3;
-        parts.splice(Math.min(injectAt, parts.length), 0, buildFeedNewCard(member));
-      }
-    }
-
-    c.innerHTML = parts.join("");
-    _initPostCardLinkPreviews();
-  }
-
-  // ── Update scroll sentinel (infinite scroll trigger) ──────────
-  function _updateSentinel() {
-    let s = document.getElementById("feed-sentinel");
-    if (!_state.hasMore) {
-      if (s) s.remove();
-      _cleanPrefetch();
-      return;
-    }
-    if (!s) {
-      s = document.createElement("div");
-      s.id = "feed-sentinel";
-      s.style.cssText = "height:40px;width:100%";
-      document.getElementById("feed-list").appendChild(s);
-    }
-    if (_scrollObserver) _scrollObserver.disconnect();
-    _scrollObserver = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) _fetchMore(); },
-      { rootMargin: "800px" }
-    );
-    _scrollObserver.observe(s);
-    _setupPrefetch();
-  }
-
-  // ── Prefetch observer ─────────────────────────────────────────
-  function _cleanPrefetch() {
-    if (_prefetchObserver) { _prefetchObserver.disconnect(); _prefetchObserver = null; }
-    _prefetching = false;
-  }
-
-  function _setupPrefetch() {
-    _cleanPrefetch();
-    const cards = document.querySelectorAll("#feed-list .post-card");
-    if (cards.length < 4) return;
-    const anchor = cards[Math.floor(cards.length * 0.6)];
-    if (!anchor) return;
-    _prefetchObserver = new IntersectionObserver((entries) => {
-      if (!entries[0].isIntersecting || _prefetching || _state.loading || !_state.hasMore) return;
-      if (PostCache.getFeedPage(_state.tab, _state.page)) return;
-      _prefetching = true;
-      _prefetchPage().finally(() => { _prefetching = false; });
-    }, { rootMargin: "0px" });
-    _prefetchObserver.observe(anchor);
-  }
-
-  async function _prefetchPage() {
-    if (!_state.hasMore || _state.loading) return;
-    try {
-      const feedTab = currentUser ? _state.tab : "global";
-      const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
-      const { posts: newPosts, hasMore } = _normalise(res);
-      PostCache.storeFeedPage(_state.tab, _state.page, newPosts, hasMore);
-    } catch (e) { /* silent — fetchMore will retry on scroll */ }
-  }
-
-  // ── Core fetch: first page ────────────────────────────────────
-  async function _fetchFirstPage() {
-    if (_state.loading) return;
-
-    const c = document.getElementById("feed-list");
-
-    // Check cache — paint instantly if fresh
-    const cached = PostCache.getFeedPage(_state.tab, 1);
-    if (cached) {
-      _state.posts = cached.posts;
-      posts = _state.posts;
-      if (_state.tab === "global") _state.masterPosts = [...cached.posts];
-      _state.hasMore = cached.hasMore;
-      _state.page = 2;
-      _state.pageState[_state.tab].page = 2;
-      _state.pageState[_state.tab].hasMore = cached.hasMore;
-      _state.loading = false;  // unblock _render() — posts are ready
-      _render();
-      _updateSentinel();
-      _backgroundRefresh();
-      return;
-    }
-
-    // No cache — show skeletons then fetch
-    _state.loading = true;
-    c.innerHTML = _skelHTML();
-
-    try {
-      const feedTab = currentUser ? _state.tab : "global";
-      const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
-      let { posts: newPosts, hasMore } = _normalise(res);
-
-      // New user fallback: personalised feed empty, show global
-      if (!newPosts.length && _state.tab === "global" && currentUser) {
-        const fb = await api("GET", "/api/posts?feed=global&page=1");
-        const n = _normalise(fb);
-        newPosts = n.posts;
-        hasMore = n.hasMore;
-      }
-
-      // Filter reposts on global tab (only from followed users)
-      if (currentUser && _state.tab !== "following" && _followingSetLoaded) {
-        newPosts = newPosts.filter((p) => !p.isRepost || _followingSet.has(p.userId));
-      }
-
-      PostCache.storeFeedPage(_state.tab, 1, newPosts, hasMore);
-      _state.posts = newPosts;
-      posts = _state.posts;
-      if (_state.tab === "global") _state.masterPosts = [...newPosts];
-      _state.hasMore = hasMore;
-      _state.page = 2;
-      _state.pageState[_state.tab].page = 2;
-      _state.pageState[_state.tab].hasMore = hasMore;
-
-      newPosts.forEach((p) => _liveSeenIds.add(p.id));
-      _render();
-      _startLivePolling();
-    } catch (e) {
-      // Error path: try stale cache rather than showing "Nothing here yet"
-      const stale = PostCache.getFeedPage(_state.tab, 1);
-      if (stale?.posts?.length) {
-        _state.posts = stale.posts;
-        posts = _state.posts;
-        _state.hasMore = stale.hasMore;
-        _state.page = 2;
-        showOfflineBanner();
-        _render();
-      } else {
-        c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><h3>You're offline</h3><p>No cached posts available yet. Connect to the internet to load your feed.</p></div>`;
-        showOfflineBanner();
-      }
-    } finally {
-      _state.loading = false;
-    }
-  }
-
-  // ── Core fetch: next pages (infinite scroll) ──────────────────
-  async function _fetchMore() {
-    if (_state.loading || !_state.hasMore) return;
-
-    // Serve from cache if available
-    const cached = PostCache.getFeedPage(_state.tab, _state.page);
-    if (cached) {
-      _state.posts = [..._state.posts, ...cached.posts];
-      posts = _state.posts;
-      _state.hasMore = cached.hasMore;
-      _state.page++;
-      const c = document.getElementById("feed-list");
-      const frag = document.createDocumentFragment();
-      const addedCards = [];
-      cached.posts.forEach((p) => {
-        const d = document.createElement("div");
-        d.innerHTML = buildPostCard(p);
-        const card = d.firstElementChild;
-        if (card) { frag.appendChild(card); addedCards.push(card); }
-      });
-      c.appendChild(frag);
-      _mixLivePosts(addedCards, c);
-      _updateSentinel();
-      return;
-    }
-
-    _state.loading = true;
-
-    // Show inline skeleton cards for pages 2+
-    const c = document.getElementById("feed-list");
-    const oldSentinel = document.getElementById("feed-sentinel");
-    if (oldSentinel) oldSentinel.remove();
-    const skelIds = [0, 1, 2].map((i) => {
-      const id = `feed-skel-${Date.now()}-${i}`;
-      const el = document.createElement("div");
-      el.id = id;
-      el.className = "skel-card";
-      el.style.animationDelay = `${i * 0.12}s`;
-      el.innerHTML = `
-        <div class="skel-row"><div class="skel-av"></div><div class="skel-meta">
-          <div class="skel-line w-40 h-14"></div><div class="skel-line w-60"></div>
-        </div></div>
-        <div class="skel-body">
-          <div class="skel-line w-90 h-14"></div>
-          <div class="skel-line w-75"></div>
-          <div class="skel-line w-50"></div>
-        </div>
-        <div class="skel-actions">
-          <div class="skel-btn"></div><div class="skel-btn"></div><div class="skel-btn"></div>
-        </div>`;
-      c.appendChild(el);
-      return id;
-    });
-
-    try {
-      const feedTab = currentUser ? _state.tab : "global";
-      const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
-      let { posts: newPosts, hasMore } = _normalise(res);
-
-      if (currentUser && _state.tab !== "following" && _followingSetLoaded) {
-        newPosts = newPosts.filter((p) => !p.isRepost || _followingSet.has(p.userId));
-      }
-
-      skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
-
-      PostCache.storeFeedPage(_state.tab, _state.page, newPosts, hasMore);
-      _state.posts = [..._state.posts, ...newPosts].slice(-100);
-      posts = _state.posts;
-      if (_state.tab === "global") _state.masterPosts = [..._state.posts];
-      _state.hasMore = hasMore;
-      _state.page++;
-      _state.pageState[_state.tab].page = _state.page;
-      _state.pageState[_state.tab].hasMore = hasMore;
-
-      const frag = document.createDocumentFragment();
-      const addedCards = [];
-      newPosts.forEach((p) => {
-        _liveSeenIds.add(p.id);
-        const d = document.createElement("div");
-        d.innerHTML = buildPostCard(p);
-        const card = d.firstElementChild;
-        if (card) { frag.appendChild(card); addedCards.push(card); }
-      });
-      c.appendChild(frag);
-      _mixLivePosts(addedCards, c);
-    } catch (e) {
-      skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
-    } finally {
-      _state.loading = false;
-      _updateSentinel();
-    }
-  }
-
-  // ── Background refresh (stale-while-revalidate) ───────────────
-  async function _backgroundRefresh() {
-    try {
-      const feedTab = currentUser ? _state.tab : "global";
-      const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
-      const { posts: fresh, hasMore } = _normalise(res);
-      // storeFeedPage is the ONLY place that writes to localStorage.
-      // invalidateFeed() intentionally never calls _save(), which prevents
-      // flushing an empty index that causes "Nothing here yet" on refresh.
-      PostCache.storeFeedPage(_state.tab, 1, fresh, hasMore);
-      if (feedTab === "global") _state.masterPosts = [...fresh];
-
-      // Patch like/comment/repost counts silently — no full re-render
-      fresh.forEach((fp) => {
-        const existing = _state.posts.find((p) => p.id === fp.id);
-        if (existing) {
-          existing.likes    = fp.likes;
-          existing.comments = fp.comments;
-          existing.reposts  = fp.reposts;
-          PostCache.putPost(existing);
-        }
-      });
-
-      // Update master array if new posts arrived (for next tab switch)
-      const currentIds = _state.posts.slice(0, fresh.length).map((p) => p.id).join(",");
-      const freshIds   = fresh.map((p) => p.id).join(",");
-      if (currentIds !== freshIds && feedTab === "global") {
-        _state.masterPosts = [...fresh];
-      }
-    } catch (e) { /* silent */ }
-  }
-
-  // ── Live polling ──────────────────────────────────────────────
-  function _startLivePolling() {
-    if (_liveTimer) return;
-    _state.posts.forEach((p) => _liveSeenIds.add(p.id));
-    _liveTimer = setInterval(_pollForNew, LIVE_INTERVAL);
-  }
-
-  function _stopLivePolling() {
-    if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; }
-    _liveQueue = [];
-    _liveSeenIds = new Set();
-    document.getElementById("new-posts-banner")?.remove();
-  }
-
-  async function _pollForNew() {
-    if (!document.getElementById("view-feed")?.classList.contains("active")) return;
-    try {
-      const feedTab = currentUser ? _state.tab : "global";
-      const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
-      const { posts: fresh } = _normalise(res);
-      let truly_new = fresh.filter((p) => !_liveSeenIds.has(p.id));
-      if (currentUser && _state.tab !== "following") {
-        truly_new = truly_new.filter((p) => !p.isRepost || _followingSet.has(p.userId));
-      }
-      if (!truly_new.length) return;
-      truly_new.forEach((p) => _liveSeenIds.add(p.id));
-      _liveQueue = [...truly_new, ..._liveQueue];
-      _showNewPostsBanner(_liveQueue.length);
-    } catch (_) { /* retry next interval */ }
-  }
-
-  function _drainQueueToTop(feedList) {
-    if (!_liveQueue.length) return;
-    const toInsert = _liveQueue.splice(0);
-    _state.posts = [...toInsert, ..._state.posts];
-    posts = _state.posts;
-    const frag = document.createDocumentFragment();
-    toInsert.reverse().forEach((p) => {
-      const d = document.createElement("div");
-      d.innerHTML = buildPostCard(p);
-      const card = d.firstElementChild;
-      if (card) {
-        card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
-        frag.prepend(card);
-      }
-    });
-    const firstCard = feedList.querySelector(".post-card");
-    if (firstCard) feedList.insertBefore(frag, firstCard);
-    else feedList.prepend(frag);
-    _initPostCardLinkPreviews();
-  }
-
-  function _mixLivePosts(newCards, feedList) {
-    if (!_liveQueue.length || !newCards.length) return;
-    const MIX_PER_PAGE = 2;
-    const toMix = _liveQueue.splice(0, MIX_PER_PAGE);
-    toMix.forEach((p) => {
-      _state.posts.push(p);
-      posts = _state.posts;
-      const d = document.createElement("div");
-      d.innerHTML = buildPostCard(p);
-      const card = d.firstElementChild;
-      if (!card) return;
-      card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
-      const insertAfter = newCards[Math.min(1, newCards.length - 1)];
-      if (insertAfter?.nextSibling) feedList.insertBefore(card, insertAfter.nextSibling);
-      else feedList.appendChild(card);
-    });
-  }
-
-  function _showNewPostsBanner(count) {
-    let banner = document.getElementById("new-posts-banner");
-    if (!banner) {
-      banner = document.createElement("div");
-      banner.id = "new-posts-banner";
-      banner.style.cssText = `
-        position: sticky; top: 12px; z-index: 50; margin: 0 auto 12px;
-        max-width: 100px; background: var(--accent); color: #fff;
-        border-radius: 999px; padding: 10px 20px; font-size: 14px;
-        font-weight: 600; text-align: center; cursor: pointer;
-        box-shadow: 0 4px 16px var(--accent-glow);
-        animation: livePostIn 0.3s cubic-bezier(0.34,1.4,0.64,1);
-      `;
-      banner.onclick = () => {
-        const feedList = document.getElementById("feed-list");
-        if (feedList) _drainQueueToTop(feedList);
-        banner.remove();
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      };
-      const feedList = document.getElementById("feed-list");
-      if (feedList) feedList.parentNode.insertBefore(banner, feedList);
-    }
-    banner.textContent = `↑ ${count} new posts`;
-  }
-
-  // ── Public API ────────────────────────────────────────────────
-  return {
-    // Called by goTo('feed') — restores feed without wiping it
-    resume() {
-      const feedList = document.getElementById("feed-list");
-      const hasRenderedDOM = feedList &&
-        feedList.children.length > 0 &&
-        !feedList.querySelector(".skel-card");
-
-      if (_state.posts.length > 0 && hasRenderedDOM) {
-        _updateSentinel();
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: _state.scrollY[_state.tab] || 0, behavior: "instant" });
-        });
-        _backgroundRefresh();
-        return;
-      }
-
-      // Don't start a second fetch if one is already in flight
-      if (_state.loading) return;
-
-      _fetchFirstPage();
-    },
-
-    // Full load from scratch (first visit, logout)
-    load() {
-      _state.page = 1;
-      _state.hasMore = true;
-      _state.loading = false;
-      // Don't wipe _state.posts here — _fetchFirstPage will overwrite it
-      // with cache (synchronously) or fresh API data (async). Wiping first
-      // caused a flash because _render() could fire between the wipe and
-      // the cache read. Let _fetchFirstPage own the post array from the start.
-      _fetchFirstPage();
-    },
-
-    // Switch between global/following tabs
-    switchTab(tab) {
-      if (!currentUser && tab === "following") {
-        showToast("Log in to see posts from people you follow.");
-        goTo("login");
-        return;
-      }
-
-      // Clear trending filter on tab switch
-      if (_activeFilter) {
-        _activeFilter = null;
-        document.getElementById("trending-filter-bar").style.display = "none";
-      }
-
-      // Save scroll position of the tab we're leaving
-      _state.scrollY[_state.tab] = window.scrollY;
-
-      // Update tab UI and legacy global
-      _state.tab = tab;
-      currentFeedTab = tab;
-      document.getElementById("ftab-global").classList.toggle("active", tab === "global");
-      document.getElementById("ftab-following").classList.toggle("active", tab === "following");
-
-      // In-memory tab switch: filter without a network call
-      if (_state.masterPosts.length > 0) {
-        const ps = _state.pageState[tab];
-        _state.page    = ps.page;
-        _state.hasMore = ps.hasMore;
-        _state.loading = false;
-
-        if (tab === "following") {
-          _state.posts = _state.masterPosts.filter(
-            (p) => (currentUser && p.userId === currentUser.id) || _followingSet.has(p.userId)
-          );
-        } else {
-          _state.posts = [..._state.masterPosts];
-        }
-        posts = _state.posts;
-
-        _render();
-        _updateSentinel();
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: _state.scrollY[tab] || 0, behavior: "instant" });
-        });
-        _backgroundRefresh();
-        loadTrending(true);
-        return;
-      }
-
-      // No master posts — full fetch
-      _state.page    = 1;
-      _state.hasMore = true;
-      _state.loading = false;
-      _state.posts   = [];
-      posts = [];
-      _fetchFirstPage();
-      loadTrending(true);
-    },
-
-    // Save scroll position when navigating away from feed
-    saveScroll() { _state.scrollY[_state.tab] = window.scrollY; },
-
-    // Called after post creation/deletion to re-render
-    renderFeed: _render,
-
-    // Called by infinite scroll machinery
-    fetchMore: _fetchMore,
-    updateSentinel: _updateSentinel,
-
-    // Stop live polling (navigating away from feed)
-    stopLivePolling: _stopLivePolling,
-
-    // Called on logout: wipe all feed state
-    reset() {
-      _stopLivePolling();
-      _cleanPrefetch();
-      if (_scrollObserver) { _scrollObserver.disconnect(); _scrollObserver = null; }
-      _state.tab     = "global";
-      _state.page    = 1;
-      _state.hasMore = true;
-      _state.loading = false;
-      _state.posts   = [];
-      _state.masterPosts = [];
-      _state.scrollY = { global: 0, following: 0 };
-      _state.pageState = {
-        global:    { page: 1, hasMore: true },
-        following: { page: 1, hasMore: true },
-      };
-      posts = [];
-      currentFeedTab = "global";
-    },
-
-    // Load following set after login
-    loadFollowingSet: _loadFollowingSet,
-
-    // Read-only state accessors for legacy code
-    get tab()                { return _state.tab; },
-    get loading()            { return _state.loading; },
-    get hasMore()            { return _state.hasMore; },
-    get page()               { return _state.page; },
-    get followingSet()       { return _followingSet; },
-    get followingSetLoaded() { return _followingSetLoaded; },
-  };
-})();
-
-// ── Legacy global shims ────────────────────────────────────────────
-// These keep the rest of the codebase (profile, groups, suggestions etc.)
-// working without changes. They proxy into Feed state so everything stays in sync.
-let currentFeedTab = "global";
-const _followingSet = Feed.followingSet;     // same Set reference — no duplication
 let _followingSetLoaded = false;
-let _masterPosts = [];                       // kept for any external references
-let _feedScrollY = 0;
-const _tabState = {
-  global:    { scrollY: 0, page: 1, hasMore: true },
-  following: { scrollY: 0, page: 1, hasMore: true },
-};
-let feedPage = 1, feedHasMore = true, feedLoading = false;
+async function _loadFollowingSet() {
+  if (!currentUser) {
+    _followingSet.clear();
+    _followingSetLoaded = false;
+    return;
+  }
+  try {
+    const res = await api("GET", `/api/users/${currentUser.id}/following`);
+    const list = res.data || res.following || res || [];
+    _followingSet.clear();
+    list.forEach((u) => _followingSet.add(u.id || u));
+  } catch (e) {
+    // non-critical; silently ignore
+  } finally {
+    _followingSetLoaded = true;
+  }
+}
+let feedPage = 1,
+  feedHasMore = true,
+  feedLoading = false;
 
 /* ═══════════════════════════════════════════════════════════════
-   POST CACHE  —  in-memory + localStorage persistence
-   ═══════════════════════════════════════════════════════════════
-   Key rules:
-     • storeFeedPage() is the ONLY method that writes to localStorage.
-     • invalidateFeed() is in-memory ONLY — it NEVER calls _save().
-       Persisting the emptied feed index to localStorage causes
-       "Nothing here yet" on the next page refresh if the API fetch
-       hasn't completed yet. The TTL handles stale data; storeFeedPage()
-       persists fresh data once the network fetch succeeds.
-   ═══════════════════════════════════════════════════════════════ */
+         POST CACHE  —  in-memory + localStorage persistence
+         ═══════════════════════════════════════════════════════════════
+         Strategy:
+           • In-memory Map for O(1) lookups by post id
+           • localStorage snapshot for instant paint on revisit
+           • Per-feed page cursors so pagination never re-fetches seen pages
+           • TTL of 5 min per feed; stale data shown instantly then
+             background-refreshed (stale-while-revalidate)
+           • Mutations (create/delete/like/comment/repost) update both
+             the in-memory cache and the rendered DOM surgically — no
+             full re-renders unless necessary
+      ═══════════════════════════════════════════════════════════════ */
 const PostCache = (() => {
   const STORAGE_KEY = "circle_post_cache_v1";
-  const TTL_MS = 5 * 60 * 1000;
-  const MAX_STORED = 30;
+  const TTL_MS = 5 * 60 * 1000; // 5 minutes
+  const MAX_STORED = 60; // max posts kept in localStorage
 
-  const _byId = new Map();
-  const _feeds = {};
-  const _profiles = {};
+  // In-memory structures
+  const _byId = new Map(); // postId → post object
+  const _feeds = {}; // "global|1" → { ids[], ts, hasMore }
+  const _profiles = {}; // userId → { ids[], ts }
 
+  // ── Persistence ─────────────────────────────────────────────
   let _saveTimer = null;
   function _save() {
+    // Debounce: batch rapid consecutive saves (e.g. rendering 20 posts)
+    // into a single write 200ms after the last call.
     if (_saveTimer) return;
     _saveTimer = setTimeout(() => {
       _saveTimer = null;
       try {
         const recent = [..._byId.values()]
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-          .slice(0, MAX_STORED)
-          .map(p => ({ ...p, imageUrl: null, videoUrl: null, image: null, video: null }));
-        const payload = { posts: recent, feeds: _feeds, profiles: _profiles, savedAt: Date.now() };
-        const serialized = JSON.stringify(payload);
-        if (serialized.length < 4 * 1024 * 1024) {
-          localStorage.setItem(STORAGE_KEY, serialized);
-        }
+          .slice(0, MAX_STORED);
+        const payload = {
+          posts: recent,
+          feeds: _feeds,
+          profiles: _profiles,
+          savedAt: Date.now(),
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       } catch (e) {
+        // Storage quota exceeded — clear and retry once
         try {
-          const fallback = [..._byId.values()]
-            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-            .slice(0, 10)
-            .map(p => ({ ...p, imageUrl: null, videoUrl: null, image: null, video: null }));
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            posts: fallback, feeds: {}, profiles: {}, savedAt: Date.now()
-          }));
+          localStorage.removeItem(STORAGE_KEY);
         } catch (_) {}
       }
     }, 200);
@@ -728,61 +125,93 @@ const PostCache = (() => {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const { posts: stored, feeds, profiles } = JSON.parse(raw);
-      if (Array.isArray(stored)) stored.forEach((p) => _byId.set(p.id, p));
+      if (Array.isArray(stored)) {
+        stored.forEach((p) => _byId.set(p.id, p));
+      }
       if (feeds) Object.assign(_feeds, feeds);
       if (profiles) Object.assign(_profiles, profiles);
     } catch (e) {
-      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (_) {}
     }
   }
 
-  function _feedKey(tab, page) { return `${tab}|${page}`; }
-  function _isStale(ts) { return !ts || Date.now() - ts > TTL_MS; }
+  // ── Cache key helpers ────────────────────────────────────────
+  function _feedKey(tab, page) {
+    return `${tab}|${page}`;
+  }
+  function _isStale(ts) {
+    return !ts || Date.now() - ts > TTL_MS;
+  }
 
+  // ── Public API ───────────────────────────────────────────────
   return {
-    init() { _load(); },
+    // Called once at boot to hydrate from localStorage
+    init() {
+      _load();
+    },
 
+    // Store a page of posts from the API
     storeFeedPage(tab, page, newPosts, hasMore) {
       newPosts.forEach((p) => _byId.set(p.id, p));
-      _feeds[_feedKey(tab, page)] = { ids: newPosts.map((p) => p.id), ts: Date.now(), hasMore };
+      _feeds[_feedKey(tab, page)] = {
+        ids: newPosts.map((p) => p.id),
+        ts: Date.now(),
+        hasMore,
+      };
       _save();
     },
 
+    // Get a cached page — returns null if missing or stale
     getFeedPage(tab, page) {
       const entry = _feeds[_feedKey(tab, page)];
       if (!entry || _isStale(entry.ts)) return null;
       const resolved = entry.ids.map((id) => _byId.get(id)).filter(Boolean);
-      if (resolved.length !== entry.ids.length) return null;
+      if (resolved.length !== entry.ids.length) return null; // partial — refetch
       return { posts: resolved, hasMore: entry.hasMore };
     },
 
+    // Check freshness without resolving posts
     isFeedPageFresh(tab, page) {
       const entry = _feeds[_feedKey(tab, page)];
       return entry && !_isStale(entry.ts);
     },
 
+    // Store profile posts
     storeProfile(userId, profilePosts) {
       profilePosts.forEach((p) => _byId.set(p.id, p));
-      _profiles[userId] = { ids: profilePosts.map((p) => p.id), ts: Date.now() };
+      _profiles[userId] = {
+        ids: profilePosts.map((p) => p.id),
+        ts: Date.now(),
+      };
       _save();
     },
 
+    // Get cached profile posts
     getProfile(userId) {
       const entry = _profiles[userId];
       if (!entry || _isStale(entry.ts)) return null;
       return entry.ids.map((id) => _byId.get(id)).filter(Boolean);
     },
 
+    // Get a single post by id
     getPost(id) {
       const p = _byId.get(id) || null;
       if (p) resolvePostMedia(p);
       return p;
     },
 
-    putPost(post) { _byId.set(post.id, post); _save(); },
+    // Upsert a single post (create / update)
+    putPost(post) {
+      _byId.set(post.id, post);
+      _save();
+    },
 
+    // Remove a post
     removePost(id) {
       _byId.delete(id);
+      // Purge from all feed pages and profiles
       Object.keys(_feeds).forEach((k) => {
         _feeds[k].ids = _feeds[k].ids.filter((i) => i !== id);
       });
@@ -792,31 +221,39 @@ const PostCache = (() => {
       _save();
     },
 
+    // Patch a post in-place (likes, comments, reposts)
     patchPost(id, patchFn) {
       const post = _byId.get(id);
-      if (post) { patchFn(post); _save(); }
+      if (post) {
+        patchFn(post);
+        _save();
+      }
     },
 
-    // ── CRITICAL: NEVER calls _save() ────────────────────────────
-    // Persisting the emptied feed index to localStorage causes the
-    // "Nothing here yet" flash on the next page refresh.
-    // The TTL handles stale data. storeFeedPage() persists fresh data
-    // once the network fetch succeeds.
-    // NEVER calls _save() — see PostCache header for why
+    // Invalidate all pages for a feed tab (forces re-fetch on next load)
     invalidateFeed(tab) {
       Object.keys(_feeds).forEach((k) => {
         if (k.startsWith(tab + "|")) delete _feeds[k];
       });
+      _save();
     },
 
+    // Invalidate everything (e.g. on logout)
     clear() {
       _byId.clear();
       Object.keys(_feeds).forEach((k) => delete _feeds[k]);
       Object.keys(_profiles).forEach((k) => delete _profiles[k]);
-      if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
-      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      // Cancel any pending debounced save so stale data isn't written after logout
+      if (_saveTimer) {
+        clearTimeout(_saveTimer);
+        _saveTimer = null;
+      }
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (_) {}
     },
 
+    // Debug info
     stats() {
       return {
         posts: _byId.size,
@@ -856,7 +293,9 @@ async function api(method, path, body = null, signal = undefined) {
     localStorage.removeItem("circle_token");
     localStorage.removeItem("circle_user");
     PostCache.clear();
-    Feed.reset();
+    posts = [];
+    _masterPosts = [];
+    _feedScrollY = 0;
     // Redirect without calling logout() to avoid re-entering api()
     setTimeout(() => goTo("login"), 0);
     throw new Error("Session expired. Please log in again.");
@@ -1234,7 +673,8 @@ window.goTo = function goTo(view, _opts = {}) {
     : null;
   if (_leavingName === "feed") {
     _feedScrollY = window.scrollY;
-    Feed.saveScroll();
+    if (_tabState[currentFeedTab])
+      _tabState[currentFeedTab].scrollY = window.scrollY;
   }
 
   if (view === "messages") {
@@ -1321,9 +761,6 @@ window.goTo = function goTo(view, _opts = {}) {
 };
 
 /*AUTH  */
-// Stores the newly registered user data while waiting for email verification
-let _pendingVerifyUser = null;
-
 async function registerUser() {
   const name = document.getElementById("reg-name").value.trim();
   const email = document.getElementById("reg-email").value.trim();
@@ -1347,7 +784,7 @@ async function registerUser() {
     return showAlert(el, "Password must be at least 6 characters.", "error");
   if (confirmPassword !== undefined && password !== confirmPassword)
     return showAlert(el, "Passwords do not match.", "error");
-  const btn = document.getElementById("reg-email-submit-btn");
+  const btn = document.querySelector("#view-register .btn-primary");
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
@@ -1359,110 +796,15 @@ async function registerUser() {
       password,
       phone: phone || undefined,
     });
-    // Account created — now send a verification email and show the OTP step
-    _pendingVerifyUser = res.data;
-    // Ask the backend to send a verification code to the email
-    try {
-      await api("POST", "/api/auth/email/send-verification", { email });
-    } catch (_) {
-      // Non-fatal: backend might send automatically on register
-    }
-    // Show the verify step
-    document.getElementById("reg-email-step1").classList.remove("active");
-    document.getElementById("reg-email-step2").classList.add("active");
-    document.getElementById("reg-email-display").textContent = email;
-    _clearOtpDigits("email-verify");
-    el.className = "alert";
-    _startEmailVerifyTimer();
-    setTimeout(() => {
-      const firstDigit = document.querySelector("#email-verify-otp-group .otp-digit");
-      if (firstDigit) firstDigit.focus();
-    }, 120);
+    setCurrentUser(res.data);
+    showAlert(el, "Account created! Welcome 🎉", "success");
+    setTimeout(() => goTo("feed"), 900);
   } catch (e) {
     showAlert(el, e.message, "error");
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Create Account";
     }
-  }
-}
-
-/* ── EMAIL VERIFICATION ─────────────────────────────────────── */
-let _emailVerifyTimerInterval = null;
-
-function _startEmailVerifyTimer() {
-  if (_emailVerifyTimerInterval) clearTimeout(_emailVerifyTimerInterval);
-  let secs = 60;
-  const timerEl = document.getElementById("email-verify-otp-timer");
-  const resendBtn = document.getElementById("email-verify-resend-btn");
-  if (resendBtn) resendBtn.disabled = true;
-  const tick = () => {
-    if (timerEl) timerEl.textContent = `(${secs}s)`;
-    if (secs <= 0) {
-      if (_emailVerifyTimerInterval) clearTimeout(_emailVerifyTimerInterval);
-      _emailVerifyTimerInterval = null;
-      if (resendBtn) resendBtn.disabled = false;
-      if (timerEl) timerEl.textContent = "";
-      return;
-    }
-    secs--;
-    _emailVerifyTimerInterval = setTimeout(tick, 1000);
-  };
-  tick();
-}
-
-async function emailVerifyOtp() {
-  const code = _getOtpValue("email-verify");
-  const el = document.getElementById("register-alert");
-  el.className = "alert";
-  if (code.length < 6) return showAlert(el, "Enter the full 6-digit code.", "error");
-  const email = document.getElementById("reg-email-display").textContent;
-  const btn = document.getElementById("email-verify-btn");
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
-  try {
-    await api("POST", "/api/auth/email/verify", { email, code });
-    // Mark user as verified and log them in
-    if (_pendingVerifyUser) {
-      setCurrentUser(_pendingVerifyUser);
-      _pendingVerifyUser = null;
-    }
-    showAlert(el, "Email verified! Welcome to Circle 🎉", "success");
-    setTimeout(() => goTo("feed"), 900);
-  } catch (e) {
-    showAlert(el, e.message || "Invalid code. Please try again.", "error");
-    _shakeOtpGroup("email-verify");
-    if (btn) { btn.disabled = false; btn.textContent = "Verify Email"; }
-  }
-}
-
-async function emailResendCode() {
-  const email = document.getElementById("reg-email-display").textContent;
-  const el = document.getElementById("register-alert");
-  el.className = "alert";
-  try {
-    await api("POST", "/api/auth/email/send-verification", { email });
-    showAlert(el, "New code sent! Check your inbox.", "success");
-    _clearOtpDigits("email-verify");
-    _startEmailVerifyTimer();
-    setTimeout(() => {
-      const firstDigit = document.querySelector("#email-verify-otp-group .otp-digit");
-      if (firstDigit) firstDigit.focus();
-    }, 120);
-  } catch (e) {
-    showAlert(el, e.message || "Could not resend. Try again shortly.", "error");
-  }
-}
-
-function emailVerifyBack() {
-  _pendingVerifyUser = null;
-  document.getElementById("reg-email-step2").classList.remove("active");
-  document.getElementById("reg-email-step1").classList.add("active");
-  const btn = document.getElementById("reg-email-submit-btn");
-  if (btn) { btn.disabled = false; btn.textContent = "Create Account"; }
-  document.getElementById("register-alert").className = "alert";
-  if (_emailVerifyTimerInterval) {
-    clearTimeout(_emailVerifyTimerInterval);
-    _emailVerifyTimerInterval = null;
   }
 }
 
@@ -1749,7 +1091,6 @@ async function phoneRegisterVerifyOtp() {
 function _otpAutoSubmit(prefix) {
   if (prefix === "login") phoneLoginVerifyOtp();
   else if (prefix === "reg") phoneRegisterVerifyOtp();
-  else if (prefix === "email-verify") emailVerifyOtp();
 }
 
 function otpInput(el, prefix) {
@@ -1861,7 +1202,12 @@ function logout() {
   localStorage.removeItem("circle_token");
   // ── Cache: clear all cached data on logout ──────────────────
   PostCache.clear();
-  Feed.reset();     // wipes all feed state atomically
+  posts = [];
+  _masterPosts = [];
+  _feedScrollY = 0;
+  _followingSetLoaded = false;
+  _tabState.global = { scrollY: 0, page: 1, hasMore: true };
+  _tabState.following = { scrollY: 0, page: 1, hasMore: true };
   _trendingLoaded = false;
   _trendingWords = [];
   _activeFilter = null;
@@ -1904,7 +1250,7 @@ function setCurrentUser(user) {
   currentUser = user;
   localStorage.setItem("circle_user", JSON.stringify(user));
   if (!user) return;
-  if (user) Feed.loadFollowingSet();
+  if (user) _loadFollowingSet();
   const initial = (user.name || "?").charAt(0).toUpperCase(),
     color = stringToColor(user.name || "");
   const pic = resolveMediaUrl(user.picture) || null;
@@ -2153,10 +1499,75 @@ async function saveProfile() {
 }
 
 /* FEED TABS */
-/* FEED TABS */
-// switchFeedTab — thin wrapper; all logic lives in Feed.switchTab().
 function switchFeedTab(tab) {
-  Feed.switchTab(tab);
+  if (!currentUser && tab === "following") {
+    showToast("Log in to see posts from people you follow.");
+    goTo("login");
+    return;
+  }
+  // Clear any active trending filter when switching tabs
+  if (_activeFilter) {
+    _activeFilter = null;
+    document.getElementById("trending-filter-bar").style.display = "none";
+  }
+
+  // Save current tab's scroll position before switching
+  if (_tabState[currentFeedTab])
+    _tabState[currentFeedTab].scrollY = window.scrollY;
+
+  const prevTab = currentFeedTab;
+  currentFeedTab = tab;
+  document
+    .getElementById("ftab-global")
+    .classList.toggle("active", tab === "global");
+  document
+    .getElementById("ftab-following")
+    .classList.toggle("active", tab === "following");
+
+  // ── In-memory tab switch: no network call needed ─────────────
+  // If master posts are loaded, filter immediately without resetting the feed.
+  if (_masterPosts.length > 0) {
+    // Restore pagination state for this tab
+    const ts = _tabState[tab] || { page: 1, hasMore: true, scrollY: 0 };
+    feedPage = ts.page;
+    feedHasMore = ts.hasMore;
+    feedLoading = false;
+
+    if (tab === "following") {
+      // Show only posts from followed users (and own posts)
+      posts = _masterPosts.filter(
+        (p) =>
+          (currentUser && p.userId === currentUser.id) ||
+          _followingSet.has(p.userId),
+      );
+    } else {
+      posts = [..._masterPosts];
+    }
+
+    renderFeed();
+    updateScrollSentinel();
+
+    // Restore this tab's scroll position
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: ts.scrollY || 0, behavior: "instant" });
+    });
+
+    // Background-refresh to pick up any new posts since last fetch
+    _backgroundRefreshFeed();
+
+    // Refresh trending so it reflects the new tab context
+    loadTrending(true);
+    return;
+  }
+
+  // No master posts yet (e.g. first load) — fall through to full fetch
+  feedPage = 1;
+  feedHasMore = true;
+  feedLoading = false;
+  posts = [];
+  loadPosts();
+  // Refresh trending so it reflects followed-users posts
+  loadTrending(true);
 }
 
 /* POSTS */
@@ -2167,38 +1578,523 @@ function switchFeedTab(tab) {
  * background refresh. Only falls through to a full loadPosts()
  * when the feed is genuinely empty (first load / after logout).
  */
-/* POSTS */
-
-// resumeFeed — called by goTo('feed').
-// Restores the feed without wiping it if posts are already loaded.
 function resumeFeed() {
-  Feed.resume();
+  const feedList = document.getElementById("feed-list");
+  const hasRenderedDOM =
+    feedList &&
+    feedList.children.length > 0 &&
+    !feedList.querySelector(".skel-card"); // not skeleton
+
+  if (posts.length > 0 && hasRenderedDOM) {
+    // Feed is already rendered — just restore scroll position and silently refresh
+    updateScrollSentinel();
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: _feedScrollY || 0, behavior: "instant" });
+    });
+    _backgroundRefreshFeed();
+    return;
+  }
+  loadPosts();
 }
 
-// loadPosts — full reload from scratch.
-function loadPosts() {
-  Feed.load();
+async function loadPosts() {
+  // Guests can view the global feed without logging in
+  feedPage = 1;
+  feedHasMore = true;
+  feedLoading = false;
+  posts = [];
+
+  // ── Cache: paint instantly if page 1 is fresh ────────────────
+  const cached = PostCache.getFeedPage(currentFeedTab, 1);
+  const c = document.getElementById("feed-list");
+  if (cached) {
+    posts = cached.posts;
+    // Seed master array — global feed is the canonical source
+    if (currentFeedTab === "global") _masterPosts = [...posts];
+    feedHasMore = cached.hasMore;
+    feedPage = 2;
+    // Save pagination state for this tab
+    if (_tabState[currentFeedTab]) {
+      _tabState[currentFeedTab].page = feedPage;
+      _tabState[currentFeedTab].hasMore = feedHasMore;
+    }
+    renderFeed();
+    updateScrollSentinel();
+    // Background refresh — update silently if data changed
+    _backgroundRefreshFeed();
+    return;
+  }
+
+  // No valid cache — show skeleton cards then fetch
+  c.innerHTML = [0, 1, 2]
+    .map(
+      (i) => `
+          <div class="skel-card" style="animation-delay:${i * 0.12}s">
+            <div class="skel-row">
+              <div class="skel-av"></div>
+              <div class="skel-meta">
+                <div class="skel-line w-40 h-14"></div>
+                <div class="skel-line w-60"></div>
+              </div>
+            </div>
+            <div class="skel-body">
+              <div class="skel-line w-90 h-14"></div>
+              <div class="skel-line w-75"></div>
+              <div class="skel-line w-50"></div>
+            </div>
+            ${i === 0 ? '<div class="skel-media"></div>' : ""}
+            <div class="skel-actions">
+              <div class="skel-btn"></div>
+              <div class="skel-btn"></div>
+              <div class="skel-btn"></div>
+            </div>
+          </div>`,
+    )
+    .join("");
+  await fetchMorePosts(true);
 }
 
-// fetchMorePosts — called by legacy scroll/sentinel code.
-function fetchMorePosts(isFirstPage = false) {
-  if (isFirstPage) Feed.load();
-  else Feed.fetchMore();
+async function _backgroundRefreshFeed() {
+  try {
+    const feedTab = currentUser ? currentFeedTab : "global";
+    const qs = currentUser ? `?feed=${feedTab}&page=1` : `?feed=global&page=1`;
+    const res = await api("GET", `/api/posts${qs}`);
+    const _bgPayload = res.data ?? res;
+    const fresh = Array.isArray(_bgPayload)
+      ? _bgPayload
+      : (_bgPayload?.posts ?? []);
+    const hasMore = Array.isArray(_bgPayload)
+      ? _bgPayload.length > 0
+      : (_bgPayload?.hasMore ?? false);
+    PostCache.storeFeedPage(currentFeedTab, 1, fresh, hasMore);
+    // Keep master array in sync when global feed refreshes
+    if (feedTab === "global") _masterPosts = [...fresh];
+    // Always patch counts silently — never re-render in the background.
+    // Re-rendering while the user is scrolling or reading is jarring.
+    // New posts are surfaced via the live-polling banner instead.
+    fresh.forEach((fp) => {
+      const existing = posts.find((p) => p.id === fp.id);
+      if (existing) {
+        existing.likes = fp.likes;
+        existing.comments = fp.comments;
+        existing.reposts = fp.reposts;
+        PostCache.putPost(existing);
+      }
+    });
+    // If new posts arrived, update master array so next tab switch picks them up
+    const currentIds = posts.slice(0, fresh.length).map((p) => p.id).join(",");
+    const freshIds   = fresh.map((p) => p.id).join(",");
+    if (currentIds !== freshIds) {
+      PostCache.storeFeedPage(currentFeedTab, 1, fresh, hasMore);
+      if (feedTab === "global") _masterPosts = [...fresh];
+    }
+  } catch (e) {
+    /* silent — user already sees cached data */
+  }
 }
 
-// updateScrollSentinel — delegates to Feed.
-function updateScrollSentinel() {
-  Feed.updateSentinel();
+// ═══════════════════════════════════════════════════════════════
+//  REAL-TIME NEW POST INJECTION
+//
+//  Every 30 s we poll page 1 to see if new posts appeared.
+//  New posts (ids not yet in the feed) are held in _liveQueue.
+//  As the user scrolls and fetchMorePosts() appends a new page,
+//  we splice a few queued posts naturally into that batch so they
+//  feel like organic feed content — not a jarring prepend.
+//
+//  Drip rate: up to MIX_PER_PAGE live posts per page load.
+//  If the user is near the top (page 1 area) we also prepend
+//  quietly so page-1 stays fresh without a full reload.
+// ═══════════════════════════════════════════════════════════════
+
+let _liveQueue = []; // new posts waiting to be injected
+let _liveSeenIds = new Set(); // all post ids currently in feed
+let _liveTimer = null;
+const LIVE_INTERVAL = 30_000; // poll every 30 s
+const MIX_PER_PAGE = 2; // inject up to 2 live posts per page
+
+function _startLivePolling() {
+  if (_liveTimer) return; // already running
+  // Seed seen-ids from whatever is loaded now
+  posts.forEach((p) => _liveSeenIds.add(p.id));
+  _liveTimer = setInterval(_pollForNewPosts, LIVE_INTERVAL);
 }
 
-// _backgroundRefreshFeed — no-op: Feed handles this internally.
-function _backgroundRefreshFeed() {}
-
-// _stopLivePolling — delegates to Feed.
 function _stopLivePolling() {
-  Feed.stopLivePolling();
+  if (_liveTimer) {
+    clearInterval(_liveTimer);
+    _liveTimer = null;
+  }
+  _liveQueue = [];
+  _liveSeenIds = new Set();
+  document.getElementById("new-posts-banner")?.remove();
 }
 
+async function _pollForNewPosts() {
+  // Only poll when the feed view is active
+  if (!document.getElementById("view-feed")?.classList.contains("active"))
+    return;
+  try {
+    const feedTab = currentUser ? currentFeedTab : "global";
+    const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
+    const { posts: fresh } = res.data ?? res;
+    if (!Array.isArray(fresh)) return;
+
+    let truly_new = fresh.filter((p) => !_liveSeenIds.has(p.id));
+    // Don't surface reposts from people the current user doesn't follow
+    if (currentUser && currentFeedTab !== "following") {
+      truly_new = truly_new.filter(
+        (p) => !p.isRepost || _followingSet.has(p.userId),
+      );
+    }
+    if (!truly_new.length) return;
+
+    // Mark them so we don't re-queue on next poll
+    truly_new.forEach((p) => _liveSeenIds.add(p.id));
+
+    // Add to front of queue (newest first)
+    _liveQueue = [...truly_new, ..._liveQueue];
+
+    // Show a "New posts" banner instead of auto-injecting
+    _showNewPostsBanner(_liveQueue.length);
+  } catch (_) {
+    /* silent — next interval will retry */
+  }
+}
+
+// Prepend all queued posts to the top of the feed DOM & posts array
+function _drainQueueToTop(feedList) {
+  if (!_liveQueue.length) return;
+  const toInsert = _liveQueue.splice(0); // take all
+  // Prepend to data array
+  posts = [...toInsert, ...posts];
+  // Prepend cards to DOM without re-rendering everything
+  const frag = document.createDocumentFragment();
+  toInsert.reverse().forEach((p) => {
+    // reverse so first ends up on top
+    const d = document.createElement("div");
+    d.innerHTML = buildPostCard(p);
+    const card = d.firstElementChild;
+    if (card) {
+      card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
+      frag.prepend(card);
+    }
+  });
+  // Insert after any sentinel/banner, before first real card
+  const firstCard = feedList.querySelector(".post-card");
+  if (firstCard) feedList.insertBefore(frag, firstCard);
+  else feedList.prepend(frag);
+}
+
+// Show a sticky banner so the user can choose when to load new posts
+function _showNewPostsBanner(count) {
+  let banner = document.getElementById("new-posts-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "new-posts-banner";
+    banner.style.cssText = `
+            position: sticky; top: 12px; z-index: 50; margin: 0 auto 12px;
+            max-width: 100px; background: var(--accent); color: #fff;
+            border-radius: 999px; padding: 10px 20px; font-size: 14px;
+            font-weight: 600; text-align: center; cursor: pointer;
+            box-shadow: 0 4px 16px var(--accent-glow);
+            animation: livePostIn 0.3s cubic-bezier(0.34,1.4,0.64,1);
+          `;
+    banner.onclick = () => {
+      const feedList = document.getElementById("feed-list");
+      if (feedList) _drainQueueToTop(feedList);
+      banner.remove();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const feedList = document.getElementById("feed-list");
+    if (feedList) feedList.parentNode.insertBefore(banner, feedList);
+  }
+  // Update count label on every poll
+ // banner.textContent = `↑ ${count} new post${count !== 1 ? "s" : ""} — tap to load`;
+  banner.textContent = `↑ ${count} new posts`;
+}
+
+// Called by fetchMorePosts after it appends a new page —
+// splices up to MIX_PER_PAGE live posts into the just-added cards.
+function _mixLivePostsIntoPage(newCards, feedList) {
+  if (!_liveQueue.length || !newCards.length) return;
+  const toMix = _liveQueue.splice(0, MIX_PER_PAGE);
+  toMix.forEach((p) => {
+    posts.push(p); // keep data array consistent
+    const d = document.createElement("div");
+    d.innerHTML = buildPostCard(p);
+    const card = d.firstElementChild;
+    if (!card) return;
+    card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
+    // Insert at a natural-looking spot: after the 2nd card of the page
+    const insertAfter = newCards[Math.min(1, newCards.length - 1)];
+    if (insertAfter?.nextSibling)
+      feedList.insertBefore(card, insertAfter.nextSibling);
+    else feedList.appendChild(card);
+  });
+}
+
+async function fetchMorePosts(isFirstPage = false) {
+  if (feedLoading || !feedHasMore) return;
+
+  // ── Cache: serve subsequent pages from cache if fresh ─────────
+  const cached = PostCache.getFeedPage(currentFeedTab, feedPage);
+  if (cached && !isFirstPage) {
+    posts = [...posts, ...cached.posts];
+    feedHasMore = cached.hasMore;
+    feedPage++;
+    const c = document.getElementById("feed-list");
+    const frag = document.createDocumentFragment();
+    const addedCards = [];
+    cached.posts.forEach((p) => {
+      const d = document.createElement("div");
+      d.innerHTML = buildPostCard(p);
+      const card = d.firstElementChild;
+      if (card) {
+        frag.appendChild(card);
+        addedCards.push(card);
+      }
+    });
+    c.appendChild(frag);
+    _mixLivePostsIntoPage(addedCards, c);
+    updateScrollSentinel();
+    return;
+  }
+
+  feedLoading = true;
+
+  // ── Show inline skeleton cards while fetching page 2+ ────────
+  let _skelIds = [];
+  if (!isFirstPage) {
+    const c = document.getElementById("feed-list");
+    // Remove sentinel so skeletons go at the very bottom
+    const oldSentinel = document.getElementById("feed-sentinel");
+    if (oldSentinel) oldSentinel.remove();
+    _skelIds = [0, 1, 2].map((i) => {
+      const id = `feed-skel-${Date.now()}-${i}`;
+      const el = document.createElement("div");
+      el.id = id;
+      el.className = "skel-card";
+      el.style.animationDelay = `${i * 0.12}s`;
+      el.innerHTML = `
+              <div class="skel-row">
+                <div class="skel-av"></div>
+                <div class="skel-meta">
+                  <div class="skel-line w-40 h-14"></div>
+                  <div class="skel-line w-60"></div>
+                </div>
+              </div>
+              <div class="skel-body">
+                <div class="skel-line w-90 h-14"></div>
+                <div class="skel-line w-75"></div>
+                <div class="skel-line w-50"></div>
+              </div>
+              <div class="skel-actions">
+                <div class="skel-btn"></div>
+                <div class="skel-btn"></div>
+                <div class="skel-btn"></div>
+              </div>`;
+      c.appendChild(el);
+      return id;
+    });
+  }
+
+  try {
+    // Guests always see global; only logged-in users can switch to following
+    const feedTab = currentUser ? currentFeedTab : "global";
+    const qs = currentUser
+      ? `?feed=${feedTab}&page=${feedPage}`
+      : `?feed=global&page=${feedPage}`;
+    const res = await api("GET", `/api/posts${qs}`);
+
+    // ── Normalise response shape ────────────────────────────────
+    // Backend may return any of:
+    //   { data: { posts: [], hasMore } }   ← expected shape
+    //   { posts: [], hasMore }              ← flat wrapper
+    //   { data: [] }                        ← data is the array itself
+    //   []                                  ← bare array
+    const _payload = res.data ?? res;
+    let newPosts, hasMore;
+    if (Array.isArray(_payload)) {
+      newPosts = _payload;
+      hasMore = _payload.length > 0;
+    } else if (Array.isArray(_payload?.posts)) {
+      newPosts = _payload.posts;
+      hasMore = _payload.hasMore ?? _payload.posts.length > 0;
+    } else {
+      newPosts = [];
+      hasMore = false;
+    }
+
+    // ── New user with no interactions: fall back to all global posts ──
+    if (isFirstPage && currentFeedTab === "global" && !newPosts.length) {
+      const fallback = await api("GET", `/api/posts?feed=global&page=1`);
+      const _fp = fallback.data ?? fallback;
+      newPosts = (Array.isArray(_fp) ? _fp : _fp?.posts) || [];
+      hasMore = Array.isArray(_fp) ? _fp.length > 0 : (_fp?.hasMore ?? false);
+    }
+
+    // Remove skeleton cards before inserting real posts
+    _skelIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    });
+
+    // On non-following tabs, hide repost cards from people the current user doesn't follow.
+    // (On the "following" tab the server already scopes results correctly.)
+    // Skip this filter on the first page if _followingSet hasn't loaded yet —
+    // on refresh it's still empty and would incorrectly strip all reposts.
+    if (currentUser && currentFeedTab !== "following" && _followingSetLoaded) {
+      newPosts = newPosts.filter(
+        (p) => !p.isRepost || _followingSet.has(p.userId),
+      );
+    }
+
+    feedHasMore = hasMore;
+    PostCache.storeFeedPage(currentFeedTab, feedPage, newPosts, hasMore);
+    feedPage++;
+    posts = isFirstPage ? newPosts : [...posts, ...newPosts].slice(-100);
+    // Keep master array in sync so tab-switching can filter without a refetch
+    if (currentFeedTab === "global") _masterPosts = [...posts];
+    // Save pagination cursor for this tab
+    if (_tabState[currentFeedTab]) {
+      _tabState[currentFeedTab].page = feedPage;
+      _tabState[currentFeedTab].hasMore = feedHasMore;
+    }
+    if (isFirstPage) {
+      // Seed live-polling seen-ids from the first page
+      newPosts.forEach((p) => _liveSeenIds.add(p.id));
+      renderFeed();
+      _startLivePolling();
+    } else {
+      const c = document.getElementById("feed-list");
+      const frag = document.createDocumentFragment();
+      const addedCards = [];
+      newPosts.forEach((p) => {
+        _liveSeenIds.add(p.id);
+        const d = document.createElement("div");
+        d.innerHTML = buildPostCard(p);
+        const card = d.firstElementChild;
+        if (card) {
+          frag.appendChild(card);
+          addedCards.push(card);
+        }
+      });
+      c.appendChild(frag);
+      _mixLivePostsIntoPage(addedCards, c);
+    }
+    updateScrollSentinel();
+  } catch (e) {
+    // Remove skeletons on error too
+    _skelIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    });
+    if (isFirstPage) {
+      const cachedPage = PostCache.getFeedPage(currentFeedTab, 1);
+      if (cachedPage && cachedPage.posts.length) {
+        posts = cachedPage.posts;
+        feedHasMore = cachedPage.hasMore;
+        feedPage = 2;
+        showOfflineBanner();
+        renderFeed();
+      } else {
+        document.getElementById("feed-list").innerHTML =
+          `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><h3>You're offline</h3><p>No cached posts available yet. Connect to the internet to load your feed.</p></div>`;
+        showOfflineBanner();
+      }
+    }
+  } finally {
+    feedLoading = false;
+  }
+}
+
+let _scrollObserver = null;
+let _prefetchObserver = null;
+let _prefetching = false;
+
+function updateScrollSentinel() {
+  let s = document.getElementById("feed-sentinel");
+  if (!feedHasMore) {
+    if (s) s.remove();
+    _cleanupPrefetchObserver();
+    return;
+  }
+  if (!s) {
+    s = document.createElement("div");
+    s.id = "feed-sentinel";
+    s.style.cssText = "height:40px;width:100%";
+    document.getElementById("feed-list").appendChild(s);
+  }
+
+  // ── Sentinel observer: fires ~800px before bottom ─────────────
+  // This is the safety net — by this point the prefetcher should
+  // have already loaded the next page silently.
+  if (_scrollObserver) _scrollObserver.disconnect();
+  _scrollObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries[0].isIntersecting) fetchMorePosts();
+    },
+    { rootMargin: "800px" },
+  );
+  _scrollObserver.observe(s);
+
+  // ── Prefetch observer: fires when ~60% of feed is scrolled ────
+  // Watches a mid-feed anchor so we start loading the next page
+  // well before the user reaches the bottom.
+  _setupPrefetchObserver();
+}
+
+function _cleanupPrefetchObserver() {
+  if (_prefetchObserver) {
+    _prefetchObserver.disconnect();
+    _prefetchObserver = null;
+  }
+  _prefetching = false;
+}
+
+function _setupPrefetchObserver() {
+  _cleanupPrefetchObserver();
+  const cards = document.querySelectorAll("#feed-list .post-card");
+  if (cards.length < 4) return; // not enough posts to warrant a mid-anchor
+  // Place the trigger at ~60% through the rendered cards
+  const anchorIdx = Math.floor(cards.length * 0.6);
+  const anchor = cards[anchorIdx];
+  if (!anchor) return;
+
+  _prefetchObserver = new IntersectionObserver(
+    (entries) => {
+      if (!entries[0].isIntersecting) return;
+      if (_prefetching || feedLoading || !feedHasMore) return;
+      // Check cache first — if page is already cached, nothing to prefetch
+      const cached = PostCache.getFeedPage(currentFeedTab, feedPage);
+      if (cached) return;
+      // Silently prefetch next page into cache so scroll-sentinel serves instantly
+      _prefetching = true;
+      _prefetchNextPage().finally(() => {
+        _prefetching = false;
+      });
+    },
+    { rootMargin: "0px" },
+  );
+  _prefetchObserver.observe(anchor);
+}
+
+async function _prefetchNextPage() {
+  if (!feedHasMore || feedLoading) return;
+  try {
+    const feedTab = currentUser ? currentFeedTab : "global";
+    const qs = currentUser
+      ? `?feed=${feedTab}&page=${feedPage}`
+      : `?feed=global&page=${feedPage}`;
+    const res = await api("GET", `/api/posts${qs}`);
+    const { posts: newPosts, hasMore } = res.data ?? res;
+    // Store in cache — fetchMorePosts() will pick it up instantly
+    PostCache.storeFeedPage(currentFeedTab, feedPage, newPosts, hasMore);
+  } catch (e) {
+    /* silent — fetchMorePosts() will retry on scroll */
+  }
+}
 async function createPost() {
   if (!currentUser) {
     showToast("Please log in first.");
@@ -2342,7 +2238,7 @@ async function submitEditPost() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" width="14" height="14"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg> Save Changes`;
+      btn.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" width="14" height="14"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Save Changes`;
     }
   }
 }
@@ -2532,18 +2428,144 @@ function _resolveRepostTarget(postId) {
   return { targetId, orig };
 }
 
-function openRepostAsQuote(e, postId) {
+function toggleRepostMenu(e, postId) {
   e.stopPropagation();
   if (!currentUser) {
-    showToast("Log in to Echo.");
+    showToast("Log in to repost.");
     goTo("login");
     return;
   }
-  openQuoteModal(postId);
+  const menu = document.getElementById("repost-menu-" + postId);
+  if (!menu) return;
+  const isOpen = menu.classList.contains("open");
+  // Close all open repost menus
+  document.querySelectorAll(".post-dropdown.open").forEach((m) => {
+    m.classList.remove("open");
+  });
+  _rpBackdropRemove();
+  if (!isOpen) {
+    const { targetId, orig } = _resolveRepostTarget(postId);
+    if (!orig) return;
+    repostTargetId = targetId;
+    const already =
+      Array.isArray(orig.reposts) && orig.reposts.includes(currentUser.id);
+    const doBtn = document.getElementById("repost-menu-do-" + postId);
+    const undoBtn = document.getElementById("repost-menu-undo-" + postId);
+    if (doBtn) doBtn.style.display = already ? "none" : "flex";
+    if (undoBtn) undoBtn.style.display = already ? "flex" : "none";
+    menu.classList.add("open");
+    // close on backdrop click
+    setTimeout(
+      () =>
+        document.addEventListener("click", _rpBackdropClose, { once: true }),
+      0,
+    );
+  }
 }
 
-function closeRepostPopover() {} // kept as no-op — called by openQuoteModal internals
+function _rpBackdropClose(e) {
+  // close any open dropdown that doesn't contain the click target
+  document.querySelectorAll(".post-dropdown.open").forEach((m) => {
+    if (!m.contains(e.target)) m.classList.remove("open");
+  });
+  lbCloseRepost();
+}
+function _rpBackdropRemove() {
+  document.removeEventListener("click", _rpBackdropClose);
+}
 
+function closeRepostMenu(postId) {
+  const menu = document.getElementById("repost-menu-" + postId);
+  if (menu) menu.classList.remove("open");
+  _rpBackdropRemove();
+}
+
+// Legacy alias so confirmRepost / undoRepost / openQuoteModal can still call it
+function closeRepostPopover() {
+  document.querySelectorAll("[id^='repost-menu-'].open").forEach((m) => {
+    m.classList.remove("open");
+  });
+  _rpBackdropRemove();
+  lbCloseRepost();
+}
+
+async function confirmRepost(postId) {
+  if (postId) repostTargetId = _resolveRepostTarget(postId).targetId;
+  closeRepostPopover();
+  if (!currentUser || !repostTargetId) return;
+  let orig =
+    posts.find((p) => p.id === repostTargetId) ||
+    PostCache.getPost(repostTargetId);
+  if (!orig) return;
+  try {
+    // Fetch fresh original post so likes/comments/reposts counts are accurate
+    try {
+      const freshRes = await api("GET", `/api/posts/${repostTargetId}`);
+      if (freshRes && freshRes.data) {
+        orig = Object.assign({}, orig, freshRes.data);
+        PostCache.putPost(orig);
+        // Also update in the feed array if present
+        const feedIdx = posts.findIndex((p) => p.id === repostTargetId);
+        if (feedIdx !== -1) posts[feedIdx] = orig;
+      }
+    } catch (_) {
+      /* best-effort — proceed with cached data */
+    }
+
+    const res = await api("POST", `/api/posts/${repostTargetId}/repost`, {
+      userId: currentUser.id,
+      text: null,
+    });
+    const repost = res.data;
+    // Mark button as reposted immediately
+    if (!Array.isArray(orig.reposts)) orig.reposts = [];
+    orig.reposts.push(currentUser.id);
+    PostCache.putPost(orig);
+    // Merge fresh original data — server data wins over local for counts
+    if (repost.isRepost) {
+      if (!repost.originalPost) repost.originalPost = {};
+      repost.originalPost = Object.assign({}, repost.originalPost, orig);
+    }
+    posts.unshift(repost);
+    repostTargetId = null;
+    renderFeed();
+    if (typeof _lbUpdateActions === "function") _lbUpdateActions();
+    showToast("Reposted! ♻️");
+  } catch (e) {
+    showToast("Error: " + e.message);
+  }
+}
+
+async function undoRepost(postId) {
+  closeRepostPopover();
+  if (!currentUser) return;
+  try {
+    await api("DELETE", `/api/posts/${postId}/repost`);
+    const orig =
+      posts.find((p) => p.id === postId) || PostCache.getPost(postId);
+    if (orig && orig.reposts) {
+      orig.reposts = orig.reposts.filter((id) => id !== currentUser.id);
+      PostCache.putPost(orig);
+    }
+    // Remove the simple repost card from the local feed
+    posts = posts.filter(
+      (p) =>
+        !(
+          p.isRepost &&
+          !p.text &&
+          p.originalPost &&
+          p.originalPost.id === postId &&
+          p.userId === currentUser.id
+        ),
+    );
+    repostTargetId = null;
+    renderFeed();
+    if (typeof _lbUpdateActions === "function") _lbUpdateActions();
+    showToast("Repost removed.");
+  } catch (e) {
+    showToast("Error: " + e.message);
+  }
+}
 
 /* ── Quote modal ── */
 function openQuoteModal(postId) {
@@ -2596,7 +2618,7 @@ function closeQuoteModal(e) {
 async function confirmQuote() {
   const text = document.getElementById("quote-text").value.trim();
   if (!text) {
-    showToast("Add a comment to Echo.");
+    showToast("Add a comment to quote.");
     return;
   }
   if (!currentUser || !repostTargetId) return;
@@ -2628,7 +2650,7 @@ async function confirmQuote() {
     repostTargetId = null;
     renderFeed();
     if (typeof _lbUpdateActions === "function") _lbUpdateActions();
-    showToast("Echoed! 📣");
+    showToast("Quoted! 💬");
   } catch (e) {
     showToast("Error: " + e.message);
   }
@@ -2876,14 +2898,42 @@ function removeImage() {
 }
 
 /*  RENDER */
-/*  RENDER */
-// renderFeed — global wrapper kept because the rest of the codebase calls it directly
-// (createPost, deletePost, submitEditPost, confirmQuote, etc.).
-// It delegates to Feed.renderFeed() which owns the empty-state guard.
 function renderFeed() {
-  Feed.renderFeed();
+  const c = document.getElementById("feed-list");
+  if (!posts.length) {
+    if (currentFeedTab === "following") {
+      // Following tab empty — nudge to discover people
+      c.innerHTML = `<div class="empty">
+              <div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
+              <h3>No posts yet</h3>
+              <p>Follow people to see their posts here.</p>
+              <button class="btn btn-primary" style="margin-top:14px;padding:10px 24px;border-radius:20px;font-size:14px" onclick="switchFeedTab('global')">Explore Global Feed</button>
+            </div>`;
+    } else {
+      // Global tab truly empty — very unlikely but handle it
+      c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><h3>Nothing here yet</h3><p>Be the first to post something!</p></div>`;
+    }
+    return;
+  }
+  const parts = posts.map((p) => buildPostCard(p));
+  // Inject inline suggestions card after 5th post if not dismissed
+  if (!_feedSugDismissed && currentUser && parts.length >= 5) {
+    parts.splice(5, 0, buildFeedSugCard());
+  }
+  // Inject new member card at a random position between 3–5 if not dismissed
+  if (!_feedNewDismissed && currentUser && _newMembers.length) {
+    const member = _newMembers[_feedNewIndex % _newMembers.length];
+    if (member) {
+      const injectAt = Math.floor(Math.random() * 3) + 3; // positions 3,4,5
+      parts.splice(
+        Math.min(injectAt, parts.length),
+        0,
+        buildFeedNewCard(member),
+      );
+    }
+  }
+  c.innerHTML = parts.join("");
 }
-
 
 /* ── Trending in Your Circles ──────────────────────────────────── */
 const STOPWORDS = new Set([
@@ -3296,7 +3346,6 @@ function clearTrendingFilter() {
     }
   }
   c.innerHTML = parts.join("");
-  _initPostCardLinkPreviews();
 }
 
 /* -- VIEW PROFILE (click author name/avatar) ------------------- */
@@ -3374,9 +3423,7 @@ async function renderProfile(viewedUserId = null) {
     showToast("Couldn't load profile. Showing cached info.");
   }
   const name = profileData?.name || currentUser.name;
-  const email = isOwnProfile
-    ? (profileData?.email || currentUser.email)
-    : (profileData?.email || null);
+  const email = profileData?.email || currentUser.email;
   const pic = resolveMediaUrl(
     profileData?.picture || (isOwnProfile ? currentUser.picture : null),
   );
@@ -3386,29 +3433,11 @@ async function renderProfile(viewedUserId = null) {
   // ── Update page title + og meta with real name ──────────
   _setPageTitle(isOwnProfile ? "Your Profile" : name);
 
-  // ── 1. Banner gradient + cover image ────────────────────
+  // ── 1. Banner gradient ──────────────────────────────────
   const bannerGrad = document.getElementById("profile-banner-gradient");
-  const coverImg   = document.getElementById("profile-cover-img");
-  const coverEditBtn = document.getElementById("profile-cover-edit-btn");
-  const coverUrl   = resolveMediaUrl(profileData?.coverImage || null);
-
-  if (coverImg) {
-    if (coverUrl) {
-      coverImg.src = coverUrl;
-      coverImg.style.display = "block";
-      if (bannerGrad) bannerGrad.style.background = "rgba(0,0,0,0.25)";
-    } else {
-      coverImg.style.display = "none";
-      coverImg.src = "";
-      if (bannerGrad) {
-        bannerGrad.style.background = `linear-gradient(135deg, ${color}cc 0%, ${color}55 60%, transparent 100%)`;
-      }
-    }
-  } else if (bannerGrad) {
+  if (bannerGrad) {
     bannerGrad.style.background = `linear-gradient(135deg, ${color}cc 0%, ${color}55 60%, transparent 100%)`;
   }
-
-  if (coverEditBtn) coverEditBtn.style.display = isOwnProfile ? "flex" : "none";
 
   // ── Avatar ──────────────────────────────────────────────
   const av = document.getElementById("profile-av");
@@ -3456,7 +3485,7 @@ async function renderProfile(viewedUserId = null) {
     ? email
     : profileData?.handle
       ? `@${profileData.handle}`
-      : "";
+      : email || "";
   const bio = profileData?.bio || (isOwnProfile ? currentUser.bio || "" : "");
   const bioEl = document.getElementById("profile-bio");
   if (bioEl) {
@@ -3697,7 +3726,7 @@ async function renderProfile(viewedUserId = null) {
       if (!append) {
         c.innerHTML = userPosts.length
           ? userPosts.map((p) => buildPostCard(p, isOwnProfile)).join("")
-          : `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg></div><h3>No posts yet</h3><p>${isOwnProfile ? "Share your first post!" : "Nothing posted yet."}</p></div>`;
+          : `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><h3>No posts yet</h3><p>${isOwnProfile ? "Share your first post!" : "Nothing posted yet."}</p></div>`;
       } else {
         const frag = document.createElement("div");
         frag.innerHTML = userPosts
@@ -3895,13 +3924,13 @@ function buildPostCard(post, showDelete = false) {
   // For no-quote reposts every engagement action targets the original post,
   // so data-post-id must match the original's ID — that's what toggleLike,
   // refreshLikeBtn, renderCommentList etc. all query against.
-  // We keep the repost's own ID in data-repost-id for reference.
+  // We keep the repost's own ID in data-repost-id so undoRepost can find it.
   const _isNoQuoteRepost = post.isRepost && post.originalPost && !post.text;
   const _cardPostId = _isNoQuoteRepost ? post.originalPost.id : post.id;
   const _cardClickId = _isNoQuoteRepost ? post.originalPost.id : post.id;
   const _repostIdAttr = _isNoQuoteRepost ? ` data-repost-id="${post.id}"` : "";
   return `<div class="post-card" data-post-id="${_cardPostId}"${_repostIdAttr} onclick="openPostDetail(event,${_cardClickId})" style="cursor:pointer">
-    ${post.isRepost ? `<div class="echo-strip"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg>${escHtml(post.author || "")} echoed</div>` : ""}
+    ${post.isRepost ? `<div class="repost-strip"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>${escHtml(post.author || "")} reposted</div>` : ""}
     ${
       post.isRepost && !post.text
         ? ""
@@ -3936,7 +3965,7 @@ function buildPostCard(post, showDelete = false) {
             canDelete
               ? `<div class="post-dropdown-divider"></div>
           <button class="post-dropdown-item" onclick="closePostMenu(${post.id});openEditPostModal(${post.id})">
-            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             Edit
           </button>
           <button class="post-dropdown-item danger" onclick="closePostMenu(${post.id});deletePost(${post.id})">
@@ -3972,20 +4001,12 @@ function buildPostCard(post, showDelete = false) {
       ${op.video ? `<div class="post-video-wrap" onclick="event.stopPropagation();openVideoLightbox(this)" data-lb-video="${op.video}" data-lb-name="${escHtml(op.author || "")}" data-lb-picture="${escHtml(op.authorPicture || "")}" data-lb-user-id="${op.userId}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(op.text || "")}" title="Watch video"><video src="${op.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>` : op.image ? `<img class="post-img lb-thumb" src="${op.image}" loading="lazy" data-lb-name="${escHtml(op.author)}" data-lb-picture="${escHtml(op.authorPicture || "")}" data-lb-user-id="${op.userId}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(op.text || "")}" onclick="event.stopPropagation();openLightbox(this)" title="View full image"/>` : ""}`;
           })()
         : post.isRepost && post.originalPost && post.text
-          ? `<div class="echo-embed" style="cursor:pointer" onclick="event.stopPropagation();openOriginalPost(${post.originalPost.id})" title="View original post by ${escHtml(post.originalPost.author || "")}"><div class="echo-embed-name">${escHtml(post.originalPost.author || "")} </div>${post.originalPost.text ? `<div class="echo-embed-text">${escHtml(post.originalPost.text)}</div>` : ""}${post.originalPost.video ? `<div class="post-video-wrap echo-embed-video" onclick="event.stopPropagation();openVideoLightbox(this)" data-lb-video="${post.originalPost.video}" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.originalPost.text || "")}" title="Watch video" style="margin-top:8px"><video src="${post.originalPost.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>` : post.originalPost.image ? `<img class="echo-embed-img lb-thumb" src="${post.originalPost.image}" loading="lazy" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.text || "")}" onclick="event.stopPropagation();openLightbox(this)" title="View full image"/>` : ""}</div>`
+          ? `<div class="repost-embed" style="cursor:pointer" onclick="event.stopPropagation();openOriginalPost(${post.originalPost.id})" title="View original post by ${escHtml(post.originalPost.author || "")}"><div class="repost-embed-name">${escHtml(post.originalPost.author || "")} </div>${post.originalPost.text ? `<div class="repost-embed-text">${escHtml(post.originalPost.text)}</div>` : ""}${post.originalPost.video ? `<div class="post-video-wrap repost-embed-video" onclick="event.stopPropagation();openVideoLightbox(this)" data-lb-video="${post.originalPost.video}" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.originalPost.text || "")}" title="Watch video" style="margin-top:8px"><video src="${post.originalPost.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>` : post.originalPost.image ? `<img class="repost-embed-img lb-thumb" src="${post.originalPost.image}" loading="lazy" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.text || "")}" onclick="event.stopPropagation();openLightbox(this)" title="View full image"/>` : ""}</div>`
           : !post.isRepost && post.video
             ? `<div class="post-video-wrap" onclick="openVideoLightbox(this)" data-lb-video="${post.video}" data-lb-name="${escHtml(post.author)}" data-lb-picture="${escHtml(post.authorPicture || "")}" data-lb-user-id="${post.userId}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.text || "")}" title="Watch video"><video src="${post.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>`
             : !post.isRepost && post.image
               ? `<img class="post-img lb-thumb" src="${post.image}" loading="lazy" data-lb-name="${escHtml(post.author)}" data-lb-picture="${escHtml(post.authorPicture || "")}" data-lb-user-id="${post.userId}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.text || "")}" onclick="openLightbox(this)" title="View full image"/>`
-              : (() => {
-                  // No media — show a link preview card if the post text contains a URL
-                  if (post.isRepost) return "";
-                  const _urlMatch = (post.text || "").match(/(?:https?:\/\/|(?<![/\w])www\.)[^\s]+/);
-                  if (!_urlMatch) return "";
-                  const _rawUrl = _urlMatch[0];
-                  const _previewUrl = _rawUrl.startsWith("www.") ? `https://${_rawUrl}` : _rawUrl;
-                  return `<div class="post-link-preview" data-preview-url="${escHtml(_previewUrl)}" data-post-id-lp="${post.id}"><div class="post-link-preview-loading">Loading preview…</div></div>`;
-                })()
+              : ""
     }
     ${(() => {
       // For a no-quote repost, all actions should target the original post
@@ -4020,7 +4041,15 @@ function buildPostCard(post, showDelete = false) {
           })(targetComments) || ""
         }</span>
       </button>
-      <button class="act-btn repost-btn" onclick="openRepostAsQuote(event,${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg><span>${targetReposts.length || ""}</span></button>
+      <div class="post-menu-wrap" onclick="event.stopPropagation()">
+        <button class="act-btn repost-btn${targetReposted ? " reposted" : ""}" onclick="toggleRepostMenu(event,${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg><span>${targetReposts.length || ""}</span></button>
+        <div class="post-dropdown" id="repost-menu-${targetId}">
+          <button class="post-dropdown-item" id="repost-menu-do-${targetId}" onclick="closeRepostMenu(${targetId});confirmRepost(${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> Repost</button>
+          <button class="post-dropdown-item rp-undo" id="repost-menu-undo-${targetId}" onclick="closeRepostMenu(${targetId});undoRepost(${targetId})" style="display:none"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> Undo repost</button>
+          <div class="post-dropdown-divider"></div>
+          <button class="post-dropdown-item" onclick="closeRepostMenu(${targetId});openQuoteModal(${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Quote</button>
+        </div>
+      </div>
       <span class="act-views" id="views-${targetId}" title="Views">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         <span>${(isNoQuoteRepost ? post.originalPost.views : post.views) ? fmtViews(isNoQuoteRepost ? post.originalPost.views : post.views) : ""}</span>
@@ -4078,32 +4107,6 @@ async function handleProfilePicUpload(event) {
       PostCache.invalidateFeed("global");
       PostCache.invalidateFeed("following");
     } catch (_) {}
-  } catch (e) {
-    showToast("Upload failed: " + e.message);
-  }
-}
-
-async function handleCoverImageUpload(event) {
-  if (!currentUser) { showToast("Log in first."); return; }
-  const file = event.target.files[0];
-  if (!file) return;
-  if (file.size > 100 * 1024 * 1024) { showToast("Image must be under 100 MB."); return; }
-  showToast("Uploading cover…");
-  event.target.value = "";
-  try {
-    let uploadFile = file;
-    try {
-      uploadFile = await compressImage(file, { maxW: 1500, maxH: 500, quality: 0.88 });
-    } catch (err) {
-      console.warn("[Circle] Cover image compression failed, using original:", err);
-    }
-    const fd = new FormData();
-    fd.append("image", uploadFile);
-    const res = await api("PUT", `/api/users/${currentUser.id}/cover`, fd);
-    currentUser.coverImage = resolveMediaUrl(res.data.coverImage);
-    localStorage.setItem("circle_user", JSON.stringify(currentUser));
-    renderProfile();
-    showToast("Cover image updated! 🖼️");
   } catch (e) {
     showToast("Upload failed: " + e.message);
   }
@@ -4590,7 +4593,6 @@ async function _appendSearchResults(data, q) {
     frag.innerHTML = _buildPeopleCards(data, q);
   }
   box.appendChild(frag);
-  _initPostCardLinkPreviews();
 }
 
 function highlight(text, q) {
@@ -4668,7 +4670,6 @@ async function renderSearchResults(data, q) {
   if (searchTab === "posts") {
     await _hydratePostResults(data);
     box.innerHTML = data.map((post) => buildPostCard(post, false)).join("");
-    _initPostCardLinkPreviews();
   } else {
     box.innerHTML = _buildPeopleCards(data, q);
   }
@@ -4727,7 +4728,7 @@ const NOTIF_ICONS = {
   reply: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>`,
   repost: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>`,
   follow: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
-  new_post: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg>`,
+  new_post: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
   profile_pic: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   mention: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 006 0v-1a10 10 0 10-3.92 7.94"/></svg>`,
   milestone: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
@@ -4736,7 +4737,7 @@ const NOTIF_COPY = {
   like: (name) => `<strong>${escHtml(name)}</strong> liked your post`,
   comment: (name) => `<strong>${escHtml(name)}</strong> commented on your post`,
   reply: (name) => `<strong>${escHtml(name)}</strong> replied to your comment`,
-  repost: (name) => `<strong>${escHtml(name)}</strong> echoed your post`,
+  repost: (name) => `<strong>${escHtml(name)}</strong> reposted your post`,
   follow: (name) => `<strong>${escHtml(name)}</strong> started following you`,
   new_post: (name) => `<strong>${escHtml(name)}</strong> published a new post`,
   profile_pic: (name) =>
@@ -5779,7 +5780,6 @@ function renderTrendingList() {
   }
 
   list.innerHTML = items.map((p) => buildPostCard(p, false)).join("");
-  _initPostCardLinkPreviews();
 }
 
 async function loadExploreTrending(force = false) {
@@ -6466,10 +6466,10 @@ function _lbUpdateActions() {
 
   if (repostBtn) {
     if (reposted) {
-      repostBtn.style.background = "none";
+      repostBtn.style.background = "rgba(34,212,143,0.3)";
       repostBtn.style.color = "#22d48f";
     } else {
-      repostBtn.style.background = "none";
+      repostBtn.style.background = "rgba(255,255,255,0.1)";
       repostBtn.style.color = "#fff";
     }
   }
@@ -6875,13 +6875,44 @@ async function lbSubmitReport() {
 /* ── Lightbox repost dropdown ── */
 function lbToggleRepost() {
   if (!_lbPostId || !currentUser) {
-    if (!currentUser) showToast("Log in to Echo.");
+    if (!currentUser) {
+      showToast("Log in to repost.");
+    }
     return;
   }
-  openQuoteModal(_lbPostId);
+  const menu = document.getElementById("lb-repost-menu");
+  if (!menu) return;
+  if (menu.classList.contains("open")) {
+    menu.classList.remove("open");
+    return;
+  }
+  const { targetId, orig } = _resolveRepostTarget(_lbPostId);
+  if (!orig) return;
+  repostTargetId = targetId;
+  const already =
+    Array.isArray(orig.reposts) && orig.reposts.includes(currentUser.id);
+  const doBtn = document.getElementById("lb-rp-do-btn");
+  const undoBtn = document.getElementById("lb-rp-undo-btn");
+  if (doBtn) doBtn.style.display = already ? "none" : "flex";
+  if (undoBtn) undoBtn.style.display = already ? "flex" : "none";
+  menu.classList.add("open");
+  setTimeout(
+    () =>
+      document.addEventListener("click", _lbCloseRepostOutside, { once: true }),
+    0,
+  );
 }
 
-function lbCloseRepost() {} // no-op — menu no longer exists
+function _lbCloseRepostOutside(e) {
+  const menu = document.getElementById("lb-repost-menu");
+  if (menu && !menu.contains(e.target)) menu.classList.remove("open");
+}
+
+function lbCloseRepost() {
+  const menu = document.getElementById("lb-repost-menu");
+  if (menu) menu.classList.remove("open");
+  document.removeEventListener("click", _lbCloseRepostOutside);
+}
 
 /* ── Open (image) ── */
 /* ── Collect all feed media (images + videos) in DOM order ── */
@@ -6889,7 +6920,7 @@ function collectFeedMedia() {
   const items = [];
   document
     .querySelectorAll(
-      ".post-img[data-lb-name], .echo-embed-img[data-lb-name], .post-video-wrap[data-lb-video]",
+      ".post-img[data-lb-name], .repost-embed-img[data-lb-name], .post-video-wrap[data-lb-video]",
     )
     .forEach((el) => {
       if (el.dataset.lbVideo) {
@@ -8720,9 +8751,11 @@ function _populateDialSelects() {
 /*  BOOT*/
 (function boot() {
   PostCache.init(); // hydrate from localStorage
-  // Feed freshness is managed by the 5-min TTL in PostCache.
-  // Invalidating here caused an empty feed flash on refresh because the
-  // feed index was wiped before loadPosts() could paint from cache.
+  // Always fetch fresh posts on page load — invalidate feed page cache
+  // so loadPosts() never serves a stale cached page on boot.
+  // Individual post objects are kept for fast post-detail lookups.
+  PostCache.invalidateFeed("global");
+  PostCache.invalidateFeed("following");
   _populateDialSelects(); // fill country code dropdowns
   DM.init(); // load inbox from backend (no-ops if not logged in)
   applyTheme(localStorage.getItem("circle_theme") || "dark");
@@ -9152,7 +9185,7 @@ function renderPostDetail(post) {
 
   document.getElementById("post-detail-content").innerHTML = `
           <div class="post-detail-card">
-            ${post.isRepost ? `<div class="echo-strip" style="margin-bottom:12px"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" width="14" height="14"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg> ${escHtml(post.author || "")} echoed</div>` : ""}
+            ${post.isRepost ? `<div class="repost-strip" style="margin-bottom:12px"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" width="14" height="14"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> ${escHtml(post.author || "")} reposted</div>` : ""}
             ${
               !(post.isRepost && !post.text)
                 ? `<div class="post-detail-head">
@@ -9162,7 +9195,7 @@ function renderPostDetail(post) {
                 <span class="post-detail-time">${dateStr}</span>
               </div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
-                ${canDelete ? `<button class="post-del" title="Edit post" style="color:var(--accent)" onclick="openEditPostModal(${post.id})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ""}
+                ${canDelete ? `<button class="post-del" title="Edit post" style="color:var(--accent)" onclick="openEditPostModal(${post.id})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>` : ""}
                 ${canDelete ? `<button class="post-del" onclick="deletePost(${post.id})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>` : ""}
                 ${
                   currentUser && currentUser.id !== post.userId
@@ -9202,10 +9235,10 @@ function renderPostDetail(post) {
                       : ""
                 }`;
               } else if (post.isRepost && post.originalPost && post.text) {
-                return `<div class="echo-embed" style="margin-bottom:14px;cursor:pointer" onclick="openOriginalPost(${post.originalPost.id})" title="View original post by ${escHtml(post.originalPost.author || "")}">
-                  <div class="echo-embed-name">${escHtml(post.originalPost.author || "")}</div>
-                  ${post.originalPost.text ? `<div class="echo-embed-text">${escHtml(post.originalPost.text)}</div>` : ""}
-                  ${post.originalPost.video ? `<div class="post-video-wrap echo-embed-video" onclick="event.stopPropagation();openVideoLightbox(this)" data-lb-video="${post.originalPost.video}" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.originalPost.text || "")}" title="Watch video" style="margin-top:8px"><video src="${post.originalPost.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>` : post.originalPost.image ? `<img class="post-detail-img echo-embed-img lb-thumb" src="${post.originalPost.image}" loading="lazy" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.originalPost.text || "")}" onclick="event.stopPropagation();openLightbox(this)" title="View full image"/>` : ""}
+                return `<div class="repost-embed" style="margin-bottom:14px;cursor:pointer" onclick="openOriginalPost(${post.originalPost.id})" title="View original post by ${escHtml(post.originalPost.author || "")}">
+                  <div class="repost-embed-name">${escHtml(post.originalPost.author || "")}</div>
+                  ${post.originalPost.text ? `<div class="repost-embed-text">${escHtml(post.originalPost.text)}</div>` : ""}
+                  ${post.originalPost.video ? `<div class="post-video-wrap repost-embed-video" onclick="event.stopPropagation();openVideoLightbox(this)" data-lb-video="${post.originalPost.video}" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.originalPost.text || "")}" title="Watch video" style="margin-top:8px"><video src="${post.originalPost.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>` : post.originalPost.image ? `<img class="post-detail-img repost-embed-img lb-thumb" src="${post.originalPost.image}" loading="lazy" data-lb-name="${escHtml(post.originalPost.author)}" data-lb-picture="${escHtml(post.originalPost.authorPicture || "")}" data-lb-user-id="${post.originalPost.userId || ""}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.originalPost.text || "")}" onclick="event.stopPropagation();openLightbox(this)" title="View full image"/>` : ""}
                 </div>`;
               } else if (post.video) {
                 return `<div class="post-video-wrap" onclick="openVideoLightbox(this)" data-lb-video="${post.video}" data-lb-name="${escHtml(post.author)}" data-lb-picture="${escHtml(post.authorPicture || "")}" data-lb-user-id="${post.userId}" data-lb-post-id="${post.id}" data-lb-caption="${escHtml(post.text || "")}" title="Watch video"><video src="${post.video}" preload="metadata" playsinline muted></video><div class="post-video-play-btn"><svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="28" fill="rgba(0,0,0,0.45)"/><polygon points="22,16 42,28 22,40" fill="white"/></svg></div></div>`;
@@ -9251,10 +9284,18 @@ function renderPostDetail(post) {
                 <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
                 <span>${_countAllComments(targetComments) || ""}</span>
               </button>
-              <button class="act-btn repost-btn" onclick="openRepostAsQuote(event,${targetId})">
-                  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg>
+              <div class="post-menu-wrap" onclick="event.stopPropagation()">
+                <button class="act-btn repost-btn${targetReposted ? " reposted" : ""}" onclick="toggleRepostMenu(event,${targetId})">
+                  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
                   <span>${targetReposts.length || ""}</span>
-                </button>`;
+                </button>
+                <div class="post-dropdown" id="repost-menu-${targetId}">
+                  <button class="post-dropdown-item" id="repost-menu-do-${targetId}" onclick="closeRepostMenu(${targetId});confirmRepost(${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> Repost</button>
+                  <button class="post-dropdown-item rp-undo" id="repost-menu-undo-${targetId}" onclick="closeRepostMenu(${targetId});undoRepost(${targetId})" style="display:none"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> Undo repost</button>
+                  <div class="post-dropdown-divider"></div>
+                  <button class="post-dropdown-item" onclick="closeRepostMenu(${targetId});openQuoteModal(${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Quote</button>
+                </div>
+              </div>`;
               })()}
             </div>
           </div>`;
@@ -9608,9 +9649,8 @@ let _linkPreviewTimer = null;
 
 function composeTabDetectLink(text) {
   if (_linkPreviewDismissed) return;
-  const match = text.match(/(?:https?:\/\/|(?<![/\w])www\.)[^\s]+/);
-  const rawUrl = match ? match[0] : null;
-  const url = rawUrl && rawUrl.startsWith("www.") ? `https://${rawUrl}` : rawUrl;
+  const match = text.match(/https?:\/\/[^\s]+/);
+  const url = match ? match[0] : null;
   if (url === _linkPreviewUrl) return;
   _linkPreviewUrl = url;
   clearTimeout(_linkPreviewTimer);
@@ -9669,76 +9709,6 @@ function _resetLinkPreview() {
   _linkPreviewDismissed = false;
   clearTimeout(_linkPreviewTimer);
   _hideLinkPreview();
-}
-
-// \u2500\u2500 Post-card link previews \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-// Fetches and renders link preview cards inside post cards that have
-// a URL in their text but no image/video media.
-const _postCardLpCache = {};  // url \u2192 {title,desc,img,domain} | null
-
-function _initPostCardLinkPreviews() {
-  const placeholders = document.querySelectorAll(".post-link-preview[data-preview-url]:not([data-lp-loaded])");
-  if (!placeholders.length) return;
-
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (!entry.isIntersecting) return;
-      const el = entry.target;
-      observer.unobserve(el);
-      _loadPostCardLinkPreview(el);
-    });
-  }, { rootMargin: "200px" });
-
-  placeholders.forEach((el) => observer.observe(el));
-}
-
-async function _loadPostCardLinkPreview(el) {
-  if (el.dataset.lpLoaded) return;
-  el.dataset.lpLoaded = "1";
-  const url = el.dataset.previewUrl;
-  if (!url) { el.style.display = "none"; return; }
-
-  // Cache hit
-  if (_postCardLpCache[url] !== undefined) {
-    _renderPostCardLinkPreview(el, url, _postCardLpCache[url]);
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error("failed");
-    const data = await res.json();
-    const title  = data.title || "";
-    const desc   = data.description || "";
-    const img    = data.image || "";
-    let domain = "";
-    try { domain = new URL(url).hostname.replace(/^www\./, ""); } catch {}
-    if (!title && !desc) {
-      _postCardLpCache[url] = null;
-      el.style.display = "none";
-      return;
-    }
-    const preview = { title, desc, img, domain, url };
-    _postCardLpCache[url] = preview;
-    _renderPostCardLinkPreview(el, url, preview);
-  } catch {
-    _postCardLpCache[url] = null;
-    el.style.display = "none";
-  }
-}
-
-function _renderPostCardLinkPreview(el, url, data) {
-  if (!data) { el.style.display = "none"; return; }
-  const { title, desc, img, domain } = data;
-  el.innerHTML = `
-    <a class="post-link-preview-inner" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">
-      ${img ? `<div class="post-link-preview-img-wrap"><img src="${escHtml(img)}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'"/></div>` : ""}
-      <div class="post-link-preview-body">
-        <span class="compose-link-preview-domain">${escHtml(domain)}</span>
-        <span class="compose-link-preview-title">${escHtml(title)}</span>
-        ${desc ? `<span class="compose-link-preview-desc">${escHtml(desc)}</span>` : ""}
-      </div>
-    </a>`;
 }
 
 function closeComposeTab() {
@@ -10512,7 +10482,7 @@ function _buildGroupCard(group) {
                   ${_fmtNum(group.memberCount)}
                 </span>
                 <span>
-                  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg>
+                  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                   ${_fmtNum(group.postCount)}
                 </span>
               </div>
@@ -10881,7 +10851,7 @@ function _refreshGroupDetailHeader() {
             ${_fmtNum(g.memberCount)} members
           </span>
           <span>
-            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg>
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             ${_fmtNum(g.postCount)} posts / 7d
           </span>`;
 

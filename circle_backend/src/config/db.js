@@ -62,6 +62,14 @@ async function runMigrations() {
       console.log('✅ Added email_verified');
     }
 
+    if (!(await columnExists('users', 'public_key'))) {
+      await db.query(`
+        ALTER TABLE users
+        ADD COLUMN public_key TEXT NULL
+      `);
+      console.log('✅ Added public_key');
+    }
+
     console.log('✅ Database migrations completed');
   } catch (err) {
     console.error('❌ Migration error:', err.message);

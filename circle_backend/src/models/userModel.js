@@ -102,6 +102,17 @@ const UserModel = {
     await db.query("UPDATE users SET cover_image = ? WHERE id = ?", [coverImage, id]);
   },
 
+  // ─── E2E encryption public key (used for encrypted DMs) ───────────────────
+
+  async savePublicKey(id, publicKey) {
+    await db.query("UPDATE users SET public_key = ? WHERE id = ?", [publicKey, id]);
+  },
+
+  async getPublicKey(id) {
+    const [rows] = await db.query("SELECT public_key FROM users WHERE id = ?", [id]);
+    return rows[0]?.public_key || null;
+  },
+
   // ─── Profile (public view) ─────────────────────────────────────────────────
   // NOTE: phone and dateOfBirth are intentionally excluded — private fields.
 

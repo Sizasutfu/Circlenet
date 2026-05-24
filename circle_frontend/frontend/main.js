@@ -604,13 +604,28 @@ const Feed = (() => {
         return;
       }
 
-      // No master posts — full fetch
-      _state.page    = 1;
-      _state.hasMore = true;
-      _state.loading = false;
-      _state.posts   = [];
-      posts = [];
-      _fetchFirstPage();
+      // No master posts — check cache before going blank
+      const cached = PostCache.getFeedPage(tab, 1);
+      if (cached) {
+        _state.posts = cached.posts;
+        posts = _state.posts;
+        if (tab === 'global') _state.masterPosts = [...cached.posts];
+        _state.hasMore = cached.hasMore;
+        _state.page = 2;
+        _state.pageState[tab].page = 2;
+        _state.pageState[tab].hasMore = cached.hasMore;
+        _state.loading = false;
+        _render();
+        _updateSentinel();
+        _backgroundRefresh();
+      } else {
+        _state.page    = 1;
+        _state.hasMore = true;
+        _state.loading = false;
+        _state.posts   = [];
+        posts = [];
+        _fetchFirstPage();
+      }
       loadTrending(true);
     },
 

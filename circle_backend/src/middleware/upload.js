@@ -49,29 +49,56 @@ const upload = multer({
 
 // ── Cloudinary streaming helper ───────────────────────────────
 /**
- * Streams req.file.buffer to Cloudinary.
- * Determines resource_type automatically from mimetype.
- * Attaches the full Cloudinary result to req.file.cloudinary.
+ * Streams every file in req.file (single) or req.files (fields/array)
+ * up to Cloudinary in parallel, attaching the result back onto each
+ * file object as file.cloudinary = { secure_url, public_id, … }.
+ *
+ * Works for upload.single(), upload.array(), and upload.fields().
  */
 function uploadToCloudinary(req, res, next) {
-  // Nothing to upload (optional file field, or GET request)
-  if (!req.file) return next();
+  const folder = process.env.CLOUDINARY_FOLDER || 'circlenet';
 
-  const resourceType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+  // Helper: upload one file object, resolve with the same file object
+  function uploadOne(file) {
+    return new Promise((resolve, reject) => {
+      const resourceType = file.mimetype.startsWith('video/') ? 'video' : 'image';
+      const stream = cloudinary.uploader.upload_stream(
+        { resource_type: resourceType, folder },
+        (error, result) => {
+          if (error) return reject(error);
+          file.cloudinary = result;  // attach result directly onto the file
+          resolve(file);
+        }
+      );
+      streamifier.createReadStream(file.buffer).pipe(stream);
+    });
+  }
 
-  const stream = cloudinary.uploader.upload_stream(
-    {
-      resource_type: resourceType,
-      folder:        process.env.CLOUDINARY_FOLDER || 'circlenet', // organise by app name
-    },
-    (error, result) => {
-      if (error) return next(error);
-      req.file.cloudinary = result;   // { url, secure_url, public_id, … }
-      next();
+  // Collect all files regardless of how multer stored them
+  const uploads = [];
+
+  if (req.file) {
+    // upload.single()
+    uploads.push(uploadOne(req.file));
+  }
+
+  if (req.files) {
+    if (Array.isArray(req.files)) {
+      // upload.array()
+      req.files.forEach(f => uploads.push(uploadOne(f)));
+    } else {
+      // upload.fields() — req.files is { fieldname: [file, …], … }
+      Object.values(req.files).forEach(arr =>
+        arr.forEach(f => uploads.push(uploadOne(f)))
+      );
     }
-  );
+  }
 
-  streamifier.createReadStream(req.file.buffer).pipe(stream);
+  if (!uploads.length) return next();  // no files attached, move on
+
+  Promise.all(uploads)
+    .then(() => next())
+    .catch(next);
 }
 
 // ── Exports ───────────────────────────────────────────────────

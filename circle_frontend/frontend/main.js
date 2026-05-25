@@ -1252,6 +1252,9 @@ window.goTo = function goTo(view, _opts = {}) {
     Feed.saveScroll();
   }
 
+  if (_leavingName === "messages") {
+    DM.stopHeartbeat(); // stop presence heartbeat when leaving DM view
+  }
   if (view === "messages") {
     if (!currentUser) {
       goTo("login");
@@ -1259,6 +1262,7 @@ window.goTo = function goTo(view, _opts = {}) {
     }
     DM.init(); // reload inbox from backend
     DM.clearDMBadge(); // clear notification badge on open
+    DM.startHeartbeat(); // mark user as online as soon as they open Messages
   }
   if (view === "feed") resumeFeed();
   if (view !== "feed") _stopLivePolling();
@@ -7980,6 +7984,7 @@ const DM = (() => {
 
     await _fetchMessages(cid, true);
     _startPolling();
+    _startHeartbeat();   // keep current user's presence alive
     _fetchPresence(cid); // immediate fetch on open
   }
 
@@ -8377,6 +8382,8 @@ const DM = (() => {
     startConvWithUser,
     loadMore: _loadMore,
     getActiveConvId: () => _activeConvId,
+    stopHeartbeat: _stopHeartbeat,
+    startHeartbeat: _startHeartbeat,
     _tonePlay: () => _msgTone.play(),
   };
 })();
@@ -8399,6 +8406,7 @@ function dmSendOnEnter(e) {
   }
 }
 function dmBackToInbox() {
+  DM.stopHeartbeat(); // no longer in an active conversation
   document.getElementById("dm-inbox").classList.remove("hidden-mobile");
   document.getElementById("dm-chat").classList.remove("visible-mobile");
 }

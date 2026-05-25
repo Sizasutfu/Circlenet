@@ -1,4 +1,3 @@
-
 //  models/dmModel.js
 //  All database queries for Direct Messages
 
@@ -297,7 +296,7 @@ async function getPresence(conversationId, requestingUserId) {
   if (!rows.length) return { online: false, last_seen_at: null };
 
   const { last_seen_at, seconds_ago } = rows[0];
-  const online = last_seen_at !== null && seconds_ago !== null && seconds_ago < 90;
+  const online = last_seen_at !== null && seconds_ago !== null && seconds_ago < 75;
 
   // Normalise the datetime string to ISO — append Z so JS parses it as UTC
   let isoString = null;

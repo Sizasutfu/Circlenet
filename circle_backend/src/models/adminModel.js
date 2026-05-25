@@ -99,6 +99,10 @@ async function unsuspendUser(userId) {
   await db.query('UPDATE users SET suspended=0 WHERE id=?', [userId]);
 }
 
+async function updateUserRole(userId, role) {
+  await db.query('UPDATE users SET role=? WHERE id=?', [role, userId]);
+}
+
 async function deleteUser(userId) {
   await db.query('DELETE FROM users WHERE id=? AND role="user"', [userId]);
 }
@@ -181,7 +185,7 @@ async function updateAdminPassword(adminId, hashedPassword) {
 module.exports = {
   findAdminByEmail, createSession, deleteSession,
   getStats, getUserGrowth, getPostsPerDay,
-  getAllUsers, suspendUser, unsuspendUser, deleteUser,
+  getAllUsers, suspendUser, unsuspendUser, updateUserRole, deleteUser,
   getAllPosts, adminDeletePost,
   getReports, createReport, resolveReport, ignoreReport,
   updateAdminPassword,

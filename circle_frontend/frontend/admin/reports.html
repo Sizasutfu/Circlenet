@@ -143,7 +143,7 @@ function reportCard(r) {
     <div class="report-post-preview">
       <div class="report-post-author">Post content:</div>
       ${r.postText ? `<div>${escHtml(r.postText)}</div>` : ''}
-      ${r.postImage ? `<img src="${escHtml(r.postImage)}" style="max-height:120px;border-radius:8px;margin-top:10px;object-fit:cover" loading="lazy" onerror="this.remove()"/>` : ''}
+      ${r.postImage ? `<img src="${escHtml(r.postImage)}" style="max-height:120px;border-radius:8px;margin-top:10px;object-fit:cover;cursor:zoom-in" loading="lazy" onerror="this.remove()" onclick="openMediaViewer('${escHtml(r.postImage)}', ${/\.(mp4|webm|ogg|mov|m4v)(\?|$)/i.test(r.postImage||'') ? "'video'" : "'image'"}, '')"/>` : ''}
     </div>` : '<div class="report-post-preview" style="color:var(--txt3);font-size:13px">Post no longer exists.</div>'}
 
     ${isPending ? `

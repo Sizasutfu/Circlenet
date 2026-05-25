@@ -126,6 +126,50 @@ async function adminLogout() {
   window.location.href = 'index.html';
 }
 
+// ── Media Viewer ───────────────────────────────────────────
+const MEDIA_VIEWER_HTML = `
+<div id="media-viewer" onclick="closeMediaViewer(event)">
+  <div class="media-viewer-inner" id="media-viewer-inner">
+    <button class="media-viewer-close" onclick="event.stopPropagation();closeMediaViewer(null)" title="Close (Esc)">&#x2715;</button>
+    <div id="media-viewer-content"></div>
+    <div class="media-viewer-label" id="media-viewer-label"></div>
+  </div>
+</div>`;
+
+function openMediaViewer(url, type, label) {
+  if (!document.getElementById('media-viewer')) {
+    document.body.insertAdjacentHTML('beforeend', MEDIA_VIEWER_HTML);
+  }
+  const content = document.getElementById('media-viewer-content');
+  const lbl     = document.getElementById('media-viewer-label');
+  if (type === 'video') {
+    content.innerHTML = `<video src="${escHtml(url)}" controls autoplay playsinline></video>`;
+  } else {
+    content.innerHTML = `<img src="${escHtml(url)}" alt="Media preview"/>`;
+  }
+  lbl.textContent = label || '';
+  document.getElementById('media-viewer').classList.add('open');
+  document.addEventListener('keydown', _mvKeyHandler);
+}
+
+function closeMediaViewer(e) {
+  if (e && e.target && e.target.id !== 'media-viewer') return;
+  const mv = document.getElementById('media-viewer');
+  if (!mv) return;
+  mv.classList.remove('open');
+  const vid = mv.querySelector('video');
+  if (vid) { vid.pause(); vid.src = ''; }
+  document.removeEventListener('keydown', _mvKeyHandler);
+}
+
+function _mvKeyHandler(e) {
+  if (e.key === 'Escape') {
+    const mv = document.getElementById('media-viewer');
+    if (mv) { mv.classList.remove('open'); const v = mv.querySelector('video'); if(v){v.pause();v.src='';} }
+    document.removeEventListener('keydown', _mvKeyHandler);
+  }
+}
+
 // ── Helpers ────────────────────────────────────────────────
 function escHtml(s) {
   return String(s ?? '')

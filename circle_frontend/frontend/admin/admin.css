@@ -687,3 +687,87 @@ img { display: block; max-width: 100%; }
   .topbar-search { display: none; }
 }
 .mobile-menu-btn { display: none; }
+
+/* ── Media Lightbox ─────────────────────────────────────── */
+#media-viewer {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.92);
+  backdrop-filter: blur(12px);
+  z-index: 2000;
+  display: none;
+  place-items: center;
+}
+#media-viewer.open { display: grid; }
+
+.media-viewer-inner {
+  position: relative;
+  max-width: min(92vw, 1100px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: mvIn .22s cubic-bezier(.34,1.4,.64,1);
+}
+@keyframes mvIn {
+  from { opacity: 0; transform: scale(.92); }
+  to   { opacity: 1; transform: none; }
+}
+
+#media-viewer img,
+#media-viewer video {
+  max-width: min(92vw, 1100px);
+  max-height: 80vh;
+  border-radius: var(--radius);
+  box-shadow: 0 24px 80px rgba(0,0,0,.8);
+  object-fit: contain;
+  display: block;
+}
+#media-viewer video { background: #000; outline: none; }
+
+.media-viewer-close {
+  position: absolute;
+  top: -44px; right: 0;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.18);
+  color: #fff;
+  font-size: 18px; line-height: 1;
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: background var(--tr);
+}
+.media-viewer-close:hover { background: rgba(255,255,255,.22); }
+
+.media-viewer-label {
+  font-size: 12px; color: rgba(255,255,255,.45);
+  letter-spacing: .04em;
+}
+
+/* Make thumbnails look clickable */
+.post-thumb {
+  cursor: zoom-in;
+  transition: opacity var(--tr), transform var(--tr);
+}
+.post-thumb:hover { opacity: .82; transform: scale(1.04); }
+
+/* Video thumb wrapper */
+.post-media-wrap {
+  position: relative;
+  width: 44px; height: 44px;
+  flex-shrink: 0;
+}
+.post-video-badge {
+  position: absolute;
+  inset: 0;
+  display: grid; place-items: center;
+  background: rgba(0,0,0,.46);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.post-video-badge svg {
+  width: 18px; height: 18px;
+  fill: #fff;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.6));
+}

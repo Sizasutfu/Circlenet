@@ -117,6 +117,29 @@ function renderTable(posts) {
     </table>`;
 }
 
+function isVideo(url) {
+  if (!url) return false;
+  return /\.(mp4|webm|ogg|mov|m4v)(\?|$)/i.test(url);
+}
+
+function mediaCellHtml(url) {
+  if (!url) return '<span style="color:var(--txt3);font-size:12px">—</span>';
+  const vid = isVideo(url);
+  const type = vid ? 'video' : 'image';
+  const thumb = vid
+    ? `<div class="post-media-wrap" onclick="openMediaViewer('${escHtml(url)}','video','Video')" style="cursor:pointer">
+        <video src="${escHtml(url)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block" muted preload="metadata"></video>
+        <div class="post-video-badge"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+       </div>`
+    : `<img class="post-thumb" src="${escHtml(url)}"
+         onclick="openMediaViewer('${escHtml(url)}','image','')"
+         onerror="this.parentElement.innerHTML='<span style=color:var(--txt3);font-size:12px>Error</span>'"
+         loading="lazy"
+         style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border)"/>`;
+  return thumb;
+}
+
+
 function postRow(p) {
   const preview = (p.text || '').slice(0, 80) + ((p.text||'').length > 80 ? '…' : '');
   return `<tr id="post-row-${p.id}">
@@ -131,11 +154,7 @@ function postRow(p) {
       </div>
     </td>
     <td><div class="post-text-cell">${preview ? escHtml(preview) : '<em style="color:var(--txt3)">Image only</em>'}</div></td>
-    <td>
-      ${p.image
-        ? `<img class="post-thumb" src="${escHtml(p.image)}" onerror="this.style.display='none'" loading="lazy"/>`
-        : '<span style="color:var(--txt3);font-size:12px">—</span>'}
-    </td>
+    <td>${mediaCellHtml(p.image)}</td>
     <td>${formatNumber(p.likeCount)}</td>
     <td>${formatNumber(p.commentCount)}</td>
     <td>${formatNumber(p.repostCount)}</td>

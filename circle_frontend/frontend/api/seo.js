@@ -14,9 +14,8 @@ export default async function handler(req, res) {
     return res.status(response.status).send(html);
   }
 
-  // Real user — read index.html from disk and serve it
-  const indexPath = path.join(process.cwd(), 'index.html');
-  const html = fs.readFileSync(indexPath, 'utf-8');
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  return res.status(200).send(html);
+  // Debug: show what files are available
+  const cwd = process.cwd();
+  const files = fs.readdirSync(cwd);
+  return res.status(200).json({ cwd, files });
 }

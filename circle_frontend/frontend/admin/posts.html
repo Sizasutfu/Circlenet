@@ -110,7 +110,7 @@ function renderTable(posts) {
     <table class="data-table">
       <thead>
         <tr><th>ID</th><th>Author</th><th>Content</th><th>Media</th>
-            <th>❤️ Likes</th><th>💬 Comments</th><th>🔁 Reposts</th>
+            <th><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14" height="14" style="display:inline;vertical-align:middle;margin-right:4px;color:#ff5f7a"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>Likes</th><th><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14" height="14" style="display:inline;vertical-align:middle;margin-right:4px;color:#38bdf8"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>Comments</th><th><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14" height="14" style="display:inline;vertical-align:middle;margin-right:4px;color:#22d48f"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>Reposts</th>
             <th>Posted</th><th>Actions</th></tr>
       </thead>
       <tbody>${posts.map(p => postRow(p)).join('')}</tbody>

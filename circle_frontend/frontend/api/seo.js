@@ -5,17 +5,29 @@ const BOT_UA = /googlebot|bingbot|yandexbot|duckduckbot|facebookexternalhit|twit
 
 export default async function handler(req, res) {
   const ua = req.headers['user-agent'] || '';
+  const { type, id, userId } = req.query;
 
   if (BOT_UA.test(ua)) {
-    const backendUrl = `https://circleappapp-production.up.railway.app${req.url}`;
+    const railwayPath = type === 'post'
+      ? `/post/${id}`
+      : `/profile/${userId}`;
+
+    const backendUrl = `https://circleappapp-production.up.railway.app${railwayPath}`;
     const response = await fetch(backendUrl, { headers: { 'user-agent': ua } });
     const html = await response.text();
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(response.status).send(html);
   }
 
-  // Debug: show what files are available
-  const cwd = process.cwd();
-  const files = fs.readdirSync(cwd);
-  return res.status(200).json({ cwd, files });
+  // Real user — read index.html from disk
+  try {
+    const indexPath = path.join(process.cwd(), 'index.html');
+    const html = fs.readFileSync(indexPath, 'utf-8');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(html);
+  } catch (e) {
+    // Debug: show cwd and files if index.html not found
+    const files = fs.readdirSync(process.cwd());
+    return res.status(200).json({ error: e.message, cwd: process.cwd(), files });
+  }
 }

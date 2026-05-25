@@ -1,9 +1,7 @@
 {
   "rewrites": [
-    { "source": "/post/:id",        "destination": "/api/seo?id=:id&type=post" },
-    { "source": "/profile/:userId", "destination": "/api/seo?userId=:userId&type=profile" },
-    { "source": "/sitemap.xml",     "destination": "https://circleappapp-production.up.railway.app/sitemap.xml" },
-    { "source": "/robots.txt",      "destination": "https://circleappapp-production.up.railway.app/robots.txt" },
-    { "source": "/(.*)",            "destination": "/index.html" }
+    { "source": "/sitemap.xml", "destination": "https://circleappapp-production.up.railway.app/sitemap.xml" },
+    { "source": "/robots.txt", "destination": "https://circleappapp-production.up.railway.app/robots.txt" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

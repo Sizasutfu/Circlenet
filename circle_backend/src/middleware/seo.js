@@ -4,12 +4,8 @@
 // How it works:
 //   1. Registers /robots.txt, /sitemap.xml, /post/:id, /profile/:userId
 //   2. For /post and /profile: checks if requester is a known bot
-//   3. Bots → pre-filled HTML with real content baked in (great for Google/social previews)
+//   3. Bots → pre-filled HTML with real content baked in
 //   4. Real users → next() so the SPA index.html loads normally
-//
-// Usage in app.js (AFTER API routes, BEFORE SPA fallback):
-//   const { seoMiddleware } = require('./middleware/seo');
-//   seoMiddleware(app);
 
 const { db } = require('../config/db');
 
@@ -20,10 +16,10 @@ function isBot(req) {
   return BOT_UA.test(req.headers['user-agent'] || '');
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const BASE_URL     = 'https://www.circlenet.social';
+// ── Configuration (from environment) ──────────────────────────────────────────
+const BASE_URL     = process.env.BASE_URL || 'https://www.circlenet.social';
 const DEFAULT_IMG  = `${BASE_URL}/og-image.png`;
-const TWITTER_SITE = '@circlenet'; // update if your handle differs
+const TWITTER_SITE = process.env.TWITTER_SITE || '@circlenet';
 
 // ── Sitemap in-memory cache ───────────────────────────────────────────────────
 let sitemapCache = { xml: null, ts: 0 };
@@ -39,18 +35,32 @@ function esc(str = '') {
     .replace(/'/g, '&#39;');
 }
 
+// Safe truncation that respects multi-byte characters (emojis, etc.)
 function truncate(str = '', len = 155) {
   const s = String(str).replace(/\s+/g, ' ').trim();
-  return s.length > len ? s.slice(0, len - 1) + '…' : s;
+  if (s.length <= len) return s;
+  // Use Array.from to correctly handle Unicode code points
+  const chars = Array.from(s);
+  if (chars.length <= len) return s;
+  return chars.slice(0, len - 1).join('') + '…';
 }
 
-// Resolve relative /uploads/... paths to absolute URLs for og:image.
-// Rejects non-http(s) schemes (e.g. javascript:, data:) to prevent injection.
+// Convert relative /uploads/... paths to absolute URLs for og:image.
+// Rejects non-http(s) schemes and any path containing dangerous characters.
 function toAbsUrl(path) {
   if (!path) return DEFAULT_IMG;
-  if (/^https?:\/\//i.test(path)) return path;
-  if (path.startsWith('/')) return `${BASE_URL}${path}`;
-  return DEFAULT_IMG; // reject anything else (data:, javascript:, etc.)
+  
+  // Already absolute and safe (only our domain)
+  const allowedDomains = [BASE_URL, 'https://www.circlenet.social', 'http://www.circlenet.social'];
+  for (const domain of allowedDomains) {
+    if (path.startsWith(domain)) return path;
+  }
+  
+  // Safe relative path: only alphanumeric, dash, underscore, slash, dot
+  if (/^\/[a-zA-Z0-9\-_/\.]+$/.test(path)) return `${BASE_URL}${path}`;
+  
+  // Fallback to default image
+  return DEFAULT_IMG;
 }
 
 function buildHtml({ title, description, image, url, bodyText }) {
@@ -86,9 +96,15 @@ function buildHtml({ title, description, image, url, bodyText }) {
 </html>`;
 }
 
-// ── DB queries (mysql2 style — same pattern as PostModel.js) ─────────────────
+// Validate numeric ID (positive integer)
+function isValidId(id) {
+  const num = Number(id);
+  return Number.isInteger(num) && num > 0;
+}
+
+// ── DB queries (handles both [rows, fields] and direct rows) ─────────────────
 async function fetchPost(id) {
-  const [rows] = await db.query(
+  const result = await db.query(
     `SELECT p.id,
             p.text,
             p.image,
@@ -102,17 +118,20 @@ async function fetchPost(id) {
      LIMIT  1`,
     [id]
   );
+  // Normalize: if result is an array with [rows, fields], take rows[0]; else if result is array of rows, take first; else null
+  const rows = Array.isArray(result) && result.length > 0 && Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
   return rows[0] || null;
 }
 
 async function fetchUser(userId) {
-  const [rows] = await db.query(
+  const result = await db.query(
     `SELECT id, name, bio, picture
      FROM   users
      WHERE  id = ?
      LIMIT  1`,
     [userId]
   );
+  const rows = Array.isArray(result) && result.length > 0 && Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
   return rows[0] || null;
 }
 
@@ -120,9 +139,16 @@ async function fetchUser(userId) {
 async function handlePost(req, res, next) {
   if (!isBot(req)) return next();
 
+  // Validate ID before query
+  const postId = req.params.id;
+  if (!isValidId(postId)) {
+    res.status(400).send('Invalid post ID');
+    return;
+  }
+
   let post;
   try {
-    post = await fetchPost(req.params.id);
+    post = await fetchPost(postId);
   } catch (err) {
     console.error('[seo] handlePost DB error:', err.message);
     return next();
@@ -139,6 +165,7 @@ async function handlePost(req, res, next) {
   const image       = toAbsUrl(post.image || post.authorPicture);
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=300'); // cache for 5 minutes
   res.send(buildHtml({
     title: `${author} on Circle`,
     description,
@@ -152,9 +179,15 @@ async function handlePost(req, res, next) {
 async function handleProfile(req, res, next) {
   if (!isBot(req)) return next();
 
+  const userId = req.params.userId;
+  if (!isValidId(userId)) {
+    res.status(400).send('Invalid user ID');
+    return;
+  }
+
   let user;
   try {
-    user = await fetchUser(req.params.userId);
+    user = await fetchUser(userId);
   } catch (err) {
     console.error('[seo] handleProfile DB error:', err.message);
     return next();
@@ -171,6 +204,7 @@ async function handleProfile(req, res, next) {
   const image       = toAbsUrl(user.picture);
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=300');
   res.send(buildHtml({
     title: `${name} on Circle`,
     description,
@@ -181,6 +215,13 @@ async function handleProfile(req, res, next) {
 }
 
 // ── Route: /sitemap.xml ───────────────────────────────────────────────────────
+function formatDateForSitemap(d) {
+  if (d == null || d === 0) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return null;
+  return date.toISOString().split('T')[0];
+}
+
 async function handleSitemap(req, res) {
   // Serve from cache if fresh
   if (sitemapCache.xml && Date.now() - sitemapCache.ts < SITEMAP_TTL) {
@@ -190,8 +231,8 @@ async function handleSitemap(req, res) {
   }
 
   try {
-    // db.query returns [rows, fields] — destructure correctly
-    const [[posts], [users]] = await Promise.all([
+    // Execute both queries
+    const [postsResult, usersResult] = await Promise.all([
       db.query(
         `SELECT id, updated_at AS updatedAt
          FROM   posts
@@ -206,16 +247,20 @@ async function handleSitemap(req, res) {
       ),
     ]);
 
-    // Note: the destructuring above assigns `posts = rows` and `users = rows`
-    // because db.query resolves to [rows, fields]. Verify this matches your
-    // mysql2 promise wrapper — if it returns rows directly (not [rows, fields]),
-    // change to: const [posts, users] = await Promise.all([...])
+    // Normalize results (handle both [rows, fields] and direct rows)
+    const normalize = (result) => {
+      if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
+        return result[0];
+      }
+      return Array.isArray(result) ? result : [];
+    };
 
-    const toDate = d => (d ? new Date(d).toISOString().split('T')[0] : null);
+    const posts = normalize(postsResult);
+    const users = normalize(usersResult);
 
-    const urlTags = (items, pathPrefix, priority) =>
-      items.map(row => {
-        const lastmod = toDate(row.updatedAt);
+    const buildUrlTags = (items, pathPrefix, priority) => {
+      return items.map(row => {
+        const lastmod = formatDateForSitemap(row.updatedAt);
         return `
   <url>
     <loc>${BASE_URL}/${pathPrefix}/${row.id}</loc>
@@ -224,6 +269,7 @@ async function handleSitemap(req, res) {
     <priority>${priority}</priority>
   </url>`;
       }).join('');
+    };
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -231,10 +277,9 @@ async function handleSitemap(req, res) {
     <loc>${BASE_URL}/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
-  </url>${urlTags(posts, 'post', '0.6')}${urlTags(users, 'profile', '0.7')}
+  </url>${buildUrlTags(posts, 'post', '0.6')}${buildUrlTags(users, 'profile', '0.7')}
 </urlset>`;
 
-    // Store in cache
     sitemapCache = { xml, ts: Date.now() };
 
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
@@ -259,6 +304,11 @@ Sitemap: ${BASE_URL}/sitemap.xml`
   );
 }
 
+// ── Optional: function to invalidate sitemap cache after content changes ──────
+function invalidateSitemapCache() {
+  sitemapCache = { xml: null, ts: 0 };
+}
+
 // ── Mount all SEO routes ──────────────────────────────────────────────────────
 function seoMiddleware(app) {
   app.get('/robots.txt',      handleRobots);
@@ -267,4 +317,4 @@ function seoMiddleware(app) {
   app.get('/profile/:userId', handleProfile);
 }
 
-module.exports = { seoMiddleware };
+module.exports = { seoMiddleware, invalidateSitemapCache };

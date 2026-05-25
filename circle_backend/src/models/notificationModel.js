@@ -80,6 +80,30 @@ async function createNotification(recipientId, actorId, type, postId = null) {
   }
 }
 
+// ── Create a system notification (no actor — used for admin actions) ──
+async function createSystemNotification(recipientId, type, message) {
+  try {
+    await db.query(
+      `INSERT INTO notifications (recipient_id, actor_id, type, message)
+       VALUES (?, NULL, ?, ?)`,
+      [recipientId, type, message]
+    );
+
+    // Fire push notification (non-blocking)
+    const pushCopy = {
+      report_resolved: { title: 'Report Update ✅', body: message },
+      report_ignored:  { title: 'Report Update ℹ️',  body: message },
+    };
+    const copy = pushCopy[type];
+    if (copy) {
+      sendPushToUser(recipientId, null, copy.title, copy.body, './', {})
+        .catch(err => console.error('push dispatch error:', err.message));
+    }
+  } catch (err) {
+    console.error('createSystemNotification error:', err.message);
+  }
+}
+
 // ── Fetch paginated notifications for a user ──────────────
 async function getNotifications(userId, limit = 10, offset = 0) {
   const [rows] = await db.query(
@@ -128,6 +152,7 @@ async function markOneRead(notifId) {
 
 module.exports = {
   createNotification,
+  createSystemNotification,
   getNotifications,
   getUnreadCount,
   markAllRead,

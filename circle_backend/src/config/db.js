@@ -38,43 +38,13 @@ async function columnExists(table, column) {
  */
 async function runMigrations() {
   try {
-    if (!(await columnExists('users', 'verify_code'))) {
+    if (!(await columnExists('notifications', 'message'))) {
       await db.query(`
-        ALTER TABLE users
-        ADD COLUMN verify_code VARCHAR(6) NULL
+        ALTER TABLE notifications
+        ADD COLUMN message VARCHAR(255) NULL
       `);
-      console.log('✅ Added verify_code');
+      console.log('✅ Added notifications.message');
     }
-
-    if (!(await columnExists('users', 'verify_code_expires'))) {
-      await db.query(`
-        ALTER TABLE users
-        ADD COLUMN verify_code_expires DATETIME NULL
-      `);
-      console.log('✅ Added verify_code_expires');
-    }
-
-    if (!(await columnExists('users', 'email_verified'))) {
-      await db.query(`
-        ALTER TABLE users
-        ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0
-      `);
-      console.log('✅ Added email_verified');
-    }
-
-    if (!(await columnExists('users', 'public_key'))) {
-      await db.query(`
-        ALTER TABLE users
-        ADD COLUMN public_key TEXT NULL
-      `);
-      console.log('✅ Added public_key');
-    }
-
-    // Promote sutfusiza@gmail.com to admin
-    await db.query(`
-      UPDATE users SET role = 'admin' WHERE email = 'sutfusiza@gmail.com'
-    `);
-    console.log('✅ Promoted sutfusiza@gmail.com to admin');
 
     console.log('✅ Database migrations completed');
   } catch (err) {

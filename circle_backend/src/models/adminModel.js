@@ -5,6 +5,7 @@
 
 const { db } = require('../config/db');
 const crypto = require('crypto');
+const { createSystemNotification } = require('./notificationModel');
 
 // ── Auth ───────────────────────────────────────────────────
 
@@ -169,11 +170,31 @@ async function createReport(postId, reporterId, reason) {
 }
 
 async function resolveReport(reportId) {
+  const [[report]] = await db.query(
+    'SELECT reporter_id FROM reports WHERE id=?', [reportId]
+  );
   await db.query("UPDATE reports SET status='resolved' WHERE id=?", [reportId]);
+  if (report) {
+    await createSystemNotification(
+      report.reporter_id,
+      'report_resolved',
+      'Your report has been reviewed and the post was removed. Thanks for keeping Circle safe.'
+    );
+  }
 }
 
 async function ignoreReport(reportId) {
+  const [[report]] = await db.query(
+    'SELECT reporter_id FROM reports WHERE id=?', [reportId]
+  );
   await db.query("UPDATE reports SET status='ignored' WHERE id=?", [reportId]);
+  if (report) {
+    await createSystemNotification(
+      report.reporter_id,
+      'report_ignored',
+      'Your report has been reviewed. Our team decided no action was needed at this time.'
+    );
+  }
 }
 
 // ── Settings ──────────────────────────────────────────────

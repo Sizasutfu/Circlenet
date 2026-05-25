@@ -4746,6 +4746,8 @@ const NOTIF_ICONS = {
   profile_pic: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   mention: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 006 0v-1a10 10 0 10-3.92 7.94"/></svg>`,
   milestone: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  report_resolved: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polyline points="20 6 9 17 4 12"/></svg>`,
+  report_ignored:  `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
 };
 const NOTIF_COPY = {
   like: (name) => `<strong>${escHtml(name)}</strong> liked your post`,
@@ -4759,6 +4761,8 @@ const NOTIF_COPY = {
   mention: (name) =>
     `<strong>${escHtml(name)}</strong> mentioned you in a post`,
   milestone: (name) => `🎉 <strong>${escHtml(name)}</strong>`,
+  report_resolved: () => `<strong>Report resolved</strong>`,
+  report_ignored:  () => `<strong>Report reviewed</strong>`,
 };
 
 async function fetchNotifications(reset = false) {
@@ -4890,18 +4894,25 @@ function _renderNotifPage(items, isFirstPage) {
 }
 
 function _buildNotifItem(n) {
+  const isSystem = !n.actorId;
   const color = stringToColor(n.actorName || "?");
-  const avHtml = n.actorPicture
-    ? `<img src="${n.actorPicture}" alt="${escHtml((n.actorName || "?").charAt(0))}" loading="lazy" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block"/>`
-    : escHtml((n.actorName || "?").charAt(0));
+  const avHtml = isSystem
+    ? `🛡️`
+    : (n.actorPicture
+        ? `<img src="${n.actorPicture}" alt="${escHtml((n.actorName || "?").charAt(0))}" loading="lazy" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block"/>`
+        : escHtml((n.actorName || "?").charAt(0)));
+  const avBg = isSystem ? "var(--accent-bg)" : (n.actorPicture ? "transparent" : color);
   const picThumb =
     n.type === "profile_pic" && n.actorPicture
       ? `<img src="${n.actorPicture}" loading="lazy" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);flex-shrink:0" alt="new pic"/>`
       : "";
+  const notifText = n.message
+    ? escHtml(n.message)
+    : (NOTIF_COPY[n.type] || NOTIF_COPY.like)(n.actorName || "Someone");
   return `<div class="notif-item${n.isRead ? "" : " unread"}" onclick="onNotifClick(${n.id}, ${n.postId || "null"}, '${n.type}', ${n.actorId || "null"})">
-          <div class="av sm" style="background:${n.actorPicture ? "transparent" : color}">${avHtml}</div>
+          <div class="av sm" style="background:${avBg};font-size:${isSystem ? "16px" : ""}">${avHtml}</div>
           <div class="notif-body">
-            <div class="notif-text">${(NOTIF_COPY[n.type] || NOTIF_COPY.like)(n.actorName || "Someone")}</div>
+            <div class="notif-text">${notifText}</div>
             ${n.postSnippet ? `<div class="notif-snippet">"${escHtml(n.postSnippet)}"</div>` : ""}
             <div class="notif-time">${formatTime(n.createdAt)}</div>
           </div>
@@ -4953,6 +4964,14 @@ async function onNotifClick(notifId, postId, type, actorId) {
     /* silent */
   }
   closeNotifPanel();
+
+  // System notifications (no actor) — just mark as read, no navigation
+  if (type === "report_resolved" || type === "report_ignored") {
+    const item = _notifItems.find((n) => n.id === notifId);
+    if (item) { item.isRead = true; _renderNotifPage(_notifItems, true); }
+    updateNotifBadge(_notifItems.filter((n) => !n.isRead).length);
+    return;
+  }
 
   // Smart routing based on notification type
   if (type === "profile_pic" || type === "follow") {

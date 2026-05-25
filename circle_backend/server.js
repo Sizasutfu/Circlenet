@@ -42,7 +42,7 @@ async function start() {
 
     https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Circle API running on https://sizabeats:${PORT} (development)`);
-      console.log(`✅ Phone (same WiFi): https://192.168.10.203:${PORT}`);
+      console.log(`✅ Phone (same WiFi): https://192.168.163.203:${PORT}`);
     });
   }
 }

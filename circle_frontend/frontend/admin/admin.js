@@ -2,8 +2,12 @@
 //  admin/admin.js  –  Shared utilities for all admin pages
 // ============================================================
 
-const API = 'https://sizabeats:5000/api/admin';
+//const API = 'https://sizabeats:5000/api/admin';
 //const API = window.location.origin;
+
+const API = window.location.hostname === 'admin.circlenet.social'
+  ? 'https://circleappapp-production.up.railway.app'
+  : window.location.origin;
 
 // ── Session helpers ────────────────────────────────────────
 function getToken() { return localStorage.getItem('circle_admin_token'); }

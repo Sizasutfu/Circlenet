@@ -4,7 +4,8 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5501',
   'http://127.0.0.1:5501',
   'http://localhost:7700',
-  'https://sizabeats:5000',  // add this
+  'https://sizabeats:5000',
+  'https://192.168.163.203:5000',  
   'https://circle-app-cm8qwkxqp-sizasutfus-projects.vercel.app',
   'https://www.circlenet.social'
 ];

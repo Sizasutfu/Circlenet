@@ -114,6 +114,27 @@ async function unsuspendUser(req, res) {
   }
 }
 
+// PUT /api/admin/users/:id/role
+async function updateUserRole(req, res) {
+  const userId = parseInt(req.params.id);
+  const { role } = req.body;
+
+  if (!['user', 'admin'].includes(role))
+    return sendError(res, 400, 'Role must be "user" or "admin".');
+
+  // Prevent admins from demoting themselves
+  if (userId === req.adminId && role === 'user')
+    return sendError(res, 403, 'You cannot demote yourself.');
+
+  try {
+    await AdminModel.updateUserRole(userId, role);
+    return sendOk(res, 200, `User role updated to ${role}.`);
+  } catch (err) {
+    console.error('updateUserRole error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // DELETE /api/admin/users/:id
 async function deleteUser(req, res) {
   const userId = parseInt(req.params.id);
@@ -245,7 +266,7 @@ async function updatePassword(req, res) {
 module.exports = {
   login, logout,
   getStats, getCharts,
-  getUsers, suspendUser, unsuspendUser, deleteUser,
+  getUsers, suspendUser, unsuspendUser, updateUserRole, deleteUser,
   getPosts, deletePost,
   getReports, createReport, resolveReport, ignoreReport,
   updatePassword,

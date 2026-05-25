@@ -668,7 +668,8 @@ img { display: block; max-width: 100%; }
 .report-post-author {
   font-size: 12px; font-weight: 700; color: var(--txt2); margin-bottom: 6px;
 }
-
+.badge-purple { background: rgba(108,99,255,.15); color: #6c63ff; }
+.badge-grey   { background: var(--bg); color: var(--txt3); }
 /* ── Responsive ─────────────────────────────────────────── */
 @media (max-width: 900px) {
   :root { --sidebar-w: 0px; }

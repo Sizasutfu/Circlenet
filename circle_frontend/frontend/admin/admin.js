@@ -6,7 +6,7 @@
 //const API = window.location.origin;
 
 const API = window.location.hostname === 'admin.circlenet.social'
-  ? 'https://circleappapp-production.up.railway.app'
+  ? 'https://circleappapp-production.up.railway.app/api/admin'
   : window.location.origin;
 
 // ── Session helpers ────────────────────────────────────────

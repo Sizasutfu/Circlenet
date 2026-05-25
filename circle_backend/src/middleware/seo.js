@@ -78,18 +78,6 @@ function buildHtml({ title, description, image, url, bodyText }) {
   <meta name="twitter:title"       content="${esc(title)}" />
   <meta name="twitter:description" content="${esc(description)}" />
   <meta name="twitter:image"       content="${esc(image)}" />
-
-  <!-- Real users: redirect into the SPA. Bots don't run JS so they see the HTML above. -->
-  <script>
-    (function () {
-      var spaRoot = '/';
-      if (window.location.pathname !== spaRoot) {
-        // Re-enter the SPA at the root; the client-side router will handle the URL.
-        // Adjust this if your SPA handles deep links differently (e.g. hash routing).
-        window.location.replace(window.location.href);
-      }
-    })();
-  </script>
 </head>
 <body>
   <h1>${esc(title)}</h1>

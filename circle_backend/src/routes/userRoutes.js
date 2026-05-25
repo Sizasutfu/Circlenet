@@ -73,6 +73,7 @@ router.put('/:id/publickey', requireAuth, async (req, res) => {
 router.put('/:id/picture', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updatePicture);
 router.put('/:id/cover', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updateCoverImage);
 router.put('/:id',         requireAuth, userController.updateProfile);
+router.put('/:id/username', requireAuth, userController.updateUsername);
 
 router.post("/reset-password",         requestPasswordReset);
 router.post("/reset-password/confirm", confirmResetPassword);

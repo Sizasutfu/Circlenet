@@ -46,6 +46,14 @@ async function runMigrations() {
       console.log('✅ Added notifications.message');
     }
 
+    if (!(await columnExists('users', 'username'))) {
+      await db.query(`
+        ALTER TABLE users
+        ADD COLUMN username VARCHAR(25) NULL UNIQUE
+      `);
+      console.log('✅ Added users.username');
+    }
+
     console.log('✅ Database migrations completed');
   } catch (err) {
     console.error('❌ Migration error:', err.message);

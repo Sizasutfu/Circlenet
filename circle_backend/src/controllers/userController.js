@@ -13,6 +13,34 @@ const { sendOk, sendError } = require('../middleware/response');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+// ─── Username generator ────────────────────────────────────────────────────────
+
+/**
+ * Converts a display name to a clean username slug.
+ * "Siza Mndzawe" → "siza_mndzawe"
+ * Appends a random suffix if the username is already taken.
+ */
+async function generateUsername(name) {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, '')   // remove special chars
+    .replace(/\s+/g, '_')           // spaces → underscores
+    .slice(0, 20);                  // max 20 chars
+
+  // Check if base is available
+  if (!(await UserModel.usernameExists(base))) return base;
+
+  // Append random 4-digit suffix until unique
+  let username;
+  do {
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    username = `${base}_${suffix}`.slice(0, 25);
+  } while (await UserModel.usernameExists(username));
+
+  return username;
+}
+
 /**
  * Resolves the stored URL for an uploaded image.
  * Dev  → /uploads/<filename>  (served statically by Express)
@@ -66,11 +94,12 @@ async function register(req, res) {
     if (await UserModel.emailExists(email))
       return sendError(res, 409, 'Email already registered.');
 
-    const hash   = await bcrypt.hash(password, 10);
-    const userId = await UserModel.createUser(name, email, hash);
+    const hash     = await bcrypt.hash(password, 10);
+    const username = await generateUsername(name);
+    const userId   = await UserModel.createUser(name, email, hash, username);
 
     return sendOk(res, 201, 'Registered successfully.', {
-      id: userId, name, email, picture: null, createdAt: new Date(),
+      id: userId, name, email, username, picture: null, createdAt: new Date(),
     });
   } catch (err) {
     console.error('register error:', err);
@@ -251,6 +280,30 @@ async function getNewMembers(req, res) {
   }
 }
 
+// ─── PUT /api/users/:id/username ──────────────────────────────────────────────
+
+async function updateUsername(req, res) {
+  const userId = parseInt(req.params.id);
+  if (req.actorId !== userId) return sendError(res, 403, 'Forbidden.');
+
+  const raw = (req.body.username || '').trim().toLowerCase();
+
+  // Validate: 3–25 chars, letters/numbers/underscores only
+  if (!/^[a-z0-9_]{3,25}$/.test(raw))
+    return sendError(res, 400, 'Username must be 3–25 characters and contain only letters, numbers, or underscores.');
+
+  try {
+    if (await UserModel.usernameExists(raw, userId))
+      return sendError(res, 409, 'Username already taken.');
+
+    await UserModel.updateUsername(userId, raw);
+    return sendOk(res, 200, 'Username updated.', { username: raw });
+  } catch (err) {
+    console.error('updateUsername error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 module.exports = {
   register,
   login,
@@ -258,6 +311,7 @@ module.exports = {
   updatePicture,
   updateCoverImage,
   updateProfile,
+  updateUsername,
   searchUsers,
   getNewMembers,
 };

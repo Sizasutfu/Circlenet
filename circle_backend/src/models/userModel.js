@@ -14,7 +14,7 @@ const UserModel = {
   async findById(id) {
     const [rows] = await db.query(
       `SELECT
-         id, name, email, bio, picture, cover_image AS coverImage,
+         id, name, email, username, bio, picture, cover_image AS coverImage,
          phone, location, school, occupation, website,
          date_of_birth  AS dateOfBirth,
          gender,
@@ -40,10 +40,10 @@ const UserModel = {
 
   // ─── Create ────────────────────────────────────────────────────────────────
 
-  async createUser(name, email, hashedPassword) {
+  async createUser(name, email, hashedPassword, username = null) {
     const [result] = await db.query(
-      "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-      [name, email, hashedPassword]
+      "INSERT INTO users (name, email, password, username) VALUES (?, ?, ?, ?)",
+      [name, email, hashedPassword, username]
     );
     return result.insertId;
   },
@@ -102,6 +102,25 @@ const UserModel = {
     await db.query("UPDATE users SET cover_image = ? WHERE id = ?", [coverImage, id]);
   },
 
+  async usernameExists(username, excludeId = null) {
+    if (excludeId) {
+      const [rows] = await db.query(
+        "SELECT id FROM users WHERE username = ? AND id != ?",
+        [username, excludeId]
+      );
+      return rows.length > 0;
+    }
+    const [rows] = await db.query(
+      "SELECT id FROM users WHERE username = ?",
+      [username]
+    );
+    return rows.length > 0;
+  },
+
+  async updateUsername(id, username) {
+    await db.query("UPDATE users SET username = ? WHERE id = ?", [username, id]);
+  },
+
   // ─── E2E encryption public key (used for encrypted DMs) ───────────────────
 
   async savePublicKey(id, publicKey) {
@@ -119,7 +138,7 @@ const UserModel = {
   async getProfile(targetId, viewerId = null) {
     const [rows] = await db.query(
       `SELECT
-         id, name, bio, picture, cover_image AS coverImage,
+         id, name, username, bio, picture, cover_image AS coverImage,
          location, school, occupation, website, gender
        FROM users WHERE id = ?`,
       [targetId]

@@ -2009,6 +2009,7 @@ function populateSettings() {
     return;
   }
   document.getElementById("settings-name").value = currentUser.name || "";
+  document.getElementById("settings-username").value = currentUser.username || "";
   document.getElementById("settings-email").value = currentUser.email || "";
   document.getElementById("settings-bio").value = currentUser.bio || "";
   document.getElementById("settings-password").value = "";
@@ -2085,6 +2086,15 @@ async function saveProfile() {
   const email = document.getElementById("settings-email").value.trim();
   const bio = document.getElementById("settings-bio").value.trim();
   const password = document.getElementById("settings-password").value;
+  const username = document.getElementById("settings-username").value.trim().toLowerCase();
+
+  // Validate username if changed
+  if (username && username !== (currentUser.username || "")) {
+    if (!/^[a-z0-9_]{3,25}$/.test(username)) {
+      showToast("Username must be 3–25 characters: letters, numbers, underscores only.");
+      return;
+    }
+  }
 
   // Extra fields
   const dialCode = document.getElementById("settings-dial-code").value;
@@ -2137,6 +2147,7 @@ async function saveProfile() {
     });
     const updatedUser = {
       ...res.data,
+      username: username || res.data.username || currentUser.username || null,
       bio: bio || res.data.bio || "",
       picture: resolveMediaUrl(res.data.picture || currentUser.picture) || null,
       phone: phone ?? res.data.phone ?? currentUser.phone ?? null,
@@ -2151,6 +2162,17 @@ async function saveProfile() {
     };
     localStorage.setItem("circle_user", JSON.stringify(updatedUser));
     setCurrentUser(updatedUser);
+
+    // Save username separately if it changed
+    if (username && username !== (currentUser.username || "")) {
+      try {
+        await api("PUT", `/api/users/${currentUser.id}/username`, { username });
+      } catch (e) {
+        showToast("Profile saved but username error: " + e.message);
+        return;
+      }
+    }
+
     showToast("Profile updated! ✅");
     // Post a profile_update activity to the feed
     try {

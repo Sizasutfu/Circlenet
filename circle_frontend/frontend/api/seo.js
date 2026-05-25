@@ -12,7 +12,10 @@ export default async function handler(req, res) {
     return res.status(response.status).send(html);
   }
 
-  // Real user — serve SPA shell
+  // Real user — fetch and serve index.html so the SPA loads at the correct URL
+  const origin = `https://${req.headers.host}`;
+  const response = await fetch(`${origin}/index.html`);
+  const html = await response.text();
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.redirect(302, '/');
+  return res.status(200).send(html);
 }

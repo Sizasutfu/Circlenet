@@ -10,6 +10,7 @@ const PostModel             = require('../models/PostModel');
 const UserModel             = require('../models/userModel');
 const NotificationModel     = require('../models/notificationModel');
 const FollowModel           = require('../models/followModel');
+const PushModel             = require('../models/pushModel');
 const TopicPreferenceModel  = require('../models/TopicPreferenceModel');
 const NegativeSignalModel   = require('../models/NegativeSignalModel');
 const GroupModel            = require('../models/GroupModel');
@@ -142,12 +143,25 @@ async function createPost(req, res) {
     // ── Extract and save hashtags ──────────────────────────────
     await PostModel.savePostTopics(postId, text);
 
-    // ── Notify all followers about the new post ────────────────
+    // ── Notify 20% of followers (in-app + push) ────────────────
     const followerIds = await FollowModel.getFollowerIds(userId);
+
+    const sampled = [...followerIds]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, Math.ceil(followerIds.length * 0.2));
+
     await Promise.all(
-      followerIds.map(fId =>
-        NotificationModel.createNotification(fId, userId, 'new_post', postId)
-      )
+      sampled.map(async fId => {
+        const notif = await NotificationModel.createNotification(fId, userId, 'new_post', postId);
+        await PushModel.sendPushToUser(
+          fId,
+          'new_post',
+          user.name,
+          text ? text.slice(0, 100) : '📷 New post',
+          './',
+          { postId, actorId: userId, notifId: notif?.insertId ?? null }
+        );
+      })
     );
 
     return sendOk(res, 201, 'Posted.', {

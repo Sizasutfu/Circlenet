@@ -1,9 +1,38 @@
 {
   "rewrites": [
-    { "source": "/post/:id", "destination": "/api/seo?id=:id&type=post" },
-    { "source": "/profile/:userId", "destination": "/api/seo?userId=:userId&type=profile" },
-    { "source": "/sitemap.xml", "destination": "https://circleappapp-production.up.railway.app/sitemap.xml" },
-    { "source": "/robots.txt", "destination": "https://circleappapp-production.up.railway.app/robots.txt" },
-    { "source": "/(.*)", "destination": "/frontend/index.html" }
+    {
+      "source": "/post/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(.*)(googlebot|bingbot|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|pinterestbot)(.*)"
+        }
+      ],
+      "destination": "https://circleappapp-production.up.railway.app/post/:id"
+    },
+    {
+      "source": "/profile/:userId",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(.*)(googlebot|bingbot|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|pinterestbot)(.*)"
+        }
+      ],
+      "destination": "https://circleappapp-production.up.railway.app/profile/:userId"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "https://circleappapp-production.up.railway.app/sitemap.xml"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "https://circleappapp-production.up.railway.app/robots.txt"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/frontend/index.html"
+    }
   ]
 }

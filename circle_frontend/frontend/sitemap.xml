@@ -5,8 +5,50 @@
   <url>
     <loc>https://www.circlenet.social/</loc>
     <lastmod>2026-05-24</lastmod>
-    <changefreq>weekly</changefreq>
+    <changefreq>daily</changefreq>
     <priority>1.0</priority>
+  </url>
+
+  <!-- Auth -->
+  <url>
+    <loc>https://www.circlenet.social/login</loc>
+    <lastmod>2026-05-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://www.circlenet.social/register</loc>
+    <lastmod>2026-05-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Discovery -->
+  <url>
+    <loc>https://www.circlenet.social/explore</loc>
+    <lastmod>2026-05-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.circlenet.social/search</loc>
+    <lastmod>2026-05-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Authenticated pages (low SEO value but included for completeness) -->
+  <url>
+    <loc>https://www.circlenet.social/notifications</loc>
+    <lastmod>2026-05-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.circlenet.social/messages</loc>
+    <lastmod>2026-05-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
   </url>
 
 </urlset>

@@ -681,10 +681,93 @@ img { display: block; max-width: 100%; }
   .charts-grid { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .mobile-menu-btn { display: grid !important; }
+
+  /* Table → card layout */
+  .data-table thead { display: none; }
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td { display: block; width: 100%; }
+
+  .data-table tr {
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    position: relative;
+  }
+  .data-table tr:last-child { border-bottom: none; }
+  .data-table tr:hover td { background: transparent; }
+  .data-table tr:hover { background: var(--card-hover); }
+
+  .data-table td {
+    border-bottom: none;
+    padding: 3px 0;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--txt3);
+    min-width: 80px;
+    flex-shrink: 0;
+  }
+  /* Cells with no label (first/avatar cell) */
+  .data-table td[data-label=""]::before,
+  .data-table td:first-child { padding-bottom: 10px; }
+  .data-table td:first-child { font-size: 11px; color: var(--txt3); }
+
+  /* Actions row */
+  .data-table td:last-child {
+    padding-top: 10px;
+    flex-wrap: wrap;
+  }
+  .data-table td:last-child::before { display: none; }
+
+  /* Post text cell — allow wrap on mobile */
+  .post-text-cell {
+    white-space: normal;
+    max-width: 100%;
+    -webkit-line-clamp: 2;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Table header (search bar area) */
+  .table-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+  .search-box { width: 100%; }
+  .search-box input { width: 100%; }
+
+  /* Pagination compact */
+  .pagination {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    font-size: 12px;
+  }
+
+  /* Actions wrap */
+  .actions { flex-wrap: wrap; }
 }
+
 @media (max-width: 560px) {
   .stats-grid { grid-template-columns: 1fr; }
   .topbar-search { display: none; }
+  .content { padding: 14px 12px; }
+
+  .data-table tr { padding: 12px; }
+  .data-table td::before { min-width: 70px; }
 }
 .mobile-menu-btn { display: none; }
 

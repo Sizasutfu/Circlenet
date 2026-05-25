@@ -130,27 +130,27 @@ function userRow(u) {
   const suspended = u.suspended == 1;
   const isAdmin   = u.role === 'admin';
   return `<tr id="user-row-${u.id}">
-    <td style="color:var(--txt3);font-size:12px">#${u.id}</td>
-    <td>
+    <td data-label="" style="color:var(--txt3);font-size:12px">#${u.id}</td>
+    <td data-label="User">
       <div class="user-cell">
         ${avatarHtml(u.picture, u.name)}
         <div class="user-cell-name">${escHtml(u.name)}</div>
       </div>
     </td>
-    <td style="color:var(--txt2)">${escHtml(u.email)}</td>
-    <td>${formatNumber(u.postCount)}</td>
-    <td>${formatNumber(u.followerCount)}</td>
-    <td>
+    <td data-label="Email" style="color:var(--txt2)">${escHtml(u.email)}</td>
+    <td data-label="Posts">${formatNumber(u.postCount)}</td>
+    <td data-label="Followers">${formatNumber(u.followerCount)}</td>
+    <td data-label="Role">
       <span class="badge ${isAdmin ? 'badge-purple' : 'badge-grey'}">
         ${isAdmin ? 'Admin' : 'User'}
       </span>
     </td>
-    <td>
+    <td data-label="Status">
       <span class="badge ${suspended ? 'badge-rose' : 'badge-green'}">
         ${suspended ? 'Suspended' : 'Active'}
       </span>
     </td>
-    <td style="color:var(--txt2);font-size:12px">${formatDate(u.joinDate)}</td>
+    <td data-label="Joined" style="color:var(--txt2);font-size:12px">${formatDate(u.joinDate)}</td>
     <td>
       <div class="actions">
         <button class="btn-action ${isAdmin ? 'danger' : 'success'}"

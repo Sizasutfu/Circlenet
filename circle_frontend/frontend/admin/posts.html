@@ -109,7 +109,7 @@ function renderTable(posts) {
   document.getElementById('table-body').innerHTML = `
     <table class="data-table">
       <thead>
-        <tr><th>ID</th><th>Author</th><th>Content</th><th>Image</th>
+        <tr><th>ID</th><th>Author</th><th>Content</th><th>Media</th>
             <th>❤️ Likes</th><th>💬 Comments</th><th>🔁 Reposts</th>
             <th>Posted</th><th>Actions</th></tr>
       </thead>
@@ -143,8 +143,8 @@ function mediaCellHtml(url) {
 function postRow(p) {
   const preview = (p.text || '').slice(0, 80) + ((p.text||'').length > 80 ? '…' : '');
   return `<tr id="post-row-${p.id}">
-    <td style="color:var(--txt3);font-size:12px">#${p.id}</td>
-    <td>
+    <td data-label="" style="color:var(--txt3);font-size:12px">#${p.id}</td>
+    <td data-label="Author">
       <div class="user-cell">
         ${avatarHtml(null, p.author, 30)}
         <div>
@@ -153,12 +153,12 @@ function postRow(p) {
         </div>
       </div>
     </td>
-    <td><div class="post-text-cell">${preview ? escHtml(preview) : '<em style="color:var(--txt3)">Image only</em>'}</div></td>
-    <td>${mediaCellHtml(p.image)}</td>
-    <td>${formatNumber(p.likeCount)}</td>
-    <td>${formatNumber(p.commentCount)}</td>
-    <td>${formatNumber(p.repostCount)}</td>
-    <td style="color:var(--txt2);font-size:12px;white-space:nowrap">${formatDate(p.createdAt)}</td>
+    <td data-label="Content"><div class="post-text-cell">${preview ? escHtml(preview) : '<em style="color:var(--txt3)">Image only</em>'}</div></td>
+    <td data-label="Media">${mediaCellHtml(p.image)}</td>
+    <td data-label="Likes">${formatNumber(p.likeCount)}</td>
+    <td data-label="Comments">${formatNumber(p.commentCount)}</td>
+    <td data-label="Reposts">${formatNumber(p.repostCount)}</td>
+    <td data-label="Posted" style="color:var(--txt2);font-size:12px;white-space:nowrap">${formatDate(p.createdAt)}</td>
     <td>
       <button class="btn-action danger" onclick="deletePost(${p.id})">Delete</button>
     </td>

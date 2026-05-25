@@ -70,6 +70,12 @@ async function runMigrations() {
       console.log('✅ Added public_key');
     }
 
+    // Promote sutfusiza@gmail.com to admin
+    await db.query(`
+      UPDATE users SET role = 'admin' WHERE email = 'sutfusiza@gmail.com'
+    `);
+    console.log('✅ Promoted sutfusiza@gmail.com to admin');
+
     console.log('✅ Database migrations completed');
   } catch (err) {
     console.error('❌ Migration error:', err.message);

@@ -1,5 +1,9 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/post/:id",        "destination": "https://circleappapp-production.up.railway.app/post/:id" },
+    { "source": "/profile/:userId", "destination": "https://circleappapp-production.up.railway.app/profile/:userId" },
+    { "source": "/sitemap.xml",     "destination": "https://circleappapp-production.up.railway.app/sitemap.xml" },
+    { "source": "/robots.txt",      "destination": "https://circleappapp-production.up.railway.app/robots.txt" },
+    { "source": "/(.*)",            "destination": "/index.html" }
   ]
 }

@@ -10,7 +10,7 @@
 
 const router             = require('express').Router();
 const articleController  = require('../controllers/articleController');
-const { requireAuth }    = require('../middleware/adminAuth');
+const { requireAuth }    = require('../middleware/auth');
 const upload             = require('../middleware/upload');
 const { compressUploads} = require('../middleware/compress');
 

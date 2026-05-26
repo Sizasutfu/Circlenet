@@ -11231,51 +11231,60 @@ const ArticlesFeed = (() => {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // Build one card
-  function _buildCard(art, delay) {
-    const tags = (art.tags || []).slice(0,2);
-    const tagsHTML = tags.map(t => `<span class="art-card-tag">${_esc(t)}</span>`).join('');
-    const cover = art.cover_image || 'https://placehold.co/600x340/111116/7c6bff?text=Article';
-    const likedClass = art.userLiked ? 'liked' : '';
-    const echoedClass = art.userEchoed ? 'echoed' : '';
-    return `
-      <div class="art-card" style="animation-delay:${delay}ms" onclick="ArticlesFeed.openArticle(${art.id})">
-        <img class="art-card-cover lazy" src="${_esc(cover)}" alt="${_esc(art.title)}"/>
-        <div class="art-card-body">
-          <div class="art-card-meta">
-            <span class="art-card-date">${_esc(new Date(art.created_at).toLocaleDateString())}</span>
-            <div class="art-card-tags">${tagsHTML}</div>
+  // Inside ArticlesFeed object (replace the existing _buildCard and related functions)
+
+function _buildCard(art, delay) {
+  const tags = (art.tags || []).slice(0,2);
+  const tagsHTML = tags.map(t => `<span class="art-card-tag">${_esc(t)}</span>`).join('');
+  // Use cover_image (snake_case) or fallback
+  const cover = art.cover_image || 'https://placehold.co/600x340/111116/7c6bff?text=Article';
+  const likedClass = art.userLiked ? 'liked' : '';
+  const echoedClass = art.userEchoed ? 'echoed' : '';
+  // createdAt is snake_case from API
+  const dateStr = art.created_at ? new Date(art.created_at).toLocaleDateString() : '';
+  // Author is a string, authorPicture is separate
+  const authorName = art.author || 'Anonymous';
+  const authorPicture = art.authorPicture || null;
+  const avatarInitial = authorName.charAt(0).toUpperCase();
+  const avatarUrl = authorPicture || `https://placehold.co/56/7c6bff/fff?text=${avatarInitial}`;
+
+  return `
+    <div class="art-card" style="animation-delay:${delay}ms" onclick="ArticlesFeed.openArticle(${art.id})">
+      <img class="art-card-cover lazy" src="${_esc(cover)}" alt="${_esc(art.title)}"/>
+      <div class="art-card-body">
+        <div class="art-card-meta">
+          <span class="art-card-date">${_esc(dateStr)}</span>
+          <div class="art-card-tags">${tagsHTML}</div>
+        </div>
+        <div class="art-card-title">${_esc(art.title)}</div>
+        <div class="art-card-excerpt">${_esc(art.excerpt || (art.content || '').slice(0,120))}</div>
+        <div class="art-card-footer">
+          <div class="art-card-author">
+            <img class="art-card-author-av lazy" src="${_esc(avatarUrl)}" alt="${_esc(avatarInitial)}"/>
+            <span class="art-card-author-name">${_esc(authorName)}</span>
           </div>
-          <div class="art-card-title">${_esc(art.title)}</div>
-          <div class="art-card-excerpt">${_esc(art.excerpt || art.content.slice(0,120))}</div>
-          <div class="art-card-footer">
-            <div class="art-card-author">
-              <img class="art-card-author-av lazy" src="${_esc(art.author?.picture || 'https://placehold.co/56/7c6bff/fff?text='+(art.author?.name?.[0]||'A'))}" alt="${_esc(art.author?.name||'Author')}"/>
-              <span class="art-card-author-name">${_esc(art.author?.name || 'Anonymous')}</span>
-            </div>
-            <div class="art-card-actions" onclick="event.stopPropagation()">
-              <button class="art-act-btn ${likedClass}" onclick="ArticlesFeed.toggleLike(${art.id})">
-                <svg fill="${art.userLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-                </svg>
-                <span>${art.like_count || 0}</span>
-              </button>
-              <button class="art-act-btn ${echoedClass}" onclick="ArticlesFeed.toggleEcho(${art.id})">
-                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/>
-                </svg>
-                <span>${art.echo_count || 0}</span>
-              </button>
-              <button class="art-act-btn" onclick="ArticlesFeed.openArticle(${art.id})">
-                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                <span>${art.comment_count || 0}</span>
-              </button>
-            </div>
+          <div class="art-card-actions" onclick="event.stopPropagation()">
+            <button class="art-act-btn ${likedClass}" onclick="ArticlesFeed.toggleLike(${art.id})">
+              <svg fill="${art.userLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+              </svg>
+              <span>${art.like_count || 0}</span>
+            </button>
+            <button class="art-act-btn ${echoedClass}" onclick="ArticlesFeed.toggleEcho(${art.id})">
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/>
+              </svg>
+              <span>${art.echo_count || 0}</span>
+            </button>
+            <button class="art-act-btn" onclick="ArticlesFeed.openArticle(${art.id})">
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              <span>${art.comment_count || 0}</span>
+            </button>
           </div>
         </div>
-      </div>`;
-  }
-
+      </div>
+    </div>`;
+}
   // Render current page
   function _render() {
     const grid = document.getElementById('art-grid');

@@ -6,7 +6,8 @@
   <title>Article · Circle</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    /* (keep your existing CSS – unchanged) */
+    /* (keep your existing CSS – unchanged from your file, omitted for brevity) */
+    /* Same as your original CSS – I trust you have it; just keep as is */
     :root {
       --radius: 16px;
       --radius-sm: 10px;
@@ -319,7 +320,6 @@
       border: none; cursor: pointer; font-family: var(--font-body);
     }
     .art-replies { margin-left: 20px; margin-top: 8px; }
-    /* Reply banner */
     .reply-to-banner {
       display: none;
       align-items: center;
@@ -341,7 +341,6 @@
       cursor: pointer;
       margin-left: auto;
     }
-    /* Toast */
     #toast {
       position: fixed;
       bottom: 24px;
@@ -512,11 +511,14 @@
     let article = null;
     try {
       const res = await apiCall('GET', `/api/articles/${articleId}`);
+      // API returns { data: { ... } }
       article = res.data;
       document.title = article.title + ' · Circle';
       document.getElementById('blog-title').textContent = article.title;
-      document.getElementById('blog-author').textContent = article.author.name;
-      document.getElementById('blog-date').textContent = new Date(article.created_at).toLocaleDateString();
+      // author is a string, not an object
+      document.getElementById('blog-author').textContent = article.author;
+      // created_at is snake_case
+      document.getElementById('blog-date').textContent = new Date(article.createdAt).toLocaleDateString();
       document.getElementById('blog-content').innerHTML = esc(article.content);
       const tagsEl = document.getElementById('blog-tags');
       (article.tags || []).forEach(t => {
@@ -526,11 +528,13 @@
         tagsEl.appendChild(span);
       });
       const img = document.getElementById('blog-image');
+      // cover_image is snake_case
       if (article.cover_image) img.src = article.cover_image;
       else img.style.display = 'none';
       const av = document.getElementById('blog-author-av');
-      if (article.author.picture) av.src = article.author.picture;
-      else av.src = `https://placehold.co/76/7c6bff/fff?text=${article.author.name.charAt(0)}`;
+      // authorPicture is separate, not article.author.picture
+      if (article.authorPicture) av.src = article.authorPicture;
+      else av.src = `https://placehold.co/76/7c6bff/fff?text=${article.author.charAt(0)}`;
       document.getElementById('react-like-count').textContent = article.like_count;
       document.getElementById('react-echo-count').textContent = article.echo_count;
       if (article.userLiked) document.getElementById('react-like-btn').classList.add('liked');
@@ -635,6 +639,7 @@
       try {
         const tagParam = encodeURIComponent(article.tags[0]);
         const res = await apiCall('GET', `/api/articles?tag=${tagParam}&limit=4`);
+        // API returns { data: { articles: [...] } }
         const allRelated = (res.data.articles || []).filter(a => a.id !== article.id).slice(0, 3);
         const grid = document.getElementById('related-grid');
         if (!allRelated.length) {
@@ -646,7 +651,7 @@
             <img class="art-related-cover" src="${esc(rel.cover_image || 'https://placehold.co/400x240/16161c/7c6bff?text=Article')}" alt="${esc(rel.title)}" onerror="this.src='https://placehold.co/400x240/16161c/7c6bff?text=Article'"/>
             <div class="art-related-body">
               <div class="art-related-card-title">${esc(rel.title)}</div>
-              <div class="art-related-author">${esc(rel.author?.name || 'Anonymous')} · ${new Date(rel.created_at).toLocaleDateString()}</div>
+              <div class="art-related-author">${esc(rel.author)} · ${new Date(rel.created_at).toLocaleDateString()}</div>
             </div>
           </a>
         `).join('');

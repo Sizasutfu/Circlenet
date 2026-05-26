@@ -6,6 +6,7 @@
 const router             = require('express').Router();
 const articleController  = require('../controllers/articleController');
 const { requireAuth }    = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/adminAuth');
 const upload             = require('../middleware/upload');
 const { compressUploads } = require('../middleware/compress');
 
@@ -17,7 +18,7 @@ router.get('/:id',       articleController.getArticleById);
 // ── Write — requires auth ─────────────────────────────────────
 router.post(
   '/',
-  requireAuth,
+  requireAdmin,   // <-- only admins can create articles
   upload.fields([{ name: 'image', maxCount: 1 }]),
   compressUploads,
   articleController.createArticle
@@ -25,13 +26,13 @@ router.post(
 
 router.put(
   '/:id',
-  requireAuth,
+  requireAdmin,   // <-- only admins can update articles
   upload.fields([{ name: 'image', maxCount: 1 }]),
   compressUploads,
   articleController.updateArticle
 );
 
-router.delete('/:id', requireAuth, articleController.deleteArticle);
+router.delete('/:id', requireAdmin, articleController.deleteArticle);  // <-- only admins can delete articles
 
 // ── Interactions — all require auth ───────────────────────────
 router.post('/:id/like',    requireAuth, articleController.toggleLike);

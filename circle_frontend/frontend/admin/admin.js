@@ -4,7 +4,7 @@
 
 const API = window.location.hostname === 'admin.circlenet.social'
   ? 'https://circleappapp-production.up.railway.app/api/admin'
-  : 'https://sizabeats:5000/api/admin';
+  : 'https://circleappapp-production.up.railway.app/api/admin';   // fixed: same production API
 
 // ── Session helpers ────────────────────────────────────────
 function getToken() { return localStorage.getItem('circle_admin_token'); }
@@ -24,7 +24,7 @@ function clearSession() {
 function requireAdminAuth() {
   if (!getToken() || !getAdmin()) {
     clearSession();
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';   // was index.html
     return false;
   }
   return true;
@@ -47,7 +47,7 @@ async function adminApi(method, path, body = null) {
 
   if (res.status === 401) {
     clearSession();
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';   // was index.html
     throw new Error('Session expired. Please log in again.');
   }
   if (!res.ok) throw new Error(data.message || 'Request failed.');
@@ -69,7 +69,7 @@ async function adminApiForm(method, path, formData) {
 
   if (res.status === 401) {
     clearSession();
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';   // was index.html
     throw new Error('Session expired. Please log in again.');
   }
   if (!res.ok) throw new Error(data.message || 'Request failed.');
@@ -140,7 +140,7 @@ function initMobileMenu() {
 async function adminLogout() {
   try { await adminApi('POST', '/logout'); } catch (_) {}
   clearSession();
-  window.location.href = 'index.html';
+  window.location.href = 'login.html';   // was index.html
 }
 
 // ── Media Viewer ───────────────────────────────────────────
@@ -267,7 +267,9 @@ function initAdminPage(activePage) {
   if (!requireAdminAuth()) return;
 
   // Inject modal + toast into DOM
-  document.body.insertAdjacentHTML('beforeend', CONFIRM_MODAL_HTML);
+  if (!document.getElementById('confirm-modal')) {
+    document.body.insertAdjacentHTML('beforeend', CONFIRM_MODAL_HTML);
+  }
 
   // Set active nav link
   setActiveNav(activePage);

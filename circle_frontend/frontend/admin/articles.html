@@ -223,10 +223,12 @@ async function loadArticles() {
   document.getElementById('table-body').innerHTML = '<div class="empty-state"><div class="spinner dark" style="margin:0 auto 12px"></div><p>Loading…</p></div>';
   try {
     const res = await apiGetArticles(`/?page=${currentPage}&limit=${PER_PAGE}&q=${encodeURIComponent(q)}`);
-    const { articles, total } = res.data;
-    document.getElementById('article-count').textContent = `${formatNumber(total)} articles`;
+    const { articles, hasMore } = res.data;
+    const count = articles.length + (currentPage > 1 ? (currentPage - 1) * PER_PAGE : 0);
+    document.getElementById('article-count').textContent = `${formatNumber(articles.length)} articles`;
     renderTable(articles);
-    renderPagination('pagination', currentPage, total, PER_PAGE,
+    // Simple prev/next pagination since API uses cursor-style hasMore
+    renderPagination('pagination', currentPage, hasMore ? (currentPage * PER_PAGE) + 1 : currentPage * PER_PAGE, PER_PAGE,
       `function(p){currentPage=p;loadArticles()}`);
   } catch (e) {
     showToast(e.message, 'error');
@@ -245,7 +247,7 @@ function renderTable(articles) {
   }
   document.getElementById('table-body').innerHTML = `
     <table class="data-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Author</th><th>Tags</th><th>Status</th><th>Created</th><th>Likes</th><th>Echoes</th><th>Actions</th></tr></thead>
+      <thead><tr><th>ID</th><th>Cover</th><th>Title</th><th>Author</th><th>Tags</th><th>Status</th><th>Created</th><th>Likes</th><th>Echoes</th><th>Actions</th></tr></thead>
       <tbody>${articles.map(a => articleRow(a)).join('')}</tbody>
     </table>`;
 }
@@ -254,13 +256,17 @@ function articleRow(a) {
   const statusBadge = a.published ? 'badge-green' : 'badge-grey';
   const statusText = a.published ? 'Published' : 'Draft';
   const tagsHtml = (a.tags || []).slice(0,2).map(t => `<span class="badge badge-purple" style="margin-right:4px">${escHtml(t)}</span>`).join('');
+  const coverHtml = a.coverImage
+    ? `<img src="${escHtml(a.coverImage)}" style="width:48px;height:36px;object-fit:cover;border-radius:4px;display:block"/>`
+    : `<div style="width:48px;height:36px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--txt2)">None</div>`;
   return `<tr id="article-row-${a.id}">
     <td data-label="">#${a.id}</td>
+    <td data-label="Cover">${coverHtml}</td>
     <td data-label="Title"><strong>${escHtml(a.title)}</strong><div class="post-text-cell" style="white-space:normal">${escHtml((a.excerpt || a.content).slice(0,60))}…</div></td>
-    <td data-label="Author">${avatarHtml(null, a.author.name, 28)} ${escHtml(a.author.name)}</td>
+    <td data-label="Author">${avatarHtml(null, a.author, 28)} ${escHtml(a.author)}</td>
     <td data-label="Tags">${tagsHtml || '—'}</td>
     <td data-label="Status"><span class="badge ${statusBadge}">${statusText}</span></td>
-    <td data-label="Created" style="white-space:nowrap">${formatDate(a.created_at)}</td>
+    <td data-label="Created" style="white-space:nowrap">${formatDate(a.createdAt)}</td>
     <td data-label="Likes">${formatNumber(a.like_count)}</td>
     <td data-label="Echoes">${formatNumber(a.echo_count)}</td>
     <td data-label="Actions">
@@ -308,8 +314,8 @@ async function editArticle(id) {
     document.getElementById('article-published').checked = art.published;
     currentTags = [...(art.tags || [])];
     renderTags();
-    if (art.cover_image) {
-      document.getElementById('cover-preview-img').src = art.cover_image;
+    if (art.coverImage) {
+      document.getElementById('cover-preview-img').src = art.coverImage;
       document.getElementById('cover-preview').style.display = 'block';
     } else {
       document.getElementById('cover-preview').style.display = 'none';

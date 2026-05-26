@@ -9,11 +9,10 @@ const NotificationModel   = require('../models/notificationModel');
 const FollowModel         = require('../models/followModel');
 const PushModel           = require('../models/pushModel');
 const { sendOk, sendError } = require('../middleware/response');
-const { db }              = require('../config/db');   // <-- IMPORTANT: added for getAllTags
+const { db }              = require('../config/db');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-// Same helper as postController — dev local path vs prod Cloudinary URL
 function resolveFileUrl(compressed, req) {
   if (!compressed) return { path: null, url: null };
   if (IS_PROD) {
@@ -33,13 +32,12 @@ async function getArticles(req, res) {
   const q     = req.query.q    || null;
 
   try {
-    // ✅ Pass the authenticated user ID so the model can set userLiked / userEchoed
     const result = await ArticleModel.getArticles({
       page,
       limit,
       tag,
       q,
-      userId: req.actorId   // <-- CRITICAL FIX
+      userId: req.actorId || null,
     });
     return sendOk(res, 200, 'Articles fetched.', result);
   } catch (err) {
@@ -54,8 +52,7 @@ async function getArticleById(req, res) {
   if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
 
   try {
-    // ✅ Also pass userId for like/echo status
-    const article = await ArticleModel.findById(id, req.actorId);
+    const article = await ArticleModel.findById(id, req.actorId || null);
     if (!article) return sendError(res, 404, 'Article not found.');
     return sendOk(res, 200, 'Article fetched.', article);
   } catch (err) {
@@ -66,27 +63,208 @@ async function getArticleById(req, res) {
 
 // ── POST /api/articles ───────────────────────────────────────
 async function createArticle(req, res) {
-  // ... (unchanged, keep as is) ...
+  // requireAdmin sets req.adminId and req.adminName
+  const userId   = req.adminId;
+  const userName = req.adminName;
+
+  const { title, excerpt, content, published } = req.body;
+
+  if (!title || !title.trim())
+    return sendError(res, 400, 'Title is required.');
+  if (!content || !content.trim())
+    return sendError(res, 400, 'Content is required.');
+
+  let tags = [];
+  try {
+    tags = req.body.tags ? JSON.parse(req.body.tags) : [];
+    if (!Array.isArray(tags)) tags = [];
+  } catch (err) {
+    console.error('Tag parse error:', err);
+    tags = [];
+  }
+
+  const { path: coverPath, url: coverUrl } = resolveFileUrl(req.compressedFiles?.image, req);
+
+  try {
+    // Fetch the admin's user record from the users table
+    // (admin_sessions joins users, so the admin IS a user row)
+    const user = await UserModel.findById(userId);
+    if (!user) return sendError(res, 404, 'Admin user record not found.');
+
+    const articleId = await ArticleModel.createArticle(userId, {
+      title:      title.trim(),
+      excerpt:    excerpt?.trim() || null,
+      content:    content.trim(),
+      coverImage: coverPath,
+      tags,
+      published:  published === 'true',
+    });
+
+    // Notify followers if published
+    if (published === 'true') {
+      const followerIds = await FollowModel.getFollowerIds(userId);
+      const sampled = [...followerIds]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, Math.ceil(followerIds.length * 0.2));
+
+      await Promise.all(
+        sampled.map(async fId => {
+          const notif = await NotificationModel.createNotification(
+            fId, userId, 'new_article', articleId
+          );
+          await PushModel.sendPushToUser(
+            fId,
+            'new_article',
+            user.name,
+            title.trim().slice(0, 100),
+            './index.html',
+            { articleId, actorId: userId, notifId: notif?.insertId ?? null }
+          );
+        })
+      );
+    }
+
+    return sendOk(res, 201, 'Article created.', {
+      id:            articleId,
+      userId,
+      author:        user.name,
+      authorPicture: user.picture || null,
+      title:         title.trim(),
+      excerpt:       excerpt?.trim() || null,
+      coverImage:    coverUrl,
+      tags,
+      published:     published === 'true',
+      like_count:    0,
+      echo_count:    0,
+      comment_count: 0,
+      created_at:    new Date(),
+    });
+  } catch (err) {
+    console.error('createArticle error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
 // ── PUT /api/articles/:id ────────────────────────────────────
 async function updateArticle(req, res) {
-  // ... (unchanged, keep as is) ...
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
+
+  try {
+    const article = await ArticleModel.findById(id);
+    if (!article) return sendError(res, 404, 'Article not found.');
+
+    // Admins can update any article; ownership check removed for admin routes
+    const { title, excerpt, content, published } = req.body;
+    if (title !== undefined && !title.trim())     return sendError(res, 400, 'Title cannot be empty.');
+    if (content !== undefined && !content.trim()) return sendError(res, 400, 'Content cannot be empty.');
+
+    let tags;
+    if (req.body.tags !== undefined) {
+      try { tags = JSON.parse(req.body.tags); if (!Array.isArray(tags)) tags = []; }
+      catch { tags = []; }
+    }
+
+    const { path: coverPath } = resolveFileUrl(req.compressedFiles?.image, req);
+
+    await ArticleModel.updateArticle(id, {
+      title:      title?.trim(),
+      excerpt:    excerpt?.trim(),
+      content:    content?.trim(),
+      coverImage: coverPath || undefined,
+      tags,
+      published:  published !== undefined ? published === 'true' : undefined,
+    });
+
+    return sendOk(res, 200, 'Article updated.');
+  } catch (err) {
+    console.error('updateArticle error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
 // ── DELETE /api/articles/:id ─────────────────────────────────
 async function deleteArticle(req, res) {
-  // ... (unchanged, keep as is) ...
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
+
+  try {
+    const article = await ArticleModel.findById(id);
+    if (!article) return sendError(res, 404, 'Article not found.');
+
+    // Admins can delete any article; ownership check removed for admin routes
+    await ArticleModel.deleteArticle(id);
+    return sendOk(res, 200, 'Article deleted.');
+  } catch (err) {
+    console.error('deleteArticle error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
-// ── POST /api/articles/:id/like  (toggle) ────────────────────
+// ── POST /api/articles/:id/like ──────────────────────────────
 async function toggleLike(req, res) {
-  // ... (unchanged, keep as is) ...
+  const articleId = parseInt(req.params.id);
+  const userId    = req.actorId;
+  if (isNaN(articleId)) return sendError(res, 400, 'Invalid article ID.');
+
+  try {
+    const article  = await ArticleModel.findById(articleId);
+    if (!article) return sendError(res, 404, 'Article not found.');
+
+    const existing = await ArticleModel.getLike(userId, articleId);
+
+    if (existing) {
+      await ArticleModel.removeLike(userId, articleId);
+      const total = await ArticleModel.getLikeCount(articleId);
+      return sendOk(res, 200, 'Unliked.', { likes: total, liked: false });
+    } else {
+      await ArticleModel.addLike(userId, articleId);
+      const total = await ArticleModel.getLikeCount(articleId);
+
+      if (article.userId !== userId) {
+        await NotificationModel.createNotification(
+          article.userId, userId, 'article_like', articleId
+        );
+      }
+      return sendOk(res, 200, 'Liked.', { likes: total, liked: true });
+    }
+  } catch (err) {
+    console.error('toggleLike error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
-// ── POST /api/articles/:id/echo  (toggle) ────────────────────
+// ── POST /api/articles/:id/echo ──────────────────────────────
 async function toggleEcho(req, res) {
-  // ... (unchanged, keep as is) ...
+  const articleId = parseInt(req.params.id);
+  const userId    = req.actorId;
+  if (isNaN(articleId)) return sendError(res, 400, 'Invalid article ID.');
+
+  try {
+    const article  = await ArticleModel.findById(articleId);
+    if (!article) return sendError(res, 404, 'Article not found.');
+
+    const existing = await ArticleModel.getEcho(userId, articleId);
+
+    if (existing) {
+      await ArticleModel.removeEcho(userId, articleId);
+      const total = await ArticleModel.getEchoCount(articleId);
+      return sendOk(res, 200, 'Echo removed.', { echoes: total, echoed: false });
+    } else {
+      await ArticleModel.addEcho(userId, articleId);
+      const total = await ArticleModel.getEchoCount(articleId);
+
+      if (article.userId !== userId) {
+        await NotificationModel.createNotification(
+          article.userId, userId, 'article_echo', articleId
+        );
+      }
+      return sendOk(res, 200, 'Echoed.', { echoes: total, echoed: true });
+    }
+  } catch (err) {
+    console.error('toggleEcho error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
 // ── GET /api/articles/tags ───────────────────────────────────
@@ -103,10 +281,48 @@ async function getAllTags(req, res) {
 
 // ── POST /api/articles/:id/comment ───────────────────────────
 async function addComment(req, res) {
-  // ... (unchanged, keep as is) ...
+  const articleId = parseInt(req.params.id);
+  const userId    = req.actorId;
+  const { text, parentId } = req.body;
+
+  if (isNaN(articleId))            return sendError(res, 400, 'Invalid article ID.');
+  if (!text || !text.trim())       return sendError(res, 400, 'Comment text is required.');
+  if (text.trim().length > 1000)   return sendError(res, 400, 'Comment too long (max 1000 chars).');
+
+  const parentIdInt = parentId ? parseInt(parentId) : null;
+  if (parentId && isNaN(parentIdInt)) return sendError(res, 400, 'Invalid parentId.');
+
+  try {
+    const article = await ArticleModel.findById(articleId);
+    if (!article) return sendError(res, 404, 'Article not found.');
+
+    const user = await UserModel.findById(userId);
+    if (!user)  return sendError(res, 404, 'User not found.');
+
+    const commentId = await ArticleModel.addComment(articleId, userId, text.trim(), parentIdInt);
+
+    if (article.userId !== userId) {
+      await NotificationModel.createNotification(
+        article.userId, userId, 'article_comment', articleId
+      );
+    }
+
+    return sendOk(res, 201, 'Comment added.', {
+      id:            commentId,
+      userId,
+      parentId:      parentIdInt,
+      author:        user.name,
+      authorPicture: user.picture || null,
+      text:          text.trim(),
+      createdAt:     new Date(),
+      replies:       parentIdInt ? undefined : [],
+    });
+  } catch (err) {
+    console.error('addComment error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
-// ✅ Export all functions including getAllTags
 module.exports = {
   getArticles,
   getArticleById,
@@ -115,6 +331,6 @@ module.exports = {
   deleteArticle,
   toggleLike,
   toggleEcho,
-  getAllTags,     // <-- ADDED
+  getAllTags,
   addComment,
 };

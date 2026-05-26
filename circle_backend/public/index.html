@@ -3,16 +3,74 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Circle — where real connections happen. Share moments, join conversations, and grow your community." />
-    <meta property="og:title" content="Circle" />
-    <meta property="og:description" content="Where real connections happen. Share moments, join conversations, and grow your community." />
+
+    <!-- Primary SEO -->
+    <title>Circle — Where Real Connections Happen</title>
+    <meta name="description" content="Circle is a social platform where you can share moments, join conversations, and grow your community. Sign up free today." />
+    <meta name="keywords" content="social network, social media, connect with friends, community, share moments, circlenet" />
+    <meta name="author" content="Circlenet" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://www.circlenet.social/" />
+
+    <!-- Theme / PWA -->
+    <meta name="theme-color" content="#0f0f13" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Circle" />
+
+    <!-- Open Graph (Facebook, WhatsApp, LinkedIn) -->
+    <meta property="og:title" content="Circle — Where Real Connections Happen" />
+    <meta property="og:description" content="Circle is a social platform where you can share moments, join conversations, and grow your community. Sign up free today." />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Circle" />
-    <meta name="twitter:description" content="Where real connections happen." />
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Circle</title>
+    <meta property="og:url" content="https://www.circlenet.social/" />
+    <meta property="og:image" content="https://www.circlenet.social/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Circle — Where Real Connections Happen" />
+    <meta property="og:site_name" content="Circle" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@circlenet" />
+    <meta name="twitter:title" content="Circle — Where Real Connections Happen" />
+    <meta name="twitter:description" content="Circle is a social platform where you can share moments, join conversations, and grow your community. Sign up free today." />
+    <meta name="twitter:image" content="https://www.circlenet.social/og-image.png" />
+    <meta name="twitter:image:alt" content="Circle — Where Real Connections Happen" />
+
+    <!-- Pinterest domain verify -->
+    <meta name="p:domain_verify" content="9746eace80e331c238843561c7072a2e" />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Circle",
+      "alternateName": "Circlenet",
+      "url": "https://www.circlenet.social/",
+      "description": "Circle is a social platform where you can share moments, join conversations, and grow your community.",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://www.circlenet.social/?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Circlenet",
+      "url": "https://www.circlenet.social/",
+      "logo": "https://www.circlenet.social/icon.svg",
+      "sameAs": []
+    }
+    </script>
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icon.svg" />
     <link rel="manifest" href="manifest.json" />
@@ -806,30 +864,59 @@
 
                 <!-- Email registration method -->
                 <div id="reg-email-method">
-                  <div class="field">
-                    <label>Full Name</label>
-                    <input type="text" id="reg-name" placeholder="Jane Doe" autocomplete="name" onkeydown="if(event.key==='Enter')document.getElementById('reg-email').focus()"/>
+
+                  <!-- Step 1: registration form -->
+                  <div class="phone-step active" id="reg-email-step1">
+                    <div class="field">
+                      <label>Full Name</label>
+                      <input type="text" id="reg-name" placeholder="Jane Doe" autocomplete="name" onkeydown="if(event.key==='Enter')document.getElementById('reg-email').focus()"/>
+                    </div>
+                    <div class="field">
+                      <label>Email</label>
+                      <input type="email" id="reg-email" placeholder="jane@example.com"/>
+                    </div>
+                    <div class="field">
+                      <label>Phone <span style="color:var(--txt3);font-weight:400;text-transform:none;font-size:11px">(optional — for SMS login later)</span></label>
+                      <div class="phone-input-wrap">
+                        <select class="phone-dial-select" id="reg-dial-code"></select>
+                        <input class="phone-number-input" type="tel" id="reg-phone" placeholder="712 345 678" inputmode="numeric"/>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label>Password</label>
+                      <div class="pw-wrap"><input type="password" id="reg-password" placeholder="Min. 6 characters" autocomplete="new-password" onkeydown="if(event.key==='Enter')document.getElementById('reg-confirm-password').focus()"/><button type="button" class="pw-toggle" onclick="togglePw('reg-password',this)" tabindex="-1" aria-label="Show password"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+                    </div>
+                    <div class="field">
+                      <label>Confirm Password</label>
+                      <div class="pw-wrap"><input type="password" id="reg-confirm-password" placeholder="Repeat your password" autocomplete="new-password" onkeydown="if(event.key==='Enter')registerUser()"/><button type="button" class="pw-toggle" onclick="togglePw('reg-confirm-password',this)" tabindex="-1" aria-label="Show password"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+                    </div>
+                    <button class="btn btn-primary btn-full" id="reg-email-submit-btn" onclick="registerUser()">Create Account</button>
                   </div>
-                  <div class="field">
-                    <label>Email</label>
-                    <input type="email" id="reg-email" placeholder="jane@example.com"/>
-                  </div>
-                  <div class="field">
-                    <label>Phone <span style="color:var(--txt3);font-weight:400;text-transform:none;font-size:11px">(optional — for SMS login later)</span></label>
-                    <div class="phone-input-wrap">
-                      <select class="phone-dial-select" id="reg-dial-code"></select>
-                      <input class="phone-number-input" type="tel" id="reg-phone" placeholder="712 345 678" inputmode="numeric"/>
+
+                  <!-- Step 2: email OTP verification -->
+                  <div class="phone-step" id="reg-email-step2">
+                    <div class="otp-sent-info">
+                      We sent a 6-digit code to<br/>
+                      <strong id="reg-email-display"></strong><br/>
+                      <span style="color:var(--txt3);font-size:12px">Check your inbox (and spam folder)</span>
+                    </div>
+                    <div class="otp-group" id="email-verify-otp-group">
+                      <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" oninput="otpInput(this,'email-verify')" onkeydown="otpKeydown(event,this,'email-verify')" onpaste="otpPaste(event,'email-verify')"/>
+                      <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" oninput="otpInput(this,'email-verify')" onkeydown="otpKeydown(event,this,'email-verify')" onpaste="otpPaste(event,'email-verify')"/>
+                      <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" oninput="otpInput(this,'email-verify')" onkeydown="otpKeydown(event,this,'email-verify')" onpaste="otpPaste(event,'email-verify')"/>
+                      <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" oninput="otpInput(this,'email-verify')" onkeydown="otpKeydown(event,this,'email-verify')" onpaste="otpPaste(event,'email-verify')"/>
+                      <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" oninput="otpInput(this,'email-verify')" onkeydown="otpKeydown(event,this,'email-verify')" onpaste="otpPaste(event,'email-verify')"/>
+                      <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" oninput="otpInput(this,'email-verify')" onkeydown="otpKeydown(event,this,'email-verify')" onpaste="otpPaste(event,'email-verify')"/>
+                    </div>
+                    <button class="btn btn-primary btn-full" onclick="emailVerifyOtp()" id="email-verify-btn">Verify Email</button>
+                    <div class="otp-resend-row">
+                      <button onclick="emailResendCode()" id="email-verify-resend-btn" disabled>Resend code <span class="otp-timer" id="email-verify-otp-timer">(60s)</span></button>
+                    </div>
+                    <div class="auth-switch" style="margin-top:10px">
+                      <button onclick="emailVerifyBack()">← Use a different email</button>
                     </div>
                   </div>
-                  <div class="field">
-                    <label>Password</label>
-                    <div class="pw-wrap"><input type="password" id="reg-password" placeholder="Min. 6 characters" autocomplete="new-password" onkeydown="if(event.key==='Enter')document.getElementById('reg-confirm-password').focus()"/><button type="button" class="pw-toggle" onclick="togglePw('reg-password',this)" tabindex="-1" aria-label="Show password"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
-                  </div>
-                  <div class="field">
-                    <label>Confirm Password</label>
-                    <div class="pw-wrap"><input type="password" id="reg-confirm-password" placeholder="Repeat your password" autocomplete="new-password" onkeydown="if(event.key==='Enter')registerUser()"/><button type="button" class="pw-toggle" onclick="togglePw('reg-confirm-password',this)" tabindex="-1" aria-label="Show password"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
-                  </div>
-                  <button class="btn btn-primary btn-full" onclick="registerUser()">Create Account</button>
+
                 </div>
 
                 <!-- Phone registration method -->
@@ -995,6 +1082,20 @@
                     id="settings-name"
                     placeholder="Your name"
                   />
+                </div>
+                <div class="field">
+                  <label>Username</label>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="color:var(--txt3);font-size:15px">@</span>
+                    <input
+                      type="text"
+                      id="settings-username"
+                      placeholder="your_username"
+                      style="flex:1"
+                      maxlength="25"
+                    />
+                  </div>
+                  <div id="username-hint" style="font-size:12px;color:var(--txt3);margin-top:4px">3–25 characters. Letters, numbers, underscores only.</div>
                 </div>
                 <div class="field">
                   <label>Bio</label>

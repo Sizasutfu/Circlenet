@@ -38,6 +38,7 @@ const pushRoutes           = require('./routes/pushRoutes');
 const groupRoutes          = require('./routes/groupsRoutes');
 const phoneAuthRoutes      = require('./routes/phoneAuthRoutes');
 const linkPreviewRoutes    = require('./routes/linkpreviewRoutes');
+const articleRoutes        = require('./routes/articleRoutes');
 
 // authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
@@ -92,7 +93,7 @@ app.use('/api/topics',          topicRoutes);
 app.use('/api/push',            pushRoutes);
 app.use('/api/groups',          groupRoutes);
 app.use('/api/link-preview',    linkPreviewRoutes);
-
+app.use('/api/articles',        articleRoutes);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 

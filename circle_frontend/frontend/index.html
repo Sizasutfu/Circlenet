@@ -146,6 +146,12 @@
             </svg>
             <span class="nav-label">Groups</span>
           </div>
+          <div class="nav-item" onclick="goTo('articles')" id="snav-articles">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M4 4h16v4H4z"/><path d="M4 12h10"/><path d="M4 16h7"/><rect x="14" y="11" width="6" height="9" rx="1"/>
+            </svg>
+            <span class="nav-label">Articles</span>
+          </div>
           <div class="nav-item" onclick="openNotifPanel()" id="snav-notif">
             <svg
               fill="none"
@@ -503,6 +509,57 @@
               <div class="group-skel-card"><div class="group-skel-cover"></div><div class="group-skel-body"><div class="group-skel-line w-60"></div><div class="group-skel-line w-80"></div><div class="group-skel-btn"></div></div></div>
             </div>
             <button class="groups-load-more" id="groups-load-more" style="display:none" onclick="loadMoreGroups()">Load more groups</button>
+          </div>
+
+          <!-- ARTICLES -->
+          <div class="view" id="view-articles">
+            <!-- Header -->
+            <div class="page-header" style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--border)">
+              <button class="back-btn" onclick="goBack()" id="back-btn-articles">
+                <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <div>
+                <h1 style="font-size:22px;font-weight:700;letter-spacing:-0.3px">Articles</h1>
+                <p style="font-size:12.5px;margin-top:3px;color:var(--txt2);letter-spacing:0.01em">In-depth reads from the Circle community</p>
+              </div>
+            </div>
+
+            <!-- Search + Tag filter -->
+            <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+              <div style="flex:1;min-width:180px;position:relative">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"
+                  style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input id="art-search" type="text" placeholder="Search articles…"
+                  oninput="ArticlesFeed.search(this.value)"
+                  style="width:100%;padding:9px 12px 9px 36px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13.5px;color:var(--txt);outline:none;transition:border-color .15s;"
+                  onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
+              </div>
+              <select id="art-tag-filter" onchange="ArticlesFeed.filterTag(this.value)"
+                style="padding:9px 12px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13.5px;color:var(--txt);outline:none;min-width:130px;cursor:pointer">
+                <option value="">All Topics</option>
+              </select>
+            </div>
+
+            <!-- Top category pills -->
+            <div id="art-category-pills" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px"></div>
+
+            <!-- Article grid -->
+            <div id="art-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
+
+            <!-- Pagination -->
+            <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:28px;padding-bottom:8px">
+              <button id="art-prev-btn" onclick="ArticlesFeed.prevPage()" disabled
+                style="padding:8px 18px;border-radius:var(--radius-sm);background:var(--accent);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;opacity:0.4;transition:opacity .2s">
+                ← Prev
+              </button>
+              <span id="art-page-info" style="font-size:13px;color:var(--txt2);font-weight:500">Page 1 of 1</span>
+              <button id="art-next-btn" onclick="ArticlesFeed.nextPage()" disabled
+                style="padding:8px 18px;border-radius:var(--radius-sm);background:var(--accent);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;opacity:0.4;transition:opacity .2s">
+                Next →
+              </button>
+            </div>
           </div>
 
           <!-- GROUP DETAIL -->

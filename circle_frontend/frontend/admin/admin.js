@@ -2,9 +2,6 @@
 //  admin/admin.js  –  Shared utilities for all admin pages
 // ============================================================
 
-//const API = 'https://sizabeats:5000/api/admin';
-//const API = window.location.origin;
-
 const API = window.location.hostname === 'admin.circlenet.social'
   ? 'https://circleappapp-production.up.railway.app/api/admin'
   : 'https://sizabeats:5000/api/admin';
@@ -33,7 +30,8 @@ function requireAdminAuth() {
   return true;
 }
 
-// ── API wrapper ────────────────────────────────────────────
+// ── API wrappers ────────────────────────────────────────────
+// For JSON requests
 async function adminApi(method, path, body = null) {
   const opts = {
     method,
@@ -47,13 +45,33 @@ async function adminApi(method, path, body = null) {
   const res  = await fetch(API + path, opts);
   const data = await res.json();
 
-  // Token expired or invalid — force logout
   if (res.status === 401) {
     clearSession();
     window.location.href = 'index.html';
     throw new Error('Session expired. Please log in again.');
   }
+  if (!res.ok) throw new Error(data.message || 'Request failed.');
+  return data;
+}
 
+// For multipart/form-data (file uploads)
+async function adminApiForm(method, path, formData) {
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+    },
+    body: formData,
+  };
+
+  const res  = await fetch(API + path, opts);
+  const data = await res.json();
+
+  if (res.status === 401) {
+    clearSession();
+    window.location.href = 'index.html';
+    throw new Error('Session expired. Please log in again.');
+  }
   if (!res.ok) throw new Error(data.message || 'Request failed.');
   return data;
 }
@@ -97,7 +115,6 @@ function setActiveNav(page) {
 }
 
 // ── Populate admin name in sidebar ────────────────────────
-// Uses data saved to localStorage on login — no extra API call needed
 function populateAdminInfo() {
   const admin = getAdmin();
   if (!admin) return;
@@ -165,12 +182,39 @@ function closeMediaViewer(e) {
 function _mvKeyHandler(e) {
   if (e.key === 'Escape') {
     const mv = document.getElementById('media-viewer');
-    if (mv) { mv.classList.remove('open'); const v = mv.querySelector('video'); if(v){v.pause();v.src='';} }
+    if (mv) {
+      mv.classList.remove('open');
+      const v = mv.querySelector('video');
+      if (v) { v.pause(); v.src = ''; }
+    }
     document.removeEventListener('keydown', _mvKeyHandler);
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────
+// ── Pagination renderer ────────────────────────────────────
+function renderPagination(containerId, current, total, perPage, onPageChange) {
+  const totalPages = Math.ceil(total / perPage);
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const from = total === 0 ? 0 : (current - 1) * perPage + 1;
+  const to   = Math.min(current * perPage, total);
+
+  el.innerHTML = `
+    <span>Showing ${from}–${to} of ${formatNumber(total)}</span>
+    <div class="pagination-btns">
+      <button class="page-btn" onclick="(${onPageChange})(${current - 1})"
+        ${current <= 1 ? 'disabled' : ''}>‹</button>
+      ${Array.from({ length: totalPages }, (_, i) => i + 1)
+        .filter(p => Math.abs(p - current) <= 2)
+        .map(p => `<button class="page-btn ${p === current ? 'active' : ''}"
+          onclick="(${onPageChange})(${p})">${p}</button>`).join('')}
+      <button class="page-btn" onclick="(${onPageChange})(${current + 1})"
+        ${current >= totalPages ? 'disabled' : ''}>›</button>
+    </div>`;
+}
+
+// ── HTML & formatting helpers ──────────────────────────────
 function escHtml(s) {
   return String(s ?? '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -204,29 +248,6 @@ function avatarHtml(picture, name, size = 34) {
   return `<div class="user-cell-av" style="width:${size}px;height:${size}px;background:${bg};font-size:${Math.floor(size*0.38)}px">${initial}</div>`;
 }
 
-// ── Pagination renderer ────────────────────────────────────
-function renderPagination(containerId, current, total, perPage, onPageChange) {
-  const totalPages = Math.ceil(total / perPage);
-  const el = document.getElementById(containerId);
-  if (!el) return;
-
-  const from = total === 0 ? 0 : (current - 1) * perPage + 1;
-  const to   = Math.min(current * perPage, total);
-
-  el.innerHTML = `
-    <span>Showing ${from}–${to} of ${formatNumber(total)}</span>
-    <div class="pagination-btns">
-      <button class="page-btn" onclick="(${onPageChange})(${current - 1})"
-        ${current <= 1 ? 'disabled' : ''}>‹</button>
-      ${Array.from({ length: totalPages }, (_, i) => i + 1)
-        .filter(p => Math.abs(p - current) <= 2)
-        .map(p => `<button class="page-btn ${p === current ? 'active' : ''}"
-          onclick="(${onPageChange})(${p})">${p}</button>`).join('')}
-      <button class="page-btn" onclick="(${onPageChange})(${current + 1})"
-        ${current >= totalPages ? 'disabled' : ''}>›</button>
-    </div>`;
-}
-
 // ── Confirm modal HTML (injected once per page) ────────────
 const CONFIRM_MODAL_HTML = `
 <div class="modal-backdrop" id="confirm-modal">
@@ -243,22 +264,21 @@ const CONFIRM_MODAL_HTML = `
 
 // ── Init — call once at the top of every protected page ───
 function initAdminPage(activePage) {
-  // 1. Guard — redirect to login if no valid session
   if (!requireAdminAuth()) return;
 
-  // 2. Inject modal + toast into DOM
+  // Inject modal + toast into DOM
   document.body.insertAdjacentHTML('beforeend', CONFIRM_MODAL_HTML);
 
-  // 3. Set active nav link
+  // Set active nav link
   setActiveNav(activePage);
 
-  // 4. Fill admin name/avatar from localStorage (no API call needed)
+  // Fill admin name/avatar from localStorage
   populateAdminInfo();
 
-  // 5. Mobile menu
+  // Mobile menu
   initMobileMenu();
 
-  // 6. Escape key closes confirm modal
+  // Escape key closes confirm modal
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') _closeConfirm(false);
   });

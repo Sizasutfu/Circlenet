@@ -43,7 +43,7 @@
     },
     {
       "source": "/articles/:slug",
-      "destination": "/circle_frontend/frontend/full_blog.html"
+      "destination": "/full_blog.html"
     },
     {
       "source": "/(.*)",

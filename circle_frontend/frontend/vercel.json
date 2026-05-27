@@ -31,8 +31,23 @@
       "destination": "https://circleappapp-production.up.railway.app/robots.txt"
     },
     {
+      "source": "/articles/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(.*)(googlebot|bingbot|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|pinterestbot)(.*)"
+        }
+      ],
+      "destination": "https://circleappapp-production.up.railway.app/articles/:slug"
+    },
+    {
+      "source": "/articles/:slug",
+      "destination": "/circle_frontend/frontend/full_blog.html"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/circle_frontend/frontend"
+      "destination": "/index.html"
     }
   ]
 }

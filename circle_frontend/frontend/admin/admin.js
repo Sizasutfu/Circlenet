@@ -4,7 +4,7 @@
 
 const API = window.location.hostname === 'admin.circlenet.social'
   ? 'https://circleappapp-production.up.railway.app/api/admin'
-  : 'https://circleappapp-production.up.railway.app/api/admin';   // fixed: same production API
+  : 'https://sizabeats:5000/api/admin';   // fixed: same production API
 
 // ── Session helpers ────────────────────────────────────────
 function getToken() { return localStorage.getItem('circle_admin_token'); }

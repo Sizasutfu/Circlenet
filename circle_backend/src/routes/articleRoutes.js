@@ -12,7 +12,8 @@ const { compressUploads } = require('../middleware/compress');
 
 // ── Read — public ─────────────────────────────────────────────
 router.get('/',          articleController.getArticles);
-router.get('/tags',      articleController.getAllTags);       // added
+router.get('/tags',           articleController.getAllTags);
+router.get('/by-slug/:slug',  articleController.getArticleBySlug);  // must be before /:id
 router.get('/:id',       articleController.getArticleById);
 
 // ── Write — requires auth ─────────────────────────────────────

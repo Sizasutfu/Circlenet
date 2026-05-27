@@ -113,6 +113,7 @@ async function getArticles({ page = 1, limit = 6, tag = null, q = null } = {}) {
        a.excerpt,
        a.content,
        a.cover_image     AS coverImage,
+       a.slug,
        a.published,
        a.created_at      AS createdAt
      FROM articles a
@@ -156,6 +157,7 @@ async function findById(id) {
        a.excerpt,
        a.content,
        a.cover_image     AS coverImage,
+       a.slug,
        a.published,
        a.created_at      AS createdAt
      FROM articles a
@@ -174,6 +176,37 @@ async function findById(id) {
 
   const [hydrated] = await hydrateArticles(rows);
   return hydrated;
+}
+
+ async function findBySlug(slug, userId = null) {
+  const [rows] = await db.query(
+    `SELECT a.*,
+            u.name        AS author,
+            u.picture     AS authorPicture,
+            GROUP_CONCAT(DISTINCT at.tag) AS tags,
+            COUNT(DISTINCT al.id)         AS like_count,
+            COUNT(DISTINCT ae.id)         AS echo_count,
+            COUNT(DISTINCT ac.id)         AS comment_count,
+            MAX(CASE WHEN al.user_id = ? THEN 1 ELSE 0 END) AS userLiked,
+            MAX(CASE WHEN ae.user_id = ? THEN 1 ELSE 0 END) AS userEchoed
+     FROM articles a
+     LEFT JOIN users u          ON u.id = a.user_id
+     LEFT JOIN article_tags at  ON at.article_id = a.id
+     LEFT JOIN article_likes al ON al.article_id = a.id
+     LEFT JOIN article_echoes ae ON ae.article_id = a.id
+     LEFT JOIN article_comments ac ON ac.article_id = a.id
+     WHERE a.slug = ? AND a.published = 1
+     GROUP BY a.id`,
+    [userId, userId, slug]
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    ...row,
+    tags: row.tags ? row.tags.split(',') : [],
+    userLiked:  !!row.userLiked,
+    userEchoed: !!row.userEchoed,
+  };
 }
 
 // POST /api/articles  — create article + tags
@@ -312,6 +345,7 @@ async function _saveTags(articleId, tags) {
 module.exports = {
   getArticles,
   findById,
+  findBySlug,
   createArticle,
   updateArticle,
   deleteArticle,

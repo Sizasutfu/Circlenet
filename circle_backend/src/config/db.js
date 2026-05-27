@@ -158,6 +158,33 @@ async function runMigrations() {
     `);
     console.log('✅ Ensured article_comments table');
 
+    // ----- slug column on articles -----
+    if (!(await columnExists('articles', 'slug'))) {
+      await db.query(`
+        ALTER TABLE articles
+        ADD COLUMN slug VARCHAR(300) NULL
+      `);
+      console.log('✅ Added articles.slug column');
+    }
+    // Back-fill NULL slugs (always runs, safe to re-run)
+    await db.query(`
+      UPDATE articles
+      SET slug = CONCAT(LOWER(REGEXP_REPLACE(TRIM(title), '[^a-zA-Z0-9]+', '-')), '-', id)
+      WHERE slug IS NULL OR slug = ''
+    `);
+    // Add unique index if missing
+    const [idxRows] = await db.query(`
+      SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'articles'
+        AND INDEX_NAME = 'uq_articles_slug'
+    `);
+    if (idxRows[0].cnt === 0) {
+      await db.query(`ALTER TABLE articles ADD UNIQUE KEY uq_articles_slug (slug)`);
+      console.log('✅ Added unique index on articles.slug');
+    }
+    console.log('✅ articles.slug migration complete');
+
     console.log('✅ Database migrations completed');
   } catch (err) {
     console.error('❌ Migration error:', err.message);

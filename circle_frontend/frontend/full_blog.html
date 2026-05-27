@@ -6,8 +6,6 @@
   <title>Article · Circle</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    /* (keep your existing CSS – unchanged from your file, omitted for brevity) */
-    /* Same as your original CSS – I trust you have it; just keep as is */
     :root {
       --radius: 16px;
       --radius-sm: 10px;
@@ -465,12 +463,15 @@
   <script>
     const API = window.location.hostname === 'www.circlenet.social'
       ? 'https://circleappapp-production.up.railway.app'
-      : window.location.origin;
+      : 'https://sizabeats:5000';
 
-    const articleId = new URLSearchParams(location.search).get('id');
-    if (!articleId) {
-      document.body.innerHTML = '<div style="padding:40px;text-align:center">Invalid article</div>';
-      throw new Error('No article ID');
+    // --- Extract slug from pathname (e.g., /articles/how-to-make-money)
+    const pathParts = window.location.pathname.split('/');
+    const slug = pathParts[pathParts.length - 1];
+
+    if (!slug || slug === 'full_blog.html') {
+      document.body.innerHTML = '<div style="padding:40px;text-align:center">Invalid article URL</div>';
+      throw new Error('No article slug provided');
     }
 
     let currentUser = null;
@@ -507,56 +508,80 @@
       location.href = 'index.html?view=login';
     }
 
-    // Load main article
+    // --- Load article by slug
     let article = null;
+    (async () => {
     try {
-      const res = await apiCall('GET', `/api/articles/${articleId}`);
-      // API returns { data: { ... } }
-      article = res.data;
+      let res;
+      try {
+        res = await apiCall('GET', `/api/articles/by-slug/${encodeURIComponent(slug)}`);
+      } catch (firstErr) {
+        res = await apiCall('GET', `/api/articles?slug=${encodeURIComponent(slug)}`);
+      }
+      article = res.data || res;
+      if (!article || !article.id) throw new Error('Article not found');
+
       document.title = article.title + ' · Circle';
-      document.getElementById('blog-title').textContent = article.title;
-      // author is a string, not an object
-      document.getElementById('blog-author').textContent = article.author;
-      // created_at is snake_case
-      document.getElementById('blog-date').textContent = new Date(article.createdAt).toLocaleDateString();
-      document.getElementById('blog-content').innerHTML = esc(article.content);
-      const tagsEl = document.getElementById('blog-tags');
-      (article.tags || []).forEach(t => {
-        const span = document.createElement('span');
-        span.className = 'art-tag';
-        span.textContent = t;
-        tagsEl.appendChild(span);
-      });
-      const img = document.getElementById('blog-image');
-      // cover_image is snake_case
-      if (article.cover_image) img.src = article.cover_image;
-      else img.style.display = 'none';
+      document.getElementById('blog-title').innerHTML = article.title;
+      document.getElementById('blog-author').innerHTML = article.author || 'Anonymous';
+
+      // Normalize date property (handle both camelCase and snake_case)
+      const dateValue = article.createdAt || article.created_at;
+      const formattedDate = dateValue
+        ? new Date(dateValue).toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          })
+        : '—';
+      document.getElementById('blog-date').innerHTML = formattedDate;
+
+      // Render content as HTML (use innerHTML, not textContent)
+const content = article.content || article.body || 'No content available.';
+document.getElementById('blog-content').innerHTML = content;  // ✅
+
+// Fix cover image field name
+const img = document.getElementById('blog-image');
+const cover = article.cover_image || article.coverImage;
+if (cover) img.src = cover;
+else img.style.display = 'none';  // ✅
+
       const av = document.getElementById('blog-author-av');
-      // authorPicture is separate, not article.author.picture
-      if (article.authorPicture) av.src = article.authorPicture;
-      else av.src = `https://placehold.co/76/7c6bff/fff?text=${article.author.charAt(0)}`;
-      document.getElementById('react-like-count').textContent = article.like_count;
-      document.getElementById('react-echo-count').textContent = article.echo_count;
+      const authorPic = article.authorPicture || article.author_picture;
+      if (authorPic) av.src = authorPic;
+      else av.src = `https://placehold.co/76/7c6bff/fff?text=${(article.author || 'A').charAt(0)}`;
+
+      document.getElementById('react-like-count').innerHTML = article.like_count || article.likes || 0;
+      document.getElementById('react-echo-count').innerHTML = article.echo_count || article.echoes || 0;
+
       if (article.userLiked) document.getElementById('react-like-btn').classList.add('liked');
       if (article.userEchoed) document.getElementById('react-echo-btn').classList.add('echoed');
+
+      // Update Open Graph meta tags
+      let ogUrl = document.querySelector('meta[property="og:url"]');
+      if (ogUrl) ogUrl.setAttribute('content', window.location.href);
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) ogTitle.setAttribute('content', article.title);
+      let ogDesc = document.querySelector('meta[property="og:description"]');
+      if (ogDesc && article.excerpt) ogDesc.setAttribute('content', article.excerpt);
     } catch(e) {
       document.body.innerHTML = `<div style="padding:40px;text-align:center">Article not found: ${e.message}</div>`;
       throw e;
     }
 
-    // Share links
-    const pageUrl = encodeURIComponent(location.href);
+    // --- Share links
+    const pageUrl = encodeURIComponent(window.location.href);
     const pageTitle = encodeURIComponent(article.title);
     document.getElementById('share-facebook').href = `https://www.facebook.com/sharer/sharer.php?u=${pageUrl}`;
     document.getElementById('share-twitter').href = `https://twitter.com/intent/tweet?text=${pageTitle}&url=${pageUrl}`;
     document.getElementById('share-linkedin').href = `https://www.linkedin.com/shareArticle?mini=true&url=${pageUrl}&title=${pageTitle}`;
 
-    // Like / Echo
+    // --- Like / Echo
     window.toggleLike = async function() {
       if (!currentUser) { goToLogin(); return; }
       try {
-        const res = await apiCall('POST', `/api/articles/${articleId}/like`);
-        document.getElementById('react-like-count').textContent = res.data.likes;
+        const res = await apiCall('POST', `/api/articles/${article.id}/like`);
+        document.getElementById('react-like-count').innerHTML = res.data.likes;
         const btn = document.getElementById('react-like-btn');
         if (res.data.liked) btn.classList.add('liked');
         else btn.classList.remove('liked');
@@ -565,15 +590,15 @@
     window.toggleEcho = async function() {
       if (!currentUser) { goToLogin(); return; }
       try {
-        const res = await apiCall('POST', `/api/articles/${articleId}/echo`);
-        document.getElementById('react-echo-count').textContent = res.data.echoes;
+        const res = await apiCall('POST', `/api/articles/${article.id}/echo`);
+        document.getElementById('react-echo-count').innerHTML = res.data.echoes;
         const btn = document.getElementById('react-echo-btn');
         if (res.data.echoed) btn.classList.add('echoed');
         else btn.classList.remove('echoed');
       } catch(e) { showToast(e.message); }
     };
 
-    // Comments
+    // --- Comments (full implementation)
     let _replyTo = null;
     window.postComment = async function() {
       if (!currentUser) { goToLogin(); return; }
@@ -583,10 +608,11 @@
       const payload = { text };
       if (_replyTo) payload.parentId = _replyTo.commentId;
       try {
-        await apiCall('POST', `/api/articles/${articleId}/comment`, payload);
+        await apiCall('POST', `/api/articles/${article.id}/comment`, payload);
         textarea.value = '';
         cancelReply();
         await loadComments();
+        showToast('Comment added!');
       } catch(e) { showToast(e.message); }
     };
     window.startReplyTo = function(commentId, authorName) {
@@ -606,7 +632,7 @@
     };
     async function loadComments() {
       try {
-        const res = await apiCall('GET', `/api/articles/${articleId}`);
+        const res = await apiCall('GET', `/api/articles/${article.id}`);
         const comments = res.data.comments || [];
         const container = document.getElementById('comments-list');
         if (!comments.length) {
@@ -630,7 +656,7 @@
     }
     loadComments();
 
-    // Related articles
+    // --- Related articles
     async function loadRelated() {
       if (!article.tags || article.tags.length === 0) {
         document.getElementById('related-grid').innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>';
@@ -639,7 +665,6 @@
       try {
         const tagParam = encodeURIComponent(article.tags[0]);
         const res = await apiCall('GET', `/api/articles?tag=${tagParam}&limit=4`);
-        // API returns { data: { articles: [...] } }
         const allRelated = (res.data.articles || []).filter(a => a.id !== article.id).slice(0, 3);
         const grid = document.getElementById('related-grid');
         if (!allRelated.length) {
@@ -647,7 +672,7 @@
           return;
         }
         grid.innerHTML = allRelated.map(rel => `
-          <a class="art-related-card" href="full_blog.html?id=${rel.id}" target="_blank" rel="noopener">
+          <a class="art-related-card" href="/articles/${rel.slug || rel.title.toLowerCase().replace(/[^\w]+/g, '-')}" target="_blank" rel="noopener">
             <img class="art-related-cover" src="${esc(rel.cover_image || 'https://placehold.co/400x240/16161c/7c6bff?text=Article')}" alt="${esc(rel.title)}" onerror="this.src='https://placehold.co/400x240/16161c/7c6bff?text=Article'"/>
             <div class="art-related-body">
               <div class="art-related-card-title">${esc(rel.title)}</div>
@@ -660,6 +685,7 @@
       }
     }
     loadRelated();
+    })();
   </script>
 </body>
 </html>

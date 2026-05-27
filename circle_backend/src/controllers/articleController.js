@@ -61,6 +61,19 @@ async function getArticleById(req, res) {
   }
 }
 
+async function getArticleBySlug(req, res) {
+  const { slug } = req.params;
+  if (!slug) return sendError(res, 400, 'Slug is required.');
+  try {
+    const article = await ArticleModel.findBySlug(slug, req.actorId || null);
+    if (!article) return sendError(res, 404, 'Article not found.');
+    return sendOk(res, 200, 'Article fetched.', article);
+  } catch (err) {
+    console.error('getArticleBySlug error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // ── POST /api/articles ───────────────────────────────────────
 async function createArticle(req, res) {
   // requireAdmin sets req.adminId and req.adminName
@@ -326,6 +339,7 @@ async function addComment(req, res) {
 module.exports = {
   getArticles,
   getArticleById,
+  getArticleBySlug,
   createArticle,
   updateArticle,
   deleteArticle,

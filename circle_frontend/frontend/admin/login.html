@@ -68,7 +68,7 @@ async function doLogin() {
   try {
     const loginUrl = window.location.hostname === 'admin.circlenet.social'
       ? 'https://circleappapp-production.up.railway.app/api/admin/login'
-      : 'https://circleappapp-production.up.railway.app/api/admin/login';
+      : 'https://sizabeats:5000/api/admin/login';
     const res = await fetch(loginUrl, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -99,6 +99,12 @@ seoMiddleware(app);
 
 // ── SPA fallback (dev only) ───────────────────────────────
 if (!isProd) {
+  // Article pages — serve full_blog.html for /articles/:slug
+  app.get('/articles/:slug', (req, res) => {
+    res.sendFile(path.join(FRONTEND, 'full_blog.html'));
+  });
+
+  // Everything else → SPA shell
   app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(FRONTEND, 'index.html'));
   });

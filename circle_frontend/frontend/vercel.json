@@ -32,7 +32,7 @@
     },
     {
       "source": "/(.*)",
-      "destination": "circle_frontend/frontend/index.html"
+      "destination": "/index.html"
     }
   ]
 }

@@ -388,7 +388,7 @@
           return "https://circleappapp-production.up.railway.app/api/articles";
         }
         // For local development – use the same origin as the page (assuming backend serves admin)
-        return "http://sizabeats:5000/api/articles";
+        return "https://sizabeats:5000/api/articles";
       })();
 
       async function articleFetch(method, path, body = null, formData = false) {

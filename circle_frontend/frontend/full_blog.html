@@ -389,12 +389,14 @@
   </header>
 
   <main class="page-wrap">
-    <img id="blog-image" class="art-cover" src="" alt="Article cover" onerror="this.style.display='none'"/>
+    <!-- Cover image with robust fallback -->
+    <img id="blog-image" class="art-cover" src="" alt="Article cover" 
+         onerror="this.onerror=null; this.src='https://placehold.co/800x420/111116/7c6bff?text=Article';" />
     <div class="art-tags" id="blog-tags"></div>
     <h1 class="art-title" id="blog-title">Loading…</h1>
 
     <div class="art-meta">
-      <img id="blog-author-av" class="art-author-av" src="" alt="Author avatar" onerror="this.src='https://placehold.co/76/7c6bff/fff?text=A'"/>
+      <img id="blog-author-av" class="art-author-av" src="" alt="Author avatar" onerror="this.onerror=null; this.src='https://placehold.co/76/7c6bff/fff?text=A'"/>
       <div class="art-meta-info">
         <div class="art-author-name" id="blog-author">—</div>
         <div class="art-date" id="blog-date">—</div>
@@ -525,7 +527,6 @@
       document.getElementById('blog-title').innerHTML = article.title;
       document.getElementById('blog-author').innerHTML = article.author || 'Anonymous';
 
-      // Normalize date property (handle both camelCase and snake_case)
       const dateValue = article.createdAt || article.created_at;
       const formattedDate = dateValue
         ? new Date(dateValue).toLocaleDateString(undefined, {
@@ -536,15 +537,22 @@
         : '—';
       document.getElementById('blog-date').innerHTML = formattedDate;
 
-      // Render content as HTML (use innerHTML, not textContent)
-const content = article.content || article.body || 'No content available.';
-document.getElementById('blog-content').innerHTML = content;  // ✅
+      // Render content as HTML
+      const content = article.content || article.body || 'No content available.';
+      document.getElementById('blog-content').innerHTML = content;
 
-// Fix cover image field name
-const img = document.getElementById('blog-image');
-const cover = article.cover_image || article.coverImage;
-if (cover) img.src = cover;
-else img.style.display = 'none';  // ✅
+      // Set cover image with placeholder fallback
+      const img = document.getElementById('blog-image');
+      const cover = article.cover_image || article.coverImage;
+      img.src = cover || 'https://placehold.co/800x420/111116/7c6bff?text=Article';
+
+      // Tags
+      const tagsContainer = document.getElementById('blog-tags');
+      if (article.tags && article.tags.length) {
+        tagsContainer.innerHTML = article.tags.map(t => `<span class="art-tag">${esc(t)}</span>`).join('');
+      } else {
+        tagsContainer.innerHTML = '';
+      }
 
       const av = document.getElementById('blog-author-av');
       const authorPic = article.authorPicture || article.author_picture;
@@ -557,7 +565,7 @@ else img.style.display = 'none';  // ✅
       if (article.userLiked) document.getElementById('react-like-btn').classList.add('liked');
       if (article.userEchoed) document.getElementById('react-echo-btn').classList.add('echoed');
 
-      // Update Open Graph meta tags
+      // Update Open Graph meta tags (if present)
       let ogUrl = document.querySelector('meta[property="og:url"]');
       if (ogUrl) ogUrl.setAttribute('content', window.location.href);
       let ogTitle = document.querySelector('meta[property="og:title"]');
@@ -598,7 +606,7 @@ else img.style.display = 'none';  // ✅
       } catch(e) { showToast(e.message); }
     };
 
-    // --- Comments (full implementation)
+    // --- Comments
     let _replyTo = null;
     window.postComment = async function() {
       if (!currentUser) { goToLogin(); return; }
@@ -656,32 +664,54 @@ else img.style.display = 'none';  // ✅
     }
     loadComments();
 
-    // --- Related articles
+    // --- Related articles (improved: tries multiple tags, handles response variations)
     async function loadRelated() {
+      const grid = document.getElementById('related-grid');
       if (!article.tags || article.tags.length === 0) {
-        document.getElementById('related-grid').innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>';
+        grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>';
         return;
       }
       try {
-        const tagParam = encodeURIComponent(article.tags[0]);
-        const res = await apiCall('GET', `/api/articles?tag=${tagParam}&limit=4`);
-        const allRelated = (res.data.articles || []).filter(a => a.id !== article.id).slice(0, 3);
-        const grid = document.getElementById('related-grid');
-        if (!allRelated.length) {
+        let relatedArticles = [];
+        // Try each tag until we have at least 3 unique articles (excluding current)
+        for (const tag of article.tags) {
+          if (relatedArticles.length >= 3) break;
+          const res = await apiCall('GET', `/api/articles?tag=${encodeURIComponent(tag)}&limit=6`);
+          // Handle different response structures: { data: { articles } } or { articles }
+          let articles = res.data?.articles || res.articles || [];
+          if (!Array.isArray(articles)) articles = [];
+          const filtered = articles.filter(a => a.id !== article.id);
+          for (const a of filtered) {
+            if (!relatedArticles.some(ex => ex.id === a.id)) {
+              relatedArticles.push(a);
+            }
+          }
+        }
+        relatedArticles = relatedArticles.slice(0, 3);
+        if (!relatedArticles.length) {
           grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>';
           return;
         }
-        grid.innerHTML = allRelated.map(rel => `
-          <a class="art-related-card" href="/articles/${rel.slug || rel.title.toLowerCase().replace(/[^\w]+/g, '-')}" target="_blank" rel="noopener">
-            <img class="art-related-cover" src="${esc(rel.cover_image || 'https://placehold.co/400x240/16161c/7c6bff?text=Article')}" alt="${esc(rel.title)}" onerror="this.src='https://placehold.co/400x240/16161c/7c6bff?text=Article'"/>
-            <div class="art-related-body">
-              <div class="art-related-card-title">${esc(rel.title)}</div>
-              <div class="art-related-author">${esc(rel.author)} · ${new Date(rel.created_at).toLocaleDateString()}</div>
-            </div>
-          </a>
-        `).join('');
+        grid.innerHTML = relatedArticles.map(rel => {
+          const relSlug = rel.slug || rel.title.toLowerCase().replace(/[^\w]+/g, '-');
+          const relCover = rel.cover_image || rel.coverImage || 'https://placehold.co/400x240/16161c/7c6bff?text=Article';
+          const relAuthor = rel.author || 'Anonymous';
+          const relDate = rel.created_at || rel.createdAt;
+          const dateStr = relDate ? new Date(relDate).toLocaleDateString() : '';
+          return `
+            <a class="art-related-card" href="/articles/${encodeURIComponent(relSlug)}" target="_blank" rel="noopener">
+              <img class="art-related-cover" src="${esc(relCover)}" alt="${esc(rel.title)}" 
+                   onerror="this.onerror=null; this.src='https://placehold.co/400x240/16161c/7c6bff?text=Article'"/>
+              <div class="art-related-body">
+                <div class="art-related-card-title">${esc(rel.title)}</div>
+                <div class="art-related-author">${esc(relAuthor)} ${dateStr ? `· ${dateStr}` : ''}</div>
+              </div>
+            </a>
+          `;
+        }).join('');
       } catch(e) {
-        document.getElementById('related-grid').innerHTML = '<div style="color:var(--txt3);font-size:13px">Could not load related articles.</div>';
+        console.error('Related articles error:', e);
+        grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">Could not load related articles.</div>';
       }
     }
     loadRelated();

@@ -36,6 +36,51 @@ function nestComments(flatComments) {
   return roots;
 }
 
+// ── Slug helpers ──────────────────────────────────────────────
+
+/**
+ * Convert a string into a URL-friendly slug.
+ */
+function generateSlug(title) {
+  if (!title) return 'untitled';
+  return title
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')           // replace spaces with hyphens
+    .replace(/[^\w\-]+/g, '')       // remove all non-word chars except hyphens
+    .replace(/\-\-+/g, '-')         // replace multiple hyphens with single
+    .replace(/^-+/, '')             // trim leading hyphens
+    .replace(/-+$/, '');            // trim trailing hyphens
+}
+
+/**
+ * Ensure the slug is unique in the articles table.
+ * If a conflict exists, append -1, -2, etc.
+ * @param {string} title           - original title
+ * @param {number} [excludeId=null] - article id to exclude (used in updates)
+ * @returns {Promise<string>}
+ */
+async function generateUniqueSlug(title, excludeId = null) {
+  let baseSlug = generateSlug(title);
+  let slug = baseSlug;
+  let counter = 1;
+
+  while (true) {
+    let query = 'SELECT id FROM articles WHERE slug = ?';
+    let params = [slug];
+    if (excludeId) {
+      query += ' AND id != ?';
+      params.push(excludeId);
+    }
+    const [rows] = await db.query(query, params);
+    if (rows.length === 0) break; // slug is unique
+
+    slug = `${baseSlug}-${counter++}`;
+  }
+  return slug;
+}
+
 // ── Hydrate raw article rows with engagement counts ───────────
 async function hydrateArticles(articles) {
   if (!articles.length) return articles;
@@ -93,7 +138,6 @@ async function getArticles({ page = 1, limit = 6, tag = null, q = null } = {}) {
   const params = [];
 
   if (tag) {
-    // article_tags is a JOIN table: (article_id, tag)
     where += ' AND EXISTS (SELECT 1 FROM article_tags t WHERE t.article_id = a.id AND t.tag = ?)';
     params.push(tag);
   }
@@ -178,7 +222,7 @@ async function findById(id) {
   return hydrated;
 }
 
- async function findBySlug(slug, userId = null) {
+async function findBySlug(slug, userId = null) {
   const [rows] = await db.query(
     `SELECT a.*,
             u.name        AS author,
@@ -211,10 +255,13 @@ async function findById(id) {
 
 // POST /api/articles  — create article + tags
 async function createArticle(userId, { title, excerpt, content, coverImage, tags = [], published = false }) {
+  // Generate a unique slug from the title
+  const slug = await generateUniqueSlug(title);
+
   const [result] = await db.query(
-    `INSERT INTO articles (user_id, title, excerpt, content, cover_image, published)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [userId, title, excerpt || null, content, coverImage || null, published ? 1 : 0]
+    `INSERT INTO articles (user_id, title, excerpt, content, cover_image, slug, published)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [userId, title, excerpt || null, content, coverImage || null, slug, published ? 1 : 0]
   );
   const articleId = result.insertId;
   await _saveTags(articleId, tags);
@@ -231,6 +278,13 @@ async function updateArticle(id, { title, excerpt, content, coverImage, tags, pu
   if (content    !== undefined) { fields.push('content = ?');     params.push(content); }
   if (coverImage !== undefined) { fields.push('cover_image = ?'); params.push(coverImage); }
   if (published  !== undefined) { fields.push('published = ?');   params.push(published ? 1 : 0); }
+
+  // If title is being updated, regenerate the slug (ensuring uniqueness)
+  if (title !== undefined) {
+    const newSlug = await generateUniqueSlug(title, id);
+    fields.push('slug = ?');
+    params.push(newSlug);
+  }
 
   if (fields.length) {
     params.push(id);
@@ -360,4 +414,5 @@ module.exports = {
   removeEcho,
   getEchoCount,
   addComment,
+  generateUniqueSlug,  // exported for testing or manual use
 };

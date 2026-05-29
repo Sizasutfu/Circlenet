@@ -23,6 +23,13 @@ const cron   = require('node-cron');
 const MIN_POSTS_TO_CREATE = 30; // posts in 7 days → auto-create group
 const CRON_SCHEDULE       = '0 * * * *'; // every hour on the hour
 
+// ── Pause control for production ──────────────────────────
+const isGroupCreationPaused = () => {
+  // Pause creation in production. To re-enable, change this condition
+  // or use a different env var like PAUSE_GROUP_CREATION=true/false.
+  return process.env.NODE_ENV === 'production';
+};
+
 // ── Auto-creation cron ────────────────────────────────────
 /**
  * Checks for topics that have crossed the MIN_POSTS_TO_CREATE
@@ -35,6 +42,12 @@ const CRON_SCHEDULE       = '0 * * * *'; // every hour on the hour
  * @returns {Promise<string[]>}  Topics newly promoted to groups
  */
 async function runGroupCreationCron() {
+  // 🛑 Pause in production
+  if (isGroupCreationPaused()) {
+    console.log('[GroupModel] Group creation is paused in production – skipping run.');
+    return [];
+  }
+
   // 1. Find qualifying topics not yet in the `groups` table
   const [rows] = await db.query(
     `SELECT v.topic, v.post_count_7d
@@ -80,6 +93,12 @@ async function runGroupCreationCron() {
  *   startGroupCron();
  */
 function startGroupCron() {
+  // 🛑 Do not schedule the cron in production
+  if (isGroupCreationPaused()) {
+    console.log('[GroupCron] Group creation is paused in production – cron not started.');
+    return;
+  }
+
   cron.schedule(CRON_SCHEDULE, async () => {
     try {
       const created = await runGroupCreationCron();

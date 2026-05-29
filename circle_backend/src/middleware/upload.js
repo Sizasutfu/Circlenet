@@ -41,10 +41,14 @@ function fileFilter(_req, file, cb) {
 }
 
 // ── Multer instance (same for both envs — buffer in RAM) ──────
+const maxFileSize = process.env.NODE_ENV === 'production' 
+  ? 50 * 1024 * 1024   // 50 MB
+  : 200 * 1024 * 1024; // 200 MB (dev)
+
 const upload = multer({
-  storage: multer.memoryStorage(),  // compress middleware handles disk write in dev
+  storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB ceiling (pre-compression)
+  limits: { fileSize: maxFileSize },
 });
 
 // ── Cloudinary streaming helper ───────────────────────────────

@@ -40,6 +40,7 @@ const phoneAuthRoutes      = require('./routes/phoneAuthRoutes');
 const linkPreviewRoutes    = require('./routes/linkpreviewRoutes');
 const articleRoutes        = require('./routes/articleRoutes');
 
+
 // authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
 try { authRoutes = require('./routes/authRoutes'); } catch (_) {

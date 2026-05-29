@@ -2,8 +2,8 @@
 // Server-side rendering for search engine / social media crawlers.
 //
 // How it works:
-//   1. Registers /robots.txt, /sitemap.xml, /post/:id, /profile/:userId
-//   2. For /post and /profile: checks if requester is a known bot
+//   1. Registers /robots.txt, /sitemap.xml, /post/:id, /profile/:userId, /articles/:slug
+//   2. For dynamic routes: checks if requester is a known bot
 //   3. Bots → pre-filled HTML with real content baked in
 //   4. Real users → next() so the SPA index.html loads normally
 
@@ -46,22 +46,26 @@ function truncate(str = '', len = 155) {
   return chars.slice(0, len - 1).join('') + '…';
 }
 
-// Convert relative /uploads/... paths to absolute URLs for og:image.
-// Rejects non-http(s) schemes and any path containing dangerous characters.
+/**
+ * Convert image path to absolute URL for og:image.
+ * - Absolute HTTP/HTTPS URLs are kept as-is (optionally restrict to own domain below).
+ * - Relative paths are prefixed with BASE_URL.
+ * - Invalid or missing paths return the default OG image.
+ */
 function toAbsUrl(path) {
   if (!path) return DEFAULT_IMG;
-  
-  // Already absolute and safe (only our domain)
-  const allowedDomains = [BASE_URL, 'https://www.circlenet.social', 'http://www.circlenet.social'];
-  for (const domain of allowedDomains) {
-    if (path.startsWith(domain)) return path;
+
+  // Already absolute – keep it (you may restrict to BASE_URL if needed)
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    // Optional: block external domains to avoid mixed content / security issues
+    // if (!path.startsWith(BASE_URL)) return DEFAULT_IMG;
+    return path;
   }
-  
-  // Safe relative path: only alphanumeric, dash, underscore, slash, dot
-  if (/^\/[a-zA-Z0-9\-_/\.]+$/.test(path)) return `${BASE_URL}${path}`;
-  
-  // Fallback to default image
-  return DEFAULT_IMG;
+
+  // Relative path: remove leading './' or '../' (simplified)
+  let cleanPath = path.replace(/^(\.\.\/|\.\/)/, '');
+  if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
+  return `${BASE_URL}${cleanPath}`;
 }
 
 async function fetchArticleBySlug(slug) {
@@ -124,7 +128,6 @@ async function fetchPost(id) {
      LIMIT  1`,
     [id]
   );
-  // Normalize: if result is an array with [rows, fields], take rows[0]; else if result is array of rows, take first; else null
   const rows = Array.isArray(result) && result.length > 0 && Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
   return rows[0] || null;
 }
@@ -145,7 +148,6 @@ async function fetchUser(userId) {
 async function handlePost(req, res, next) {
   if (!isBot(req)) return next();
 
-  // Validate ID before query
   const postId = req.params.id;
   if (!isValidId(postId)) {
     res.status(400).send('Invalid post ID');
@@ -171,7 +173,7 @@ async function handlePost(req, res, next) {
   const image       = toAbsUrl(post.image || post.authorPicture);
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=300'); // cache for 5 minutes
+  res.setHeader('Cache-Control', 'public, max-age=300');
   res.send(buildHtml({
     title: `${author} on Circle`,
     description,
@@ -220,6 +222,7 @@ async function handleProfile(req, res, next) {
   }));
 }
 
+// ── Route: /articles/:slug ────────────────────────────────────────────────────
 async function handleArticle(req, res, next) {
   if (!isBot(req)) return next();
 
@@ -245,7 +248,11 @@ async function handleArticle(req, res, next) {
   const url = `${BASE_URL}/articles/${encodeURIComponent(slug)}`;
   const title = article.title ? `${article.title} · Circle` : 'Circle article';
   const description = truncate(article.excerpt || article.content || `Read this article on Circle.`);
-  const image = toAbsUrl(article.coverImage || article.cover_image || article.authorPicture);
+  
+  // Prioritize article cover, fallback to author picture, then default
+  const imageSource = article.coverImage || article.cover_image || article.authorPicture || article.author_picture;
+  const image = toAbsUrl(imageSource);
+  
   const bodyText = truncate(article.content || article.excerpt || '', 240);
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');

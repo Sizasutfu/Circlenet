@@ -40,7 +40,6 @@ function esc(str = '') {
 function truncate(str = '', len = 155) {
   const s = String(str).replace(/\s+/g, ' ').trim();
   if (s.length <= len) return s;
-  // Use Array.from to correctly handle Unicode code points
   const chars = Array.from(s);
   if (chars.length <= len) return s;
   return chars.slice(0, len - 1).join('') + '…';
@@ -247,20 +246,12 @@ async function handleArticle(req, res, next) {
   const title = article.title ? `${article.title} · Circle` : 'Circle article';
   const description = truncate(article.excerpt || article.content || `Read this article on Circle.`);
   
-  // ----- FIX: Robust image field detection -----
-  // Try multiple possible column names (add your actual column if different)
-  const imageSource = 
-    article.cover_url ||      // common name
-    article.coverImage ||     // camelCase
-    article.cover_image ||    // snake_case
-    article.featured_image || // WordPress style
-    article.image ||          // generic
-    article.thumbnail ||      // alternative
-    article.authorPicture ||  // author's avatar as fallback
-    article.author_picture;
+  // ----- FIX: Use the actual column names from your database -----
+  // The model returns 'cover_image' (snake_case) and 'authorPicture' (camelCase)
+  let imageSource = article.cover_image || article.authorPicture;
   
   if (!imageSource) {
-    console.warn(`[seo] Article ${article.id} (slug: ${slug}) has no cover image field. Using default OG image.`);
+    console.warn(`[seo] Article ${article.id} (slug: ${slug}) has no cover_image nor authorPicture. Using default OG image.`);
   }
   
   const image = toAbsUrl(imageSource);
@@ -297,7 +288,6 @@ async function handleSitemap(req, res) {
   }
 
   try {
-    // Execute both queries
     const [postsResult, usersResult, articlesResult] = await Promise.all([
       db.query(
         `SELECT id, updated_at AS updatedAt
@@ -320,7 +310,6 @@ async function handleSitemap(req, res) {
       ),
     ]);
 
-    // Normalize results (handle both [rows, fields] and direct rows)
     const normalize = (result) => {
       if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
         return result[0];

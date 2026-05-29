@@ -82,6 +82,10 @@ const Feed = (() => {
   let _prefetchObserver = null;
   let _prefetching = false;
 
+  // ── Fetch sequence guard (prevents race conditions) ───────────
+  let _fetchSeq = 0;
+  let _activeTabAtFetch = null;
+
   // ── Skeleton HTML ─────────────────────────────────────────────
   function _skelHTML() {
     return [0, 1, 2].map((i) => `
@@ -125,7 +129,6 @@ const Feed = (() => {
     if (!c) return;
 
     // ── GUARD: never show empty state while a fetch is in flight ──
-    // Skeleton cards are already showing; real posts are on the way.
     if (!_state.posts.length) {
       if (_state.loading) return;   // THE KEY FIX — no "Nothing here yet" flash
 
@@ -219,6 +222,9 @@ const Feed = (() => {
   async function _fetchFirstPage() {
     if (_state.loading) return;
 
+    const thisFetch = ++_fetchSeq;
+    _activeTabAtFetch = _state.tab;
+
     const c = document.getElementById("feed-list");
 
     // Check cache — paint instantly if fresh
@@ -231,7 +237,7 @@ const Feed = (() => {
       _state.page = 2;
       _state.pageState[_state.tab].page = 2;
       _state.pageState[_state.tab].hasMore = cached.hasMore;
-      _state.loading = false;  // unblock _render() — posts are ready
+      _state.loading = false;
       _render();
       _updateSentinel();
       _backgroundRefresh();
@@ -245,6 +251,12 @@ const Feed = (() => {
     try {
       const feedTab = currentUser ? _state.tab : "global";
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
+
+      // Race condition guard: if tab changed during request, discard result
+      if (thisFetch !== _fetchSeq || _activeTabAtFetch !== _state.tab) {
+        return;
+      }
+
       let { posts: newPosts, hasMore } = _normalise(res);
 
       // New user fallback: personalised feed empty, show global
@@ -294,6 +306,9 @@ const Feed = (() => {
   // ── Core fetch: next pages (infinite scroll) ──────────────────
   async function _fetchMore() {
     if (_state.loading || !_state.hasMore) return;
+
+    const thisFetch = ++_fetchSeq;
+    _activeTabAtFetch = _state.tab;
 
     // Serve from cache if available
     const cached = PostCache.getFeedPage(_state.tab, _state.page);
@@ -348,6 +363,13 @@ const Feed = (() => {
     try {
       const feedTab = currentUser ? _state.tab : "global";
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
+
+      // Race condition guard: discard if tab changed
+      if (thisFetch !== _fetchSeq || _activeTabAtFetch !== _state.tab) {
+        skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
+        return;
+      }
+
       let { posts: newPosts, hasMore } = _normalise(res);
 
       if (currentUser && _state.tab !== "following" && _followingSetLoaded) {
@@ -386,17 +408,29 @@ const Feed = (() => {
 
   // ── Background refresh (stale-while-revalidate) ───────────────
   async function _backgroundRefresh() {
+    // Do not refresh when page is hidden
+    if (document.hidden) return;
+
     try {
       const feedTab = currentUser ? _state.tab : "global";
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
       const { posts: fresh, hasMore } = _normalise(res);
-      // storeFeedPage is the ONLY place that writes to localStorage.
-      // invalidateFeed() intentionally never calls _save(), which prevents
-      // flushing an empty index that causes "Nothing here yet" on refresh.
-      PostCache.storeFeedPage(_state.tab, 1, fresh, hasMore);
-      if (feedTab === "global") _state.masterPosts = [...fresh];
 
-      // Patch like/comment/repost counts silently — no full re-render
+      // Prevent caching empty first page
+      if (!(fresh.length === 0 && !hasMore)) {
+        PostCache.storeFeedPage(_state.tab, 1, fresh, hasMore);
+      }
+
+      if (feedTab === "global") {
+        // Merge new posts with existing masterPosts (preserve older posts)
+        const merged = [...fresh];
+        _state.masterPosts.forEach(p => {
+          if (!merged.some(fp => fp.id === p.id)) merged.push(p);
+        });
+        _state.masterPosts = merged;
+      }
+
+      // Patch like/comment/repost counts silently
       fresh.forEach((fp) => {
         const existing = _state.posts.find((p) => p.id === fp.id);
         if (existing) {
@@ -407,11 +441,11 @@ const Feed = (() => {
         }
       });
 
-      // Update master array if new posts arrived (for next tab switch)
-      const currentIds = _state.posts.slice(0, fresh.length).map((p) => p.id).join(",");
-      const freshIds   = fresh.map((p) => p.id).join(",");
-      if (currentIds !== freshIds && feedTab === "global") {
-        _state.masterPosts = [...fresh];
+      // Only re-render if the top posts changed significantly (optional)
+      const currentTopIds = _state.posts.slice(0, fresh.length).map(p => p.id).join(',');
+      const freshTopIds = fresh.map(p => p.id).join(',');
+      if (currentTopIds !== freshTopIds && feedTab === "global") {
+        _render();
       }
     } catch (e) { /* silent */ }
   }
@@ -432,6 +466,8 @@ const Feed = (() => {
 
   async function _pollForNew() {
     if (!document.getElementById("view-feed")?.classList.contains("active")) return;
+    if (document.hidden) return; // skip when tab is hidden
+
     try {
       const feedTab = currentUser ? _state.tab : "global";
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
@@ -540,10 +576,6 @@ const Feed = (() => {
       _state.page = 1;
       _state.hasMore = true;
       _state.loading = false;
-      // Don't wipe _state.posts here — _fetchFirstPage will overwrite it
-      // with cache (synchronously) or fresh API data (async). Wiping first
-      // caused a flash because _render() could fire between the wipe and
-      // the cache read. Let _fetchFirstPage own the post array from the start.
       _fetchFirstPage();
     },
 
@@ -554,6 +586,9 @@ const Feed = (() => {
         goTo("login");
         return;
       }
+
+      // Invalidate all ongoing fetches
+      _fetchSeq++;
 
       // Clear trending filter on tab switch
       if (_activeFilter) {
@@ -750,6 +785,13 @@ const PostCache = (() => {
     init() { _load(); },
 
     storeFeedPage(tab, page, newPosts, hasMore) {
+      // Do NOT cache an empty first page – it causes "disappearing feed" on refresh
+      if (page === 1 && newPosts.length === 0 && !hasMore) {
+        // If there is already a non-empty cached version, keep it
+        const existing = _feeds[_feedKey(tab, 1)];
+        if (existing && existing.ids.length > 0) return;
+      }
+
       newPosts.forEach((p) => _byId.set(p.id, p));
       _feeds[_feedKey(tab, page)] = { ids: newPosts.map((p) => p.id), ts: Date.now(), hasMore };
       _save();

@@ -2,22 +2,49 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Article · Circle</title>
-  <meta name="description" content="" />
-  <link rel="canonical" href="" />
-  <meta property="og:type" content="article" />
-  <meta property="og:site_name" content="Circle" />
-  <meta property="og:title" content="" />
-  <meta property="og:description" content="" />
-  <meta property="og:image" content="" />
-  <meta property="og:url" content="" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="" />
-  <meta name="twitter:description" content="" />
-  <meta name="twitter:image" content="" />
-  <script type="application/ld+json" id="article-schema"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Circle · Immersive Stories</title>
+  
+  <!-- Primary SEO Meta Tags -->
+  <meta name="description" content="Explore insightful articles, deep dives, and trending stories on Circle. Join the conversation and fuel your curiosity.">
+  <meta name="keywords" content="articles, blog, storytelling, tech, culture, circle network">
+  <meta name="author" content="Circle Editorial">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://www.circlenet.social/articles/">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Circle">
+  <meta property="og:title" content="Circle · Thoughtful Reading">
+  <meta property="og:description" content="Dive into curated narratives and fresh perspectives from creators worldwide.">
+  <meta property="og:image" content="https://placehold.co/1200x630/7c6bff/ffffff?text=Circle+Reads">
+  <meta property="og:url" content="https://www.circlenet.social/articles/">
+  <meta property="og:locale" content="en_US">
+  
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@circlenet">
+  <meta name="twitter:title" content="Circle · Immersive Articles">
+  <meta name="twitter:description" content="Uncover stories that matter, shared by a vibrant community.">
+  <meta name="twitter:image" content="https://placehold.co/1200x600/7c6bff/ffffff?text=Circle">
+  
+  <!-- Article specific structured data (populated dynamically, but base schema included) -->
+  <script type="application/ld+json" id="article-schema">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Circle Article",
+    "description": "Explore the latest articles on Circle.",
+    "image": "https://placehold.co/800x420/111116/7c6bff?text=Article",
+    "author": { "@type": "Organization", "name": "Circle" },
+    "publisher": { "@type": "Organization", "name": "Circle", "logo": { "@type": "ImageObject", "url": "https://placehold.co/60x60/7c6bff/ffffff?text=C" } },
+    "datePublished": "2025-01-01"
+  }
+  </script>
+  
+  <!-- Google Fonts & Stylesheet -->
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
   <style>
     :root {
       --radius: 16px;
@@ -51,6 +78,39 @@
       -webkit-font-smoothing: antialiased;
       line-height: 1.7;
     }
+    /* SKELETON SHIMMER */
+    .skeleton {
+      background: linear-gradient(90deg, var(--border) 25%, var(--border2) 50%, var(--border) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite ease-in-out;
+      border-radius: 12px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton-cover { width: 100%; height: 360px; border-radius: var(--radius); margin-bottom: 32px; }
+    .skeleton-title { width: 85%; height: 44px; border-radius: 12px; margin-bottom: 20px; }
+    .skeleton-tags { display: flex; gap: 10px; margin-bottom: 20px; }
+    .skeleton-tag { width: 80px; height: 28px; border-radius: 30px; }
+    .skeleton-meta { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .skeleton-avatar { width: 42px; height: 42px; border-radius: 50%; }
+    .skeleton-meta-text { flex: 1; }
+    .skeleton-line-sm { width: 180px; height: 14px; border-radius: 20px; margin-bottom: 8px; }
+    .skeleton-line-xs { width: 110px; height: 12px; border-radius: 20px; }
+    .skeleton-react-group { display: flex; gap: 12px; }
+    .skeleton-react-btn { width: 90px; height: 38px; border-radius: 30px; }
+    .skeleton-readtime { width: 100px; height: 32px; border-radius: 30px; }
+    .skeleton-body { margin-top: 24px; }
+    .skeleton-line { height: 18px; width: 100%; margin-bottom: 14px; border-radius: 8px; }
+    .skeleton-line.short { width: 70%; }
+    .skeleton-line.medium { width: 85%; }
+    .skeleton-share { margin-top: 48px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+    .skeleton-share-btn { width: 100px; height: 40px; border-radius: 30px; }
+    .skeleton-related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 16px; }
+    .skeleton-related-card { height: 180px; border-radius: var(--radius-sm); }
+    .skeleton-comment { height: 100px; border-radius: var(--radius-sm); margin-bottom: 14px; }
+    .hidden-content { display: none; }
     .topbar {
       position: sticky;
       top: 0;
@@ -151,6 +211,21 @@
     .art-meta-info { flex: 1; }
     .art-author-name { font-size: 14px; font-weight: 700; color: var(--txt); }
     .art-date { font-size: 12px; color: var(--txt3); margin-top: 2px; }
+    .art-read-time {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--txt3);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+    .art-read-time svg { flex-shrink: 0; }
     .art-reactions {
       display: flex;
       gap: 8px;
@@ -382,396 +457,197 @@
     @media (max-width: 600px) {
       .page-wrap { padding: 24px 16px 60px; }
       .topbar { padding: 0 16px; }
+      .skeleton-cover { height: 220px; }
     }
   </style>
 </head>
 <body>
 
-  <header class="topbar">
-    <button class="topbar-back" onclick="history.length > 1 ? history.back() : window.close()">
-      <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-      Back
-    </button>
-    <a class="topbar-logo" href="index.html">
-      <div class="topbar-logo-mark">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
-      </div>
-      Circlenet
-    </a>
-    <div class="topbar-spacer"></div>
-  </header>
+<header class="topbar">
+  <button class="topbar-back" onclick="history.length > 1 ? history.back() : window.close()">
+    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    Back
+  </button>
+  <a class="topbar-logo" href="index.html">
+    <div class="topbar-logo-mark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg></div>
+    Circlenet
+  </a>
+  <div class="topbar-spacer"></div>
+</header>
 
-  <main class="page-wrap">
-    <!-- Cover image with robust fallback -->
+<main class="page-wrap">
+  <!-- SKELETON LOADING UI (Shimmer) -->
+  <div id="skeleton-wrapper">
+    <div class="skeleton skeleton-cover"></div>
+    <div class="skeleton-tags"><div class="skeleton skeleton-tag"></div><div class="skeleton skeleton-tag"></div><div class="skeleton skeleton-tag"></div></div>
+    <div class="skeleton skeleton-title"></div>
+    <div class="skeleton-meta">
+      <div class="skeleton skeleton-avatar"></div>
+      <div class="skeleton-meta-text"><div class="skeleton skeleton-line-sm"></div><div class="skeleton skeleton-line-xs"></div></div>
+      <div class="skeleton-react-group"><div class="skeleton skeleton-react-btn"></div><div class="skeleton skeleton-react-btn"></div><div class="skeleton skeleton-readtime"></div></div>
+    </div>
+    <div class="skeleton-body">
+      <div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div><div class="skeleton skeleton-line"></div>
+      <div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line medium"></div>
+    </div>
+    <div class="skeleton-share"><div class="skeleton skeleton-share-btn"></div><div class="skeleton skeleton-share-btn"></div><div class="skeleton skeleton-share-btn"></div></div>
+    <div class="skeleton-related-grid"><div class="skeleton skeleton-related-card"></div><div class="skeleton skeleton-related-card"></div><div class="skeleton skeleton-related-card"></div></div>
+    <div class="skeleton skeleton-comment"></div><div class="skeleton skeleton-comment"></div>
+  </div>
+
+  <!-- REAL CONTENT (hidden until fetch) -->
+  <div id="real-content" style="display: none;">
     <img id="blog-image" class="art-cover" src="" alt="Article cover" 
          onerror="this.onerror=null; this.src='https://placehold.co/800x420/111116/7c6bff?text=Article';" />
     <div class="art-tags" id="blog-tags"></div>
-    <h1 class="art-title" id="blog-title">Loading…</h1>
-
+    <h1 class="art-title" id="blog-title"></h1>
     <div class="art-meta">
       <img id="blog-author-av" class="art-author-av" src="" alt="Author avatar" onerror="this.onerror=null; this.src='https://placehold.co/76/7c6bff/fff?text=A'"/>
-      <div class="art-meta-info">
-        <div class="art-author-name" id="blog-author">—</div>
-        <div class="art-date" id="blog-date">—</div>
-      </div>
+      <div class="art-meta-info"><div class="art-author-name" id="blog-author"></div><div class="art-date" id="blog-date"></div></div>
       <div class="art-reactions">
-        <button class="art-react-btn" id="react-like-btn" onclick="toggleLike()">
-          <svg id="react-like-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z"/>
-          </svg>
-          <span id="react-like-count">0</span>
-        </button>
-        <button class="art-react-btn" id="react-echo-btn" onclick="toggleEcho()">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/>
-          </svg>
-          <span id="react-echo-count">0</span>
-        </button>
+        <button class="art-react-btn" id="react-like-btn" onclick="toggleLike()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z"/></svg><span id="react-like-count">0</span></button>
+        <button class="art-react-btn" id="react-echo-btn" onclick="toggleEcho()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg><span id="react-echo-count">0</span></button>
+        <span class="art-read-time" id="blog-read-time"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="13" height="13"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span></span></span>
       </div>
     </div>
-
     <div class="art-body" id="blog-content"></div>
-
     <div class="art-share">
       <span class="art-share-label">Share this article</span>
       <div class="art-share-btns">
-        <a id="share-facebook" class="art-share-btn" href="#" target="_blank" rel="noopener">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
-          Facebook
-        </a>
-        <a id="share-twitter" class="art-share-btn" href="#" target="_blank" rel="noopener">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg>
-          Twitter
-        </a>
-        <a id="share-linkedin" class="art-share-btn" href="#" target="_blank" rel="noopener">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg>
-          LinkedIn
-        </a>
+        <a id="share-facebook" class="art-share-btn" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>Facebook</a>
+        <a id="share-twitter" class="art-share-btn" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg>Twitter</a>
+        <a id="share-linkedin" class="art-share-btn" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg>LinkedIn</a>
       </div>
     </div>
-
-    <section class="art-related">
-      <div class="art-related-title">Related Articles</div>
-      <div class="art-related-grid" id="related-grid">
-        <div style="color:var(--txt3);font-size:13px">Loading…</div>
-      </div>
-    </section>
-
+    <section class="art-related"><div class="art-related-title">Related Articles</div><div class="art-related-grid" id="related-grid"><div style="color:var(--txt3);font-size:13px">Loading related...</div></div></section>
     <section class="art-comments">
       <div class="art-comments-title">Comments</div>
       <div class="art-comment-compose">
-        <div id="reply-to-banner" class="reply-to-banner">
-          <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" width="13" height="13"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>
-          <span id="reply-to-label">Replying to <strong></strong></span>
-          <button onclick="cancelReply()" title="Cancel reply">✕</button>
-        </div>
+        <div id="reply-to-banner" class="reply-to-banner"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" width="13" height="13"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg><span id="reply-to-label">Replying to <strong></strong></span><button onclick="cancelReply()" title="Cancel reply">✕</button></div>
         <input type="text" id="comment-username" placeholder="Your name (default: Anonymous)"/>
         <textarea id="comment-text" placeholder="Write a comment…"></textarea>
         <button class="art-comment-submit" onclick="postComment()">Post Comment</button>
       </div>
       <div id="comments-list"></div>
     </section>
-  </main>
+  </div>
+</main>
+<div id="toast"></div>
 
-  <div id="toast"></div>
+<script>
+  const API = window.location.hostname === 'www.circlenet.social' ? 'https://circleappapp-production.up.railway.app' : 'https://sizabeats:5000';
+  const pathParts = window.location.pathname.split('/');
+  const slug = pathParts[pathParts.length - 1];
+  if (!slug || slug === 'full_blog.html') { document.body.innerHTML = '<div style="padding:40px;text-align:center">Invalid article URL</div>'; throw new Error('No article slug'); }
 
-  <script>
-    const API = window.location.hostname === 'www.circlenet.social'
-      ? 'https://circleappapp-production.up.railway.app'
-      : 'https://sizabeats:5000';
+  let currentUser = null;
+  try { currentUser = JSON.parse(localStorage.getItem('circle_user')); } catch(e) {}
 
-    // --- Extract slug from pathname (e.g., /articles/how-to-make-money)
-    const pathParts = window.location.pathname.split('/');
-    const slug = pathParts[pathParts.length - 1];
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2800); }
+  function goToLogin() { sessionStorage.setItem('_redirectAfterLogin', location.pathname); location.href = '/login'; }
 
-    if (!slug || slug === 'full_blog.html') {
-      document.body.innerHTML = '<div style="padding:40px;text-align:center">Invalid article URL</div>';
-      throw new Error('No article slug provided');
-    }
+  async function apiCall(method, path, body = null) {
+    const opts = { method, headers: {} };
+    if (currentUser) opts.headers['X-User-Id'] = currentUser.id;
+    const token = localStorage.getItem('circle_token');
+    if (token) opts.headers['Authorization'] = `Bearer ${token}`;
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const res = await fetch(API + path, opts);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Request failed');
+    return data;
+  }
 
-    let currentUser = null;
-    try { currentUser = JSON.parse(localStorage.getItem('circle_user')); } catch(e) {}
+  function calcReadTime(content) {
+    if (!content || typeof content !== 'string') return '1 min read';
+    const plainText = content.replace(/<[^>]+>/g, ' ');
+    const words = plainText.trim().split(/\s+/).filter(Boolean).length;
+    const mins = Math.max(1, Math.ceil(words / 200));
+    return `${mins} min read`;
+  }
 
-    function esc(s) {
-      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
+  function updateMetaContent(selector, attr, value) { const tag = document.querySelector(selector); if (tag && value) tag.setAttribute(attr, value); }
+  function updateCanonical(url) { const link = document.querySelector('link[rel="canonical"]'); if(link && url) link.href = url; }
 
-    function updateMeta(selector, attr, value) {
-      const tag = document.querySelector(selector);
-      if (tag && value) tag.setAttribute(attr, value);
-    }
-
-    function updateLink(selector, attr, value) {
-      const tag = document.querySelector(selector);
-      if (tag && value) tag.setAttribute(attr, value);
-    }
-
-    async function apiCall(method, path, body = null) {
-      const opts = { method, headers: {} };
-      if (currentUser) opts.headers['X-User-Id'] = currentUser.id;
-      const token = localStorage.getItem('circle_token');
-      if (token) opts.headers['Authorization'] = `Bearer ${token}`;
-      if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-      }
-      const res = await fetch(API + path, opts);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Request failed');
-      return data;
-    }
-
-    function showToast(msg) {
-      const t = document.getElementById('toast');
-      t.textContent = msg;
-      t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), 2800);
-    }
-
-    function goToLogin() {
-      sessionStorage.setItem('_redirectAfterLogin', location.href);
-      location.href = 'index.html?view=login';
-    }
-
-    // --- Load article by slug
-    let article = null;
-    (async () => {
+  let article = null;
+  (async () => {
     try {
       let res;
-      try {
-        res = await apiCall('GET', `/api/articles/by-slug/${encodeURIComponent(slug)}`);
-      } catch (firstErr) {
-        res = await apiCall('GET', `/api/articles?slug=${encodeURIComponent(slug)}`);
-      }
+      try { res = await apiCall('GET', `/api/articles/by-slug/${encodeURIComponent(slug)}`); } catch { res = await apiCall('GET', `/api/articles?slug=${encodeURIComponent(slug)}`); }
       article = res.data || res;
-      if (!article || !article.id) throw new Error('Article not found');
+      if (!article?.id) throw new Error('Article not found');
 
-      document.title = article.title + ' · Circle';
+      document.title = `${article.title} · Circle`;
       document.getElementById('blog-title').innerHTML = article.title;
       document.getElementById('blog-author').innerHTML = article.author || 'Anonymous';
-
-      const dateValue = article.createdAt || article.created_at;
-      const formattedDate = dateValue
-        ? new Date(dateValue).toLocaleDateString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-          })
-        : '—';
+      const formattedDate = article.createdAt || article.created_at ? new Date(article.createdAt || article.created_at).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }) : '—';
       document.getElementById('blog-date').innerHTML = formattedDate;
 
-      // Render content as HTML
       const content = article.content || article.body || 'No content available.';
       document.getElementById('blog-content').innerHTML = content;
+      const readSpan = document.querySelector('#blog-read-time span');
+      if(readSpan) readSpan.textContent = calcReadTime(content);
 
-      // Set cover image with placeholder fallback
-      const img = document.getElementById('blog-image');
       const cover = article.cover_image || article.coverImage;
+      const img = document.getElementById('blog-image');
       img.src = cover || 'https://placehold.co/800x420/111116/7c6bff?text=Article';
 
       const pageUrl = window.location.href;
-      const seoTitle = article.title + ' · Circle';
-      const seoDescription = article.excerpt || article.content?.slice(0, 160) || 'Read this article on Circle.';
-      const seoImage = cover || 'https://placehold.co/800x420/111116/7c6bff?text=Article';
+      const seoDesc = article.excerpt || (article.content ? article.content.replace(/<[^>]+>/g,'').slice(0,160) : 'Read this article on Circle.');
+      const seoImage = cover || 'https://placehold.co/1200x630/7c6bff/ffffff?text=Circle';
 
-      document.title = seoTitle;
-      updateMeta('meta[name="description"]', 'content', seoDescription);
-      updateLink('link[rel="canonical"]', 'href', pageUrl);
-      updateMeta('meta[property="og:url"]', 'content', pageUrl);
-      updateMeta('meta[property="og:title"]', 'content', seoTitle);
-      updateMeta('meta[property="og:description"]', 'content', seoDescription);
-      updateMeta('meta[property="og:image"]', 'content', seoImage);
-      updateMeta('meta[property="og:site_name"]', 'content', 'Circle');
-      updateMeta('meta[name="twitter:title"]', 'content', seoTitle);
-      updateMeta('meta[name="twitter:description"]', 'content', seoDescription);
-      updateMeta('meta[name="twitter:image"]', 'content', seoImage);
+      updateMetaContent('meta[name="description"]', 'content', seoDesc);
+      updateMetaContent('meta[property="og:title"]', 'content', article.title);
+      updateMetaContent('meta[property="og:description"]', 'content', seoDesc);
+      updateMetaContent('meta[property="og:image"]', 'content', seoImage);
+      updateMetaContent('meta[property="og:url"]', 'content', pageUrl);
+      updateMetaContent('meta[name="twitter:title"]', 'content', article.title);
+      updateMetaContent('meta[name="twitter:description"]', 'content', seoDesc);
+      updateMetaContent('meta[name="twitter:image"]', 'content', seoImage);
+      updateCanonical(pageUrl);
 
-      const schemaEl = document.getElementById('article-schema');
-      if (schemaEl) {
-        schemaEl.textContent = JSON.stringify({
-          '@context': 'https://schema.org',
-          '@type': 'Article',
-          mainEntityOfPage: { '@type': 'WebPage', '@id': pageUrl },
-          headline: article.title,
-          description: seoDescription,
-          image: [seoImage],
-          author: { '@type': 'Person', name: article.author || 'Circle' },
-          datePublished: new Date(article.createdAt || article.created_at).toISOString(),
-          url: pageUrl,
-          publisher: { '@type': 'Organization', name: 'Circle' }
-        });
-      }
+      const schema = document.getElementById('article-schema');
+      if(schema) schema.textContent = JSON.stringify({ '@context':'https://schema.org','@type':'Article','headline':article.title,'description':seoDesc,'image':seoImage,'author':{'@type':'Person','name':article.author || 'Circle'},'datePublished':new Date(article.createdAt || article.created_at).toISOString(),'url':pageUrl,'publisher':{'@type':'Organization','name':'Circle'}});
 
-      // Tags
       const tagsContainer = document.getElementById('blog-tags');
-      if (article.tags && article.tags.length) {
-        tagsContainer.innerHTML = article.tags.map(t => `<span class="art-tag">${esc(t)}</span>`).join('');
-      } else {
-        tagsContainer.innerHTML = '';
-      }
-
+      tagsContainer.innerHTML = (article.tags?.length) ? article.tags.map(t => `<span class="art-tag">${esc(t)}</span>`).join('') : '';
       const av = document.getElementById('blog-author-av');
       const authorPic = article.authorPicture || article.author_picture;
-      if (authorPic) av.src = authorPic;
-      else av.src = `https://placehold.co/76/7c6bff/fff?text=${(article.author || 'A').charAt(0)}`;
+      av.src = authorPic || `https://placehold.co/76/7c6bff/fff?text=${(article.author || 'A').charAt(0)}`;
 
       document.getElementById('react-like-count').innerHTML = article.like_count || article.likes || 0;
       document.getElementById('react-echo-count').innerHTML = article.echo_count || article.echoes || 0;
+      if(article.userLiked) document.getElementById('react-like-btn').classList.add('liked');
+      if(article.userEchoed) document.getElementById('react-echo-btn').classList.add('echoed');
 
-      if (article.userLiked) document.getElementById('react-like-btn').classList.add('liked');
-      if (article.userEchoed) document.getElementById('react-echo-btn').classList.add('echoed');
+      const pageUrlEnc = encodeURIComponent(pageUrl);
+      const pageTitleEnc = encodeURIComponent(article.title);
+      document.getElementById('share-facebook').href = `https://www.facebook.com/sharer/sharer.php?u=${pageUrlEnc}`;
+      document.getElementById('share-twitter').href = `https://twitter.com/intent/tweet?text=${pageTitleEnc}&url=${pageUrlEnc}`;
+      document.getElementById('share-linkedin').href = `https://www.linkedin.com/shareArticle?mini=true&url=${pageUrlEnc}&title=${pageTitleEnc}`;
 
-      // Update Open Graph meta tags (if present)
-      let ogUrl = document.querySelector('meta[property="og:url"]');
-      if (ogUrl) ogUrl.setAttribute('content', window.location.href);
-      let ogTitle = document.querySelector('meta[property="og:title"]');
-      if (ogTitle) ogTitle.setAttribute('content', article.title);
-      let ogDesc = document.querySelector('meta[property="og:description"]');
-      if (ogDesc && article.excerpt) ogDesc.setAttribute('content', article.excerpt);
-    } catch(e) {
-      document.body.innerHTML = `<div style="padding:40px;text-align:center">Article not found: ${e.message}</div>`;
-      throw e;
+      document.getElementById('skeleton-wrapper').style.display = 'none';
+      document.getElementById('real-content').style.display = 'block';
+
+      loadComments();
+      loadRelated();
+    } catch(err) {
+      document.getElementById('skeleton-wrapper').innerHTML = `<div style="padding:40px;text-align:center;color:var(--rose)">⚠️ Failed to load: ${err.message}</div>`;
     }
+  })();
 
-    // --- Share links
-    const pageUrl = encodeURIComponent(window.location.href);
-    const pageTitle = encodeURIComponent(article.title);
-    document.getElementById('share-facebook').href = `https://www.facebook.com/sharer/sharer.php?u=${pageUrl}`;
-    document.getElementById('share-twitter').href = `https://twitter.com/intent/tweet?text=${pageTitle}&url=${pageUrl}`;
-    document.getElementById('share-linkedin').href = `https://www.linkedin.com/shareArticle?mini=true&url=${pageUrl}&title=${pageTitle}`;
+  window.toggleLike = async function() { if (!currentUser) { goToLogin(); return; } try { const res = await apiCall('POST', `/api/articles/${article.id}/like`); document.getElementById('react-like-count').innerHTML = res.data.likes; const btn = document.getElementById('react-like-btn'); if (res.data.liked) btn.classList.add('liked'); else btn.classList.remove('liked'); } catch(e) { showToast(e.message); } };
+  window.toggleEcho = async function() { if (!currentUser) { goToLogin(); return; } try { const res = await apiCall('POST', `/api/articles/${article.id}/echo`); document.getElementById('react-echo-count').innerHTML = res.data.echoes; const btn = document.getElementById('react-echo-btn'); if (res.data.echoed) btn.classList.add('echoed'); else btn.classList.remove('echoed'); } catch(e) { showToast(e.message); } };
 
-    // --- Like / Echo
-    window.toggleLike = async function() {
-      if (!currentUser) { goToLogin(); return; }
-      try {
-        const res = await apiCall('POST', `/api/articles/${article.id}/like`);
-        document.getElementById('react-like-count').innerHTML = res.data.likes;
-        const btn = document.getElementById('react-like-btn');
-        if (res.data.liked) btn.classList.add('liked');
-        else btn.classList.remove('liked');
-      } catch(e) { showToast(e.message); }
-    };
-    window.toggleEcho = async function() {
-      if (!currentUser) { goToLogin(); return; }
-      try {
-        const res = await apiCall('POST', `/api/articles/${article.id}/echo`);
-        document.getElementById('react-echo-count').innerHTML = res.data.echoes;
-        const btn = document.getElementById('react-echo-btn');
-        if (res.data.echoed) btn.classList.add('echoed');
-        else btn.classList.remove('echoed');
-      } catch(e) { showToast(e.message); }
-    };
+  let _replyTo = null;
+  window.postComment = async function() { if (!currentUser) { goToLogin(); return; } const text = document.getElementById('comment-text').value.trim(); if (!text) return; const payload = { text }; if (_replyTo) payload.parentId = _replyTo.commentId; try { await apiCall('POST', `/api/articles/${article.id}/comment`, payload); document.getElementById('comment-text').value = ''; cancelReply(); await loadComments(); showToast('Comment added!'); } catch(e) { showToast(e.message); } };
+  window.startReplyTo = function(commentId, authorName) { _replyTo = { commentId, author: authorName }; const banner = document.getElementById('reply-to-banner'); if (banner) { document.getElementById('reply-to-label').innerHTML = `Replying to <strong>${esc(authorName)}</strong>`; banner.style.display = 'flex'; } document.getElementById('comment-text').focus(); };
+  window.cancelReply = function() { _replyTo = null; const banner = document.getElementById('reply-to-banner'); if (banner) banner.style.display = 'none'; };
 
-    // --- Comments
-    let _replyTo = null;
-    window.postComment = async function() {
-      if (!currentUser) { goToLogin(); return; }
-      const textarea = document.getElementById('comment-text');
-      const text = textarea.value.trim();
-      if (!text) return;
-      const payload = { text };
-      if (_replyTo) payload.parentId = _replyTo.commentId;
-      try {
-        await apiCall('POST', `/api/articles/${article.id}/comment`, payload);
-        textarea.value = '';
-        cancelReply();
-        await loadComments();
-        showToast('Comment added!');
-      } catch(e) { showToast(e.message); }
-    };
-    window.startReplyTo = function(commentId, authorName) {
-      _replyTo = { commentId, author: authorName };
-      const banner = document.getElementById('reply-to-banner');
-      const label = document.getElementById('reply-to-label');
-      if (banner) {
-        label.innerHTML = `Replying to <strong>${esc(authorName)}</strong>`;
-        banner.style.display = 'flex';
-      }
-      document.getElementById('comment-text').focus();
-    };
-    window.cancelReply = function() {
-      _replyTo = null;
-      const banner = document.getElementById('reply-to-banner');
-      if (banner) banner.style.display = 'none';
-    };
-    async function loadComments() {
-      try {
-        const res = await apiCall('GET', `/api/articles/${article.id}`);
-        const comments = res.data.comments || [];
-        const container = document.getElementById('comments-list');
-        if (!comments.length) {
-          container.innerHTML = '<div style="color:var(--txt3);padding:8px 0">No comments yet. Be the first!</div>';
-          return;
-        }
-        function buildComment(c, depth = 0) {
-          const indent = depth > 0 ? `margin-left:${depth*18}px;` : '';
-          const repliesHtml = (c.replies || []).map(r => buildComment(r, depth+1)).join('');
-          return `<div class="art-comment-item" style="${indent}">
-            <div class="art-comment-header">
-              <span class="art-comment-user">${esc(c.author)}</span>
-              <span class="art-comment-time">${new Date(c.createdAt).toLocaleString()}</span>
-            </div>
-            <div class="art-comment-text">${esc(c.text)}</div>
-            ${currentUser ? `<button class="art-reply-btn" onclick="startReplyTo(${c.id},'${esc(c.author)}')">↩ Reply</button>` : ''}
-          </div>${repliesHtml}`;
-        }
-        container.innerHTML = comments.map(c => buildComment(c)).join('');
-      } catch(e) { console.error(e); }
-    }
-    loadComments();
+  async function loadComments() { if (!article) return; try { const res = await apiCall('GET', `/api/articles/${article.id}`); const comments = res.data.comments || []; const container = document.getElementById('comments-list'); if (!comments.length) { container.innerHTML = '<div style="color:var(--txt3);padding:8px 0">No comments yet. Be the first!</div>'; return; } function buildComment(c, depth = 0) { const indent = depth > 0 ? `margin-left:${Math.min(depth*18,36)}px;` : ''; const repliesHtml = (c.replies || []).map(r => buildComment(r, depth+1)).join(''); return `<div class="art-comment-item" style="${indent}"><div class="art-comment-header"><span class="art-comment-user">${esc(c.author)}</span><span class="art-comment-time">${new Date(c.createdAt).toLocaleString()}</span></div><div class="art-comment-text">${esc(c.text)}</div>${currentUser ? `<button class="art-reply-btn" onclick="startReplyTo(${c.id},'${esc(c.author)}')">↩ Reply</button>` : ''}</div>${repliesHtml}`; } container.innerHTML = comments.map(c => buildComment(c)).join(''); } catch(e) { console.error(e); } }
 
-    // --- Related articles (improved: tries multiple tags, handles response variations)
-    async function loadRelated() {
-      const grid = document.getElementById('related-grid');
-      if (!article.tags || article.tags.length === 0) {
-        grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>';
-        return;
-      }
-      try {
-        let relatedArticles = [];
-        // Try each tag until we have at least 3 unique articles (excluding current)
-        for (const tag of article.tags) {
-          if (relatedArticles.length >= 3) break;
-          const res = await apiCall('GET', `/api/articles?tag=${encodeURIComponent(tag)}&limit=6`);
-          // Handle different response structures: { data: { articles } } or { articles }
-          let articles = res.data?.articles || res.articles || [];
-          if (!Array.isArray(articles)) articles = [];
-          const filtered = articles.filter(a => a.id !== article.id);
-          for (const a of filtered) {
-            if (!relatedArticles.some(ex => ex.id === a.id)) {
-              relatedArticles.push(a);
-            }
-          }
-        }
-        relatedArticles = relatedArticles.slice(0, 3);
-        if (!relatedArticles.length) {
-          grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>';
-          return;
-        }
-        grid.innerHTML = relatedArticles.map(rel => {
-          const relSlug = rel.slug || rel.title.toLowerCase().replace(/[^\w]+/g, '-');
-          const relCover = rel.cover_image || rel.coverImage || 'https://placehold.co/400x240/16161c/7c6bff?text=Article';
-          const relAuthor = rel.author || 'Anonymous';
-          const relDate = rel.created_at || rel.createdAt;
-          const dateStr = relDate ? new Date(relDate).toLocaleDateString() : '';
-          return `
-            <a class="art-related-card" href="/articles/${encodeURIComponent(relSlug)}" target="_blank" rel="noopener">
-              <img class="art-related-cover" src="${esc(relCover)}" alt="${esc(rel.title)}" 
-                   onerror="this.onerror=null; this.src='https://placehold.co/400x240/16161c/7c6bff?text=Article'"/>
-              <div class="art-related-body">
-                <div class="art-related-card-title">${esc(rel.title)}</div>
-                <div class="art-related-author">${esc(relAuthor)} ${dateStr ? `· ${dateStr}` : ''}</div>
-              </div>
-            </a>
-          `;
-        }).join('');
-      } catch(e) {
-        console.error('Related articles error:', e);
-        grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">Could not load related articles.</div>';
-      }
-    }
-    loadRelated();
-    })();
-  </script>
+  async function loadRelated() { if (!article || !article.tags?.length) { document.getElementById('related-grid').innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>'; return; } try { let relatedArticles = []; for (const tag of article.tags) { if (relatedArticles.length >= 3) break; const res = await apiCall('GET', `/api/articles?tag=${encodeURIComponent(tag)}&limit=6`); let articles = res.data?.articles || res.articles || []; if (!Array.isArray(articles)) articles = []; const filtered = articles.filter(a => a.id !== article.id); for (const a of filtered) if (!relatedArticles.some(ex => ex.id === a.id)) relatedArticles.push(a); } relatedArticles = relatedArticles.slice(0,3); const grid = document.getElementById('related-grid'); if (!relatedArticles.length) { grid.innerHTML = '<div style="color:var(--txt3);font-size:13px">No related articles found.</div>'; return; } grid.innerHTML = relatedArticles.map(rel => { const relSlug = rel.slug || rel.title.toLowerCase().replace(/[^\w]+/g,'-'); const relCover = rel.cover_image || rel.coverImage || 'https://placehold.co/400x240/16161c/7c6bff?text=Article'; return `<a class="art-related-card" href="/articles/${encodeURIComponent(relSlug)}" target="_blank" rel="noopener"><img class="art-related-cover" src="${esc(relCover)}" alt="${esc(rel.title)}" onerror="this.onerror=null;this.src='https://placehold.co/400x240/16161c/7c6bff?text=Article'"/><div class="art-related-body"><div class="art-related-card-title">${esc(rel.title)}</div><div class="art-related-author">${esc(rel.author || 'Anonymous')}</div></div></a>`; }).join(''); } catch(e) { console.error(e); document.getElementById('related-grid').innerHTML = '<div style="color:var(--txt3);font-size:13px">Could not load related articles.</div>'; } }
+</script>
 </body>
 </html>

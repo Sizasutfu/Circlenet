@@ -1,5 +1,3 @@
-
-
 /*  API  */
 async function api(method, path, body = null, signal = undefined) {
   const opts = { method, headers: {} };
@@ -667,7 +665,13 @@ async function loginUser() {
     showToast(
       "Welcome back, " + (res.data?.name ?? "there").split(" ")[0] + "! 👋",
     );
-    setTimeout(() => goTo("feed"), 400);
+    const _postLoginRedir = sessionStorage.getItem("_redirectAfterLogin");
+    if (_postLoginRedir && _postLoginRedir.startsWith("/articles/")) {
+      sessionStorage.removeItem("_redirectAfterLogin");
+      setTimeout(() => { location.href = _postLoginRedir; }, 400);
+    } else {
+      setTimeout(() => goTo("feed"), 400);
+    }
   } catch (e) {
     showAlert(el, e.message, "error");
     if (btn) {
@@ -6876,8 +6880,12 @@ function _populateDialSelects() {
           const redir = sessionStorage.getItem("_redirectAfterLogin");
           if (redir && _initState.view === "feed" && currentUser) {
             sessionStorage.removeItem("_redirectAfterLogin");
-            const redirState = _pathToState(redir);
-            if (redirState.view !== "feed") goTo(redirState.view, redirState);
+            if (redir.startsWith("/articles/")) {
+              location.href = redir;
+            } else {
+              const redirState = _pathToState(redir);
+              if (redirState.view !== "feed") goTo(redirState.view, redirState);
+            }
           }
         }
       } finally {
@@ -6890,10 +6898,14 @@ function _populateDialSelects() {
       const redir = sessionStorage.getItem("_redirectAfterLogin");
       if (redir && currentUser) {
         sessionStorage.removeItem("_redirectAfterLogin");
-        const redirState = _pathToState(redir);
-        if (redirState.view !== "feed") {
-          _historyNavigating = false;
-          goTo(redirState.view, redirState);
+        if (redir.startsWith("/articles/")) {
+          location.href = redir;
+        } else {
+          const redirState = _pathToState(redir);
+          if (redirState.view !== "feed") {
+            _historyNavigating = false;
+            goTo(redirState.view, redirState);
+          }
         }
       }
     }, 700);

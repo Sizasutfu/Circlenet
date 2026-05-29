@@ -48,17 +48,15 @@ function truncate(str = '', len = 155) {
 
 /**
  * Convert image path to absolute URL for og:image.
- * - Absolute HTTP/HTTPS URLs are kept as-is (optionally restrict to own domain below).
+ * - Absolute HTTP/HTTPS URLs are kept as-is.
  * - Relative paths are prefixed with BASE_URL.
  * - Invalid or missing paths return the default OG image.
  */
 function toAbsUrl(path) {
   if (!path) return DEFAULT_IMG;
 
-  // Already absolute – keep it (you may restrict to BASE_URL if needed)
+  // Already absolute – keep it
   if (path.startsWith('http://') || path.startsWith('https://')) {
-    // Optional: block external domains to avoid mixed content / security issues
-    // if (!path.startsWith(BASE_URL)) return DEFAULT_IMG;
     return path;
   }
 
@@ -249,9 +247,24 @@ async function handleArticle(req, res, next) {
   const title = article.title ? `${article.title} · Circle` : 'Circle article';
   const description = truncate(article.excerpt || article.content || `Read this article on Circle.`);
   
-  // Prioritize article cover, fallback to author picture, then default
-  const imageSource = article.coverImage || article.cover_image || article.authorPicture || article.author_picture;
+  // ----- FIX: Robust image field detection -----
+  // Try multiple possible column names (add your actual column if different)
+  const imageSource = 
+    article.cover_url ||      // common name
+    article.coverImage ||     // camelCase
+    article.cover_image ||    // snake_case
+    article.featured_image || // WordPress style
+    article.image ||          // generic
+    article.thumbnail ||      // alternative
+    article.authorPicture ||  // author's avatar as fallback
+    article.author_picture;
+  
+  if (!imageSource) {
+    console.warn(`[seo] Article ${article.id} (slug: ${slug}) has no cover image field. Using default OG image.`);
+  }
+  
   const image = toAbsUrl(imageSource);
+  // ----- End of fix -----
   
   const bodyText = truncate(article.content || article.excerpt || '', 240);
 

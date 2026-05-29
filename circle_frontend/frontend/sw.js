@@ -28,6 +28,11 @@ const PRECACHE_URLS = [
   './index.html',
   './manifest.json',
   './icon.png',
+  './config/api.js',
+  './lightbox/lightbox_v2.js',
+  './articles/articles.js',
+  './feed/feed.js',
+  './main.js',
 ];
 
 // ── Helpers ───────────────────────────────────────────────

@@ -1,5 +1,14 @@
 User-agent: *
 Allow: /
+Allow: /api/posts$
+Allow: /api/topics$
+Allow: /api/comments$
+Allow: /api/users/public$
+Disallow: /api/admin
+Disallow: /api/auth
+Disallow: /api/upload
+Disallow: /api/settings
+# fallback: block any other /api/ subpaths
 Disallow: /api/
 
 Sitemap: https://www.circlenet.social/sitemap.xml

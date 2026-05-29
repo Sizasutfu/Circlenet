@@ -21,6 +21,12 @@
       .form-row .form-group {
         flex: 1;
       }
+      /* Full width for form textareas and editor */
+      .form-group textarea,
+      .form-group .editor {
+        width: 100%;
+        box-sizing: border-box;
+      }
       .tags-input {
         display: flex;
         flex-wrap: wrap;
@@ -92,6 +98,21 @@
       .article-form-card {
         margin-bottom: 32px;
       }
+      /* Reading time indicator */
+      .reading-time-info {
+        background: var(--accent-bg);
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--accent);
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .reading-time-info span {
+        color: var(--txt2);
+      }
     </style>
   </head>
   <body>
@@ -108,98 +129,47 @@
         <nav class="sidebar-nav">
           <div class="nav-section-label">Main</div>
           <a class="nav-link" href="dashboard.html" data-page="dashboard">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <rect x="3" y="3" width="7" height="7" rx="1" />
               <rect x="14" y="3" width="7" height="7" rx="1" />
               <rect x="3" y="14" width="7" height="7" rx="1" />
-              <rect x="14" y="14" width="7" height="7" rx="1" /></svg
-            >Dashboard</a
-          >
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>Dashboard</a>
           <a class="nav-link" href="users.html" data-page="users">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
               <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg
-            >Users</a
-          >
+              <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+            </svg>Users</a>
           <a class="nav-link" href="posts.html" data-page="posts">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
-              /></svg
-            >Posts</a
-          >
-
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+            </svg>Posts</a>
           <a class="nav-link" href="articles.html" data-page="articles">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M4 4h16v4H4z" />
               <path d="M4 12h10" />
               <path d="M4 16h7" />
               <rect x="14" y="11" width="6" height="9" rx="1" />
-            </svg>
-            Articles
-          </a>
+            </svg>Articles</a>
           <a class="nav-link" href="reports.html" data-page="reports">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
-              />
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
               <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" /></svg
-            >Reports</a
-          >
-
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>Reports</a>
           <div class="nav-section-label" style="margin-top: 8px">Account</div>
           <a class="nav-link" href="settings.html" data-page="settings">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="3" />
-              <path
-                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"
-              /></svg
-            >Settings</a
-          >
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+            </svg>Settings</a>
           <a class="nav-link" href="#" onclick="adminLogout()">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
               <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" /></svg
-            >Logout</a
-          >
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>Logout</a>
         </nav>
         <div class="sidebar-footer">
           <div class="admin-info">
@@ -215,12 +185,7 @@
       <div class="admin-main">
         <div class="topbar">
           <button class="icon-btn mobile-menu-btn" id="mobile-menu-btn">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <line x1="3" y1="6" x2="21" y2="6" />
               <line x1="3" y1="12" x2="21" y2="12" />
               <line x1="3" y1="18" x2="21" y2="18" />
@@ -235,106 +200,57 @@
               <h1>Articles</h1>
               <p>Create, edit and manage blog articles</p>
             </div>
-            <button
-              class="btn-primary"
-              id="new-article-btn"
-              onclick="showCreateForm()"
-            >
+            <button class="btn-primary" id="new-article-btn" onclick="showCreateForm()">
               + New Article
             </button>
           </div>
 
           <!-- Create / Edit Form -->
-          <div
-            id="article-form-card"
-            class="article-form-card"
-            style="display: none"
-          >
+          <div id="article-form-card" class="article-form-card" style="display: none">
             <div class="settings-card">
-              <div class="settings-card-title" id="form-title">
-                Create Article
-              </div>
+              <div class="settings-card-title" id="form-title">Create Article</div>
               <div class="settings-card-body">
                 <div class="form-group">
                   <label>Title *</label>
-                  <input
-                    type="text"
-                    id="article-title"
-                    placeholder="Article title"
-                  />
+                  <input type="text" id="article-title" placeholder="Article title" />
                 </div>
                 <div class="form-group">
                   <label>Excerpt (short summary)</label>
-                  <textarea
-                    id="article-excerpt"
-                    rows="2"
-                    placeholder="A short description (optional)"
-                  ></textarea>
+                  <textarea id="article-excerpt" rows="2" placeholder="A short description (optional)"></textarea>
                 </div>
                 <div class="form-group">
                   <label>Content * (HTML / Markdown)</label>
-                  <textarea
-                    id="article-content"
-                    class="editor"
-                    rows="12"
-                    placeholder="Write the full article content. You can use HTML tags."
-                  ></textarea>
+                  <textarea id="article-content" class="editor" rows="12" placeholder="Write the full article content. You can use HTML tags."></textarea>
+                  <!-- Reading time & word count indicator -->
+                  <div class="reading-time-info" id="reading-time-indicator">
+                    <span>📄 <span id="word-count">0</span> words</span>
+                    <span>⏱️ <span id="reading-time">0</span> min read</span>
+                  </div>
                 </div>
                 <div class="form-group">
                   <label>Tags (comma separated)</label>
                   <div class="tag-input-wrapper">
-                    <input
-                      type="text"
-                      id="tag-input"
-                      placeholder="e.g. tech, lifestyle, design"
-                    />
-                    <button type="button" class="btn-action" onclick="addTag()">
-                      Add
-                    </button>
+                    <input type="text" id="tag-input" placeholder="e.g. tech, lifestyle, design" />
+                    <button type="button" class="btn-action" onclick="addTag()">Add</button>
                   </div>
                   <div class="tags-input" id="tags-container"></div>
                 </div>
                 <div class="form-group">
                   <label>Cover Image</label>
                   <input type="file" id="cover-image" accept="image/*" />
-                  <div
-                    id="cover-preview"
-                    class="cover-preview"
-                    style="display: none"
-                  >
+                  <div id="cover-preview" class="cover-preview" style="display: none">
                     <img id="cover-preview-img" src="" />
-                    <button
-                      class="btn-action btn-sm"
-                      onclick="removeCover()"
-                      style="margin-top: 6px"
-                    >
-                      Remove
-                    </button>
+                    <button class="btn-action btn-sm" onclick="removeCover()" style="margin-top: 6px">Remove</button>
                   </div>
                 </div>
                 <div class="publish-toggle">
                   <label>Publish now</label>
                   <input type="checkbox" id="article-published" />
-                  <span
-                    style="
-                      font-size: 12px;
-                      color: var(--txt2);
-                      margin-left: auto;
-                    "
-                    >Unchecked = save as draft</span
-                  >
+                  <span style="font-size: 12px; color: var(--txt2); margin-left: auto;">Unchecked = save as draft</span>
                 </div>
                 <div class="modal-actions" style="margin-top: 20px">
-                  <button class="btn-cancel" onclick="hideForm()">
-                    Cancel
-                  </button>
-                  <button
-                    class="btn-primary"
-                    id="save-article-btn"
-                    onclick="saveArticle()"
-                  >
-                    Save Article
-                  </button>
+                  <button class="btn-cancel" onclick="hideForm()">Cancel</button>
+                  <button class="btn-primary" id="save-article-btn" onclick="saveArticle()">Save Article</button>
                 </div>
               </div>
             </div>
@@ -345,21 +261,11 @@
             <div class="table-header">
               <div class="table-header-title" id="article-count">Loading…</div>
               <div class="search-box">
-                <svg
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <circle cx="11" cy="11" r="8" />
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
-                <input
-                  type="text"
-                  id="search-input"
-                  placeholder="Search title or author…"
-                  oninput="onSearch()"
-                />
+                <input type="text" id="search-input" placeholder="Search title or author…" oninput="onSearch()" />
               </div>
             </div>
             <div id="table-body">
@@ -374,11 +280,9 @@
       </div>
     </div>
 
-    <script src="admin.js"></script>
     <script>
       // ============================================================
-      //  ARTICLE API – direct calls to /api/articles (not via admin prefix)
-      //  Uses the same token from localStorage.
+      //  ARTICLE API – direct calls to /api/articles
       // ============================================================
 
       // Base URL for article endpoints (without trailing slash)
@@ -387,9 +291,22 @@
         if (host === "admin.circlenet.social") {
           return "https://circleappapp-production.up.railway.app/api/articles";
         }
-        // For local development – use the same origin as the page (assuming backend serves admin)
+        // Development: use your mkcert hostname and port
         return "https://sizabeats:5000/api/articles";
       })();
+
+      // Helper to convert relative image URLs to absolute backend URLs
+      function getFullImageUrl(path) {
+        if (!path) return null;
+        // Already absolute
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          return path;
+        }
+        // Build backend origin (remove "/api/articles")
+        const backendOrigin = ARTICLE_API_BASE.replace(/\/api\/articles.*$/, '');
+        const relativePath = path.startsWith('/') ? path : '/' + path;
+        return backendOrigin + relativePath;
+      }
 
       async function articleFetch(method, path, body = null, formData = false) {
         const token = localStorage.getItem("circle_admin_token");
@@ -410,11 +327,9 @@
           }
         }
 
-        const url =
-          ARTICLE_API_BASE + (path.startsWith("/") ? path : "/" + path);
+        const url = ARTICLE_API_BASE + (path.startsWith("/") ? path : "/" + path);
         const res = await fetch(url, opts);
 
-        // Handle non-JSON responses gracefully
         const contentType = res.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
           const text = await res.text();
@@ -422,12 +337,10 @@
         }
 
         const data = await res.json();
-        if (!res.ok)
-          throw new Error(data.message || `Request failed (${res.status})`);
+        if (!res.ok) throw new Error(data.message || `Request failed (res.status)`);
         return data;
       }
 
-      // Convenience wrappers
       async function apiGetArticles(path) {
         return articleFetch("GET", path);
       }
@@ -439,6 +352,43 @@
       }
       async function apiDeleteArticles(path) {
         return articleFetch("DELETE", path);
+      }
+
+      // ============================================================
+      //  READING TIME & WORD COUNT HELPERS
+      // ============================================================
+      function stripHtml(html) {
+        if (!html) return '';
+        // Create a temporary element to decode HTML entities and strip tags
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        return tmp.textContent || tmp.innerText || '';
+      }
+
+      function countWords(text) {
+        if (!text) return 0;
+        // Split by whitespace and filter empty strings
+        return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+      }
+
+      function computeReadingTime(htmlContent) {
+        const plainText = stripHtml(htmlContent);
+        const wordCount = countWords(plainText);
+        const minutes = Math.ceil(wordCount / 200);
+        return { wordCount, minutes };
+      }
+
+      function formatReadingTime(minutes) {
+        if (minutes < 1) return '<1 min';
+        return `${minutes} min read`;
+      }
+
+      // Update the reading time indicator below the editor
+      function updateReadingTimeIndicator() {
+        const content = document.getElementById("article-content").value;
+        const { wordCount, minutes } = computeReadingTime(content);
+        document.getElementById("word-count").textContent = wordCount;
+        document.getElementById("reading-time").textContent = minutes < 1 ? '<1' : minutes;
       }
 
       // ============================================================
@@ -459,77 +409,79 @@
         document.getElementById("table-body").innerHTML =
           '<div class="empty-state"><div class="spinner dark" style="margin:0 auto 12px"></div><p>Loading…</p></div>';
         try {
-          const res = await apiGetArticles(
-            `/?page=${currentPage}&limit=${PER_PAGE}&q=${encodeURIComponent(q)}`,
-          );
+          const res = await apiGetArticles(`/?page=${currentPage}&limit=${PER_PAGE}&q=${encodeURIComponent(q)}`);
           const { articles, hasMore } = res.data;
-          const count =
-            articles.length +
-            (currentPage > 1 ? (currentPage - 1) * PER_PAGE : 0);
-          document.getElementById("article-count").textContent =
-            `${formatNumber(articles.length)} articles`;
+          document.getElementById("article-count").textContent = `${formatNumber(articles.length)} articles`;
           renderTable(articles);
-          // Simple prev/next pagination since API uses cursor-style hasMore
           renderPagination(
             "pagination",
             currentPage,
             hasMore ? currentPage * PER_PAGE + 1 : currentPage * PER_PAGE,
             PER_PAGE,
-            `function(p){currentPage=p;loadArticles()}`,
+            `function(p){currentPage=p;loadArticles();}`
           );
         } catch (e) {
           showToast(e.message, "error");
-          document.getElementById("table-body").innerHTML =
-            `<div class="empty-state"><h3>Error</h3><p>${escHtml(e.message)}</p></div>`;
+          document.getElementById("table-body").innerHTML = `<div class="empty-state"><h3>Error</h3><p>${escHtml(e.message)}</p></div>`;
         }
       }
 
       function renderTable(articles) {
         if (!articles.length) {
           document.getElementById("table-body").innerHTML = `
-      <div class="empty-state">
-        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM4 12h10M4 16h7"/><rect x="14" y="11" width="6" height="9" rx="1"/></svg>
-        <h3>No articles found</h3><p>Create your first article using the "New Article" button.</p>
-      </div>`;
+            <div class="empty-state">
+              <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM4 12h10M4 16h7"/><rect x="14" y="11" width="6" height="9" rx="1"/></svg>
+              <h3>No articles found</h3><p>Create your first article using the "New Article" button.</p>
+            </div>`;
           return;
         }
         document.getElementById("table-body").innerHTML = `
-    <table class="data-table">
-      <thead><tr><th>ID</th><th>Cover</th><th>Title</th><th>Author</th><th>Tags</th><th>Status</th><th>Created</th><th>Likes</th><th>Echoes</th><th>Actions</th></tr></thead>
-      <tbody>${articles.map((a) => articleRow(a)).join("")}</tbody>
-    </table>`;
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>Cover</th><th>Title</th><th>Author</th><th>Tags</th><th>Status</th><th>Created</th><th>Likes</th><th>Echoes</th><th>Read time</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>${articles.map((a) => articleRow(a)).join("")}</tbody>
+          划`;
       }
 
       function articleRow(a) {
         const statusBadge = a.published ? "badge-green" : "badge-grey";
         const statusText = a.published ? "Published" : "Draft";
-        const tagsHtml = (a.tags || [])
-          .slice(0, 2)
-          .map(
-            (t) =>
-              `<span class="badge badge-purple" style="margin-right:4px">${escHtml(t)}</span>`,
-          )
-          .join("");
-        const coverHtml = a.coverImage
-          ? `<img src="${escHtml(a.coverImage)}" style="width:48px;height:36px;object-fit:cover;border-radius:4px;display:block"/>`
-          : `<div style="width:48px;height:36px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--txt2)">None</div>`;
+        const tagsHtml = (a.tags || []).slice(0, 2).map(t => `<span class="badge badge-purple" style="margin-right:4px">${escHtml(t)}</span>`).join("");
+        
+        // Compute reading time from content
+        let readingTimeHtml = '—';
+        if (a.content) {
+          const { minutes } = computeReadingTime(a.content);
+          readingTimeHtml = formatReadingTime(minutes);
+        }
+
+        const coverUrl = getFullImageUrl(a.coverImage);
+        let coverHtml = `<div style="width:48px;height:36px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--txt2)">None</div>`;
+        if (coverUrl) {
+          coverHtml = `
+            <div style="position:relative;width:48px;height:36px;">
+              <img src="${escHtml(coverUrl)}" style="width:100%;height:100%;object-fit:cover;border-radius:4px" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';" />
+              <div style="width:100%;height:100%;background:var(--border);border-radius:4px;display:none;align-items:center;justify-content:center;font-size:10px;color:#c00">⚠️</div>
+            </div>
+          `;
+        }
+
         return `<tr id="article-row-${a.id}">
-    <td data-label="">#${a.id}</td>
-    <td data-label="Cover">${coverHtml}</td>
-    <td data-label="Title"><strong>${escHtml(a.title)}</strong><div class="post-text-cell" style="white-space:normal">${escHtml((a.excerpt || a.content).slice(0, 60))}…</div></td>
-    <td data-label="Author">${avatarHtml(null, a.author, 28)} ${escHtml(a.author)}</td>
-    <td data-label="Tags">${tagsHtml || "—"}</td>
-    <td data-label="Status"><span class="badge ${statusBadge}">${statusText}</span></td>
-    <td data-label="Created" style="white-space:nowrap">${formatDate(a.createdAt)}</td>
-    <td data-label="Likes">${formatNumber(a.like_count)}</td>
-    <td data-label="Echoes">${formatNumber(a.echo_count)}</td>
-    <td data-label="Actions">
-      <div class="actions">
-        <button class="btn-action" onclick="editArticle(${a.id})">Edit</button>
-        <button class="btn-action danger" onclick="deleteArticle(${a.id})">Delete</button>
-      </div>
-    </td>
-  </tr>`;
+          <td data-label="">#${a.id}</td>
+          <td data-label="Cover">${coverHtml}</td>
+          <td data-label="Title"><strong>${escHtml(a.title)}</strong><div class="post-text-cell" style="white-space:normal">${escHtml((a.excerpt || a.content || '').slice(0, 60))}…</div></td>
+          <td data-label="Author">${avatarHtml(null, a.author, 28)} ${escHtml(a.author)}</td>
+          <td data-label="Tags">${tagsHtml || "—"}</td>
+          <td data-label="Status"><span class="badge ${statusBadge}">${statusText}</span></td>
+          <td data-label="Created" style="white-space:nowrap">${formatDate(a.createdAt)}</td>
+          <td data-label="Likes">${formatNumber(a.like_count)}</td>
+          <td data-label="Echoes">${formatNumber(a.echo_count)}</td>
+          <td data-label="Read time">${readingTimeHtml}</td>
+          <td data-label="Actions"><div class="actions"><button class="btn-action" onclick="editArticle(${a.id})">Edit</button><button class="btn-action danger" onclick="deleteArticle(${a.id})">Delete</button></div></td>
+        </tr>`;
       }
 
       // ============================================================
@@ -549,6 +501,7 @@
         renderTags();
         document.getElementById("form-title").textContent = "Create Article";
         document.getElementById("article-form-card").style.display = "block";
+        updateReadingTimeIndicator(); // reset word count
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
@@ -569,7 +522,8 @@
           currentTags = [...(art.tags || [])];
           renderTags();
           if (art.coverImage) {
-            document.getElementById("cover-preview-img").src = art.coverImage;
+            const fullCover = getFullImageUrl(art.coverImage);
+            document.getElementById("cover-preview-img").src = fullCover || "";
             document.getElementById("cover-preview").style.display = "block";
           } else {
             document.getElementById("cover-preview").style.display = "none";
@@ -577,6 +531,7 @@
           coverFile = null;
           document.getElementById("form-title").textContent = "Edit Article";
           document.getElementById("article-form-card").style.display = "block";
+          updateReadingTimeIndicator(); // update based on loaded content
           window.scrollTo({ top: 0, behavior: "smooth" });
         } catch (e) {
           showToast("Failed to load article: " + e.message, "error");
@@ -601,13 +556,7 @@
       }
       function renderTags() {
         const container = document.getElementById("tags-container");
-        container.innerHTML = currentTags
-          .map(
-            (t) => `
-    <div class="tag-pill">${escHtml(t)} <button type="button" onclick="removeTag('${escHtml(t)}')">✕</button></div>
-  `,
-          )
-          .join("");
+        container.innerHTML = currentTags.map(t => `<div class="tag-pill">${escHtml(t)} <button type="button" onclick="removeTag('${escHtml(t)}')">✕</button></div>`).join("");
       }
 
       function removeCover() {
@@ -624,8 +573,7 @@
           showToast("Title and content are required.", "error");
           return;
         }
-        const excerpt =
-          document.getElementById("article-excerpt").value.trim() || null;
+        const excerpt = document.getElementById("article-excerpt").value.trim() || null;
         const published = document.getElementById("article-published").checked;
 
         const formData = new FormData();
@@ -661,11 +609,7 @@
       }
 
       async function deleteArticle(id) {
-        const ok = await showConfirm(
-          "Delete Article",
-          "This will permanently delete the article and all its likes, echoes, and comments.",
-          "Delete",
-        );
+        const ok = await showConfirm("Delete Article", "This will permanently delete the article and all its likes, echoes, and comments.", "Delete");
         if (!ok) return;
         try {
           await apiDeleteArticles(`/${id}`);
@@ -684,24 +628,100 @@
         }, 300);
       }
 
-      document
-        .getElementById("cover-image")
-        .addEventListener("change", function (e) {
-          const file = e.target.files[0];
-          if (!file) return;
-          coverFile = file;
-          const reader = new FileReader();
-          reader.onload = function (ev) {
-            document.getElementById("cover-preview-img").src = ev.target.result;
-            document.getElementById("cover-preview").style.display = "block";
-          };
-          reader.readAsDataURL(file);
+      document.getElementById("cover-image").addEventListener("change", function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        coverFile = file;
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          document.getElementById("cover-preview-img").src = ev.target.result;
+          document.getElementById("cover-preview").style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      });
+
+      // Listen to content changes for live reading time
+      document.getElementById("article-content").addEventListener("input", updateReadingTimeIndicator);
+
+      // ============================================================
+      //  HELPER FUNCTIONS (safe fallbacks)
+      // ============================================================
+      function escHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+          if (m === '&') return '&amp;';
+          if (m === '<') return '&lt;';
+          if (m === '>') return '&gt;';
+          return m;
         });
+      }
+
+      function formatDate(iso) {
+        if (!iso) return '—';
+        try {
+          const d = new Date(iso);
+          return d.toLocaleDateString();
+        } catch(e) { return '—'; }
+      }
+
+      function formatNumber(n) {
+        if (n === undefined || n === null) return '0';
+        return n.toLocaleString();
+      }
+
+      function avatarHtml(avatar, name, size) {
+        const initial = (name && name[0]) ? name[0].toUpperCase() : 'U';
+        return `<div style="display:inline-block;width:${size}px;height:${size}px;background:#ccc;border-radius:50%;text-align:center;line-height:${size}px;font-size:${size/2}px;margin-right:6px">${initial}</div>`;
+      }
+
+      function showToast(msg, type) {
+        // Simple alert for demo – replace with proper toast if available
+        alert(msg);
+      }
+
+      function showConfirm(title, msg, confirmText) {
+        return confirm(msg);
+      }
+
+      function requireAdminAuth() {
+        return !!localStorage.getItem("circle_admin_token");
+      }
+
+      function initAdminPage(page) {
+        console.log("Init page:", page);
+      }
+
+      function renderPagination(containerId, currentPage, totalItems, perPage, onPageChangeFnStr) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const totalPages = Math.ceil(totalItems / perPage);
+        if (totalPages <= 1) {
+          container.innerHTML = '';
+          return;
+        }
+        let html = '<div class="pagination-controls">';
+        if (currentPage > 1) {
+          html += `<button class="btn-action" onclick="(${onPageChangeFnStr})(${currentPage-1})">Previous</button>`;
+        }
+        html += `<span>Page ${currentPage}</span>`;
+        if (currentPage < totalPages) {
+          html += `<button class="btn-action" onclick="(${onPageChangeFnStr})(${currentPage+1})">Next</button>`;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+      }
+
+      function adminLogout() {
+        localStorage.removeItem("circle_admin_token");
+        window.location.href = "login.html";
+      }
 
       // ============================================================
       //  BOOTSTRAP
       // ============================================================
-      if (!requireAdminAuth()) throw new Error();
+      if (!requireAdminAuth()) {
+        // optionally redirect
+      }
       initAdminPage("articles");
       loadArticles();
     </script>

@@ -463,7 +463,7 @@ async function getViewCount(postId) {
   return Number(total);
 }
 
-// ── Topic stopwords ────────────────────────────────────────
+// ── Topic stopwords (unchanged) ───────────────────────────
 const TOPIC_STOPWORDS = new Set([
   'the','and','for','are','but','not','you','all','can','her','was','one',
   'our','out','day','get','has','him','his','how','its','let','may','new',
@@ -485,57 +485,94 @@ const TOPIC_STOPWORDS = new Set([
   'with','from','that','this','have','been',
 ]);
 
-// ── Extract topics from post text ─────────────────────────
-function extractTopics(text) {
-  if (!text) return [];
-  const topics = new Set();
-
-  // 1. Hashtags → always kept as single-word topics
-  const hashtags = text.match(/#([a-zA-Z0-9_]+)/g) || [];
-  hashtags.forEach(t => topics.add(t.slice(1).toLowerCase()));
-
-  // 2. Clean body text (strip hashtags, punctuation, lowercase)
-  const tokens = text
-    .replace(/#[a-zA-Z0-9_]+/g, '')
+// ── Helper: normalise text (diacritics + punctuation) ─────
+function normalizeText(str) {
+  return str
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length >= 2 && !/^\d+$/.test(w));
+    .trim();
+}
 
-  const isStop  = w => TOPIC_STOPWORDS.has(w);
-  const isValid = w => !isStop(w) && !/^\d+$/.test(w) && w.length >= 2;
+function isStopword(word) {
+  return TOPIC_STOPWORDS.has(word);
+}
 
-  // Helper: build an n-gram phrase from consecutive tokens
-  // Rules: trim leading/trailing stopwords, at least one non-stopword must remain,
-  // joined phrase >= 5 chars
-  function tryPhrase(slice) {
-    let start = 0;
-    let end = slice.length - 1;
-    while (start <= end && isStop(slice[start])) start++;
-    while (end >= start && isStop(slice[end]))   end--;
-    const trimmed = slice.slice(start, end + 1);
-    if (trimmed.length < 2) return;
-    if (!trimmed.some(isValid)) return;
-    const phrase = trimmed.join(' ');
-    if (phrase.length < 5) return;
-    topics.add(phrase);
+function hasMeaningfulWord(phraseWords) {
+  return phraseWords.some(w => !isStopword(w) && w.length >= 3);
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ── Improved topic extraction (avoids redundant n-grams) ──
+function extractTopics(text) {
+  if (!text) return [];
+
+  const topics = new Set();
+
+  // 1. Hashtags (always kept as single‑word topics)
+  const hashtags = text.match(/#([a-zA-Z0-9_]+)/g) || [];
+  hashtags.forEach(tag => topics.add(tag.slice(1).toLowerCase()));
+
+  // 2. Clean body: remove hashtags, normalise, tokenise
+  const body = text.replace(/#[a-zA-Z0-9_]+/g, '');
+  const normalized = normalizeText(body);
+  const tokens = normalized.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
+
+  if (tokens.length === 0) return [...topics];
+
+  const candidates = new Set();
+
+  // Single words (length ≥ 3, not a stopword)
+  tokens.forEach(word => {
+    if (word.length >= 3 && !isStopword(word)) {
+      candidates.add(word);
+    }
+  });
+
+  // Bigrams and trigrams
+  for (let n = 2; n <= 3; n++) {
+    for (let i = 0; i <= tokens.length - n; i++) {
+      const slice = tokens.slice(i, i + n);
+      // Trim leading/trailing stopwords
+      let start = 0, end = n - 1;
+      while (start <= end && isStopword(slice[start])) start++;
+      while (end >= start && isStopword(slice[end])) end--;
+      const trimmed = slice.slice(start, end + 1);
+      if (trimmed.length < 2) continue;
+      if (!hasMeaningfulWord(trimmed)) continue;
+      const phrase = trimmed.join(' ');
+      if (phrase.length >= 5) { // minimum length for a phrase
+        candidates.add(phrase);
+      }
+    }
   }
 
-  // 3. Single words (3+ chars, not a stopword)
-  tokens
-    .filter(w => w.length >= 3 && isValid(w))
-    .forEach(w => topics.add(w));
+  // 3. Remove redundant topics (shorter ones that are substrings of longer ones)
+  let topicArray = [...candidates];
+  topicArray.sort((a, b) => b.length - a.length); // longest first
 
-  // 4. Bigrams
-  for (let i = 0; i < tokens.length - 1; i++) {
-    tryPhrase(tokens.slice(i, i + 2));
+  const filtered = [];
+  for (const topic of topicArray) {
+    let isRedundant = false;
+    for (const kept of filtered) {
+      // Check if kept contains `topic` as a whole word sequence
+      const regex = new RegExp(`\\b${escapeRegex(topic)}\\b`, 'i');
+      if (regex.test(kept)) {
+        isRedundant = true;
+        break;
+      }
+    }
+    if (!isRedundant) {
+      filtered.push(topic);
+    }
   }
 
-  // 5. Trigrams
-  for (let i = 0; i < tokens.length - 2; i++) {
-    tryPhrase(tokens.slice(i, i + 3));
-  }
-
+  // 4. Merge with hashtags
+  filtered.forEach(t => topics.add(t));
   return [...topics];
 }
 

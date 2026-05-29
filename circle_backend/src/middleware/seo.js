@@ -8,6 +8,7 @@
 //   4. Real users → next() so the SPA index.html loads normally
 
 const { db } = require('../config/db');
+const ArticleModel = require('../models/ArticleModel');
 
 // ── Bot detection ─────────────────────────────────────────────────────────────
 const BOT_UA = /googlebot|bingbot|yandexbot|duckduckbot|slurp|baiduspider|twitterbot|facebookexternalhit|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|embedly|ia_archiver|pinterestbot|slackbot-linkexpanding/i;
@@ -63,7 +64,12 @@ function toAbsUrl(path) {
   return DEFAULT_IMG;
 }
 
-function buildHtml({ title, description, image, url, bodyText }) {
+async function fetchArticleBySlug(slug) {
+  if (!slug) return null;
+  return await ArticleModel.findBySlug(slug);
+}
+
+function buildHtml({ title, description, image, url, bodyText, type = 'website' }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -74,7 +80,7 @@ function buildHtml({ title, description, image, url, bodyText }) {
   <meta name="description" content="${esc(description)}" />
   <link rel="canonical" href="${esc(url)}" />
 
-  <meta property="og:type"         content="website" />
+  <meta property="og:type"         content="${esc(type)}" />
   <meta property="og:site_name"    content="Circle" />
   <meta property="og:url"          content="${esc(url)}" />
   <meta property="og:title"        content="${esc(title)}" />
@@ -214,6 +220,46 @@ async function handleProfile(req, res, next) {
   }));
 }
 
+async function handleArticle(req, res, next) {
+  if (!isBot(req)) return next();
+
+  const slug = req.params.slug;
+  if (!slug) {
+    res.status(400).send('Invalid article slug');
+    return;
+  }
+
+  let article;
+  try {
+    article = await fetchArticleBySlug(slug);
+  } catch (err) {
+    console.error('[seo] handleArticle DB error:', err.message);
+    return next();
+  }
+
+  if (!article) {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(404).send('Article not found');
+  }
+
+  const url = `${BASE_URL}/articles/${encodeURIComponent(slug)}`;
+  const title = article.title ? `${article.title} · Circle` : 'Circle article';
+  const description = truncate(article.excerpt || article.content || `Read this article on Circle.`);
+  const image = toAbsUrl(article.coverImage || article.cover_image || article.authorPicture);
+  const bodyText = truncate(article.content || article.excerpt || '', 240);
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  return res.send(buildHtml({
+    title,
+    description,
+    image,
+    url,
+    bodyText,
+    type: 'article',
+  }));
+}
+
 // ── Route: /sitemap.xml ───────────────────────────────────────────────────────
 function formatDateForSitemap(d) {
   if (d == null || d === 0) return null;
@@ -232,7 +278,7 @@ async function handleSitemap(req, res) {
 
   try {
     // Execute both queries
-    const [postsResult, usersResult] = await Promise.all([
+    const [postsResult, usersResult, articlesResult] = await Promise.all([
       db.query(
         `SELECT id, updated_at AS updatedAt
          FROM   posts
@@ -243,6 +289,13 @@ async function handleSitemap(req, res) {
         `SELECT id, updated_at AS updatedAt
          FROM   users
          ORDER  BY created_at DESC
+         LIMIT  50000`
+      ),
+      db.query(
+        `SELECT slug, updated_at AS updatedAt
+         FROM   articles
+         WHERE  published = 1
+         ORDER  BY updated_at DESC
          LIMIT  50000`
       ),
     ]);
@@ -257,13 +310,15 @@ async function handleSitemap(req, res) {
 
     const posts = normalize(postsResult);
     const users = normalize(usersResult);
+    const articles = normalize(articlesResult);
 
-    const buildUrlTags = (items, pathPrefix, priority) => {
+    const buildUrlTags = (items, pathPrefix, priority, keyField = 'id') => {
       return items.map(row => {
         const lastmod = formatDateForSitemap(row.updatedAt);
+        const idOrSlug = row[keyField];
         return `
   <url>
-    <loc>${BASE_URL}/${pathPrefix}/${row.id}</loc>
+    <loc>${BASE_URL}/${pathPrefix}/${esc(idOrSlug)}</loc>
     ${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}
     <changefreq>weekly</changefreq>
     <priority>${priority}</priority>
@@ -277,7 +332,7 @@ async function handleSitemap(req, res) {
     <loc>${BASE_URL}/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
-  </url>${buildUrlTags(posts, 'post', '0.6')}${buildUrlTags(users, 'profile', '0.7')}
+  </url>${buildUrlTags(posts, 'post', '0.6')}${buildUrlTags(users, 'profile', '0.7')}${buildUrlTags(articles, 'articles', '0.6', 'slug')}
 </urlset>`;
 
     sitemapCache = { xml, ts: Date.now() };
@@ -315,6 +370,7 @@ function seoMiddleware(app) {
   app.get('/sitemap.xml',     handleSitemap);
   app.get('/post/:id',        handlePost);
   app.get('/profile/:userId', handleProfile);
+  app.get('/articles/:slug',  handleArticle);
 }
 
 module.exports = { seoMiddleware, invalidateSitemapCache };

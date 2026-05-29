@@ -4,6 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Article · Circle</title>
+  <meta name="description" content="" />
+  <link rel="canonical" href="" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Circle" />
+  <meta property="og:title" content="" />
+  <meta property="og:description" content="" />
+  <meta property="og:image" content="" />
+  <meta property="og:url" content="" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="" />
+  <meta name="twitter:description" content="" />
+  <meta name="twitter:image" content="" />
+  <script type="application/ld+json" id="article-schema"></script>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -483,6 +496,16 @@
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    function updateMeta(selector, attr, value) {
+      const tag = document.querySelector(selector);
+      if (tag && value) tag.setAttribute(attr, value);
+    }
+
+    function updateLink(selector, attr, value) {
+      const tag = document.querySelector(selector);
+      if (tag && value) tag.setAttribute(attr, value);
+    }
+
     async function apiCall(method, path, body = null) {
       const opts = { method, headers: {} };
       if (currentUser) opts.headers['X-User-Id'] = currentUser.id;
@@ -545,6 +568,39 @@
       const img = document.getElementById('blog-image');
       const cover = article.cover_image || article.coverImage;
       img.src = cover || 'https://placehold.co/800x420/111116/7c6bff?text=Article';
+
+      const pageUrl = window.location.href;
+      const seoTitle = article.title + ' · Circle';
+      const seoDescription = article.excerpt || article.content?.slice(0, 160) || 'Read this article on Circle.';
+      const seoImage = cover || 'https://placehold.co/800x420/111116/7c6bff?text=Article';
+
+      document.title = seoTitle;
+      updateMeta('meta[name="description"]', 'content', seoDescription);
+      updateLink('link[rel="canonical"]', 'href', pageUrl);
+      updateMeta('meta[property="og:url"]', 'content', pageUrl);
+      updateMeta('meta[property="og:title"]', 'content', seoTitle);
+      updateMeta('meta[property="og:description"]', 'content', seoDescription);
+      updateMeta('meta[property="og:image"]', 'content', seoImage);
+      updateMeta('meta[property="og:site_name"]', 'content', 'Circle');
+      updateMeta('meta[name="twitter:title"]', 'content', seoTitle);
+      updateMeta('meta[name="twitter:description"]', 'content', seoDescription);
+      updateMeta('meta[name="twitter:image"]', 'content', seoImage);
+
+      const schemaEl = document.getElementById('article-schema');
+      if (schemaEl) {
+        schemaEl.textContent = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          mainEntityOfPage: { '@type': 'WebPage', '@id': pageUrl },
+          headline: article.title,
+          description: seoDescription,
+          image: [seoImage],
+          author: { '@type': 'Person', name: article.author || 'Circle' },
+          datePublished: new Date(article.createdAt || article.created_at).toISOString(),
+          url: pageUrl,
+          publisher: { '@type': 'Organization', name: 'Circle' }
+        });
+      }
 
       // Tags
       const tagsContainer = document.getElementById('blog-tags');

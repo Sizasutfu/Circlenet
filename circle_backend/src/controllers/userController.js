@@ -121,8 +121,15 @@ async function login(req, res) {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return sendError(res, 401, 'Wrong password.');
 
+    if (!user.email_verified) {
+      return res.status(403).json({
+        message: 'Please verify your email before logging in.',
+        unverified: true,
+      });
+    }
+
     // Never send the password hash to the client
-    const { password: _, ...safeUser } = user;
+    const { password: _, email_verified: __, ...safeUser } = user;
     return sendOk(res, 200, 'Login successful.', safeUser);
   } catch (err) {
     console.error('login error:', err);

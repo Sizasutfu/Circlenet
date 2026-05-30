@@ -31,7 +31,7 @@ async function api(method, path, body = null, signal = undefined) {
     setTimeout(() => goTo("login"), 0);
     throw new Error("Session expired. Please log in again.");
   }
-  if (!res.ok) throw new Error(data.message || "Something went wrong.");
+  if (!res.ok) { const err = new Error(data.message || "Something went wrong."); if (data.unverified) err.unverified = true; throw err; }
   return data;
 }
 
@@ -306,6 +306,28 @@ function copyCurrentLink() {
 }
 window.copyCurrentLink = copyCurrentLink;
 
+// ── Share a specific post ─────────────────────────────────────
+function sharePostLink(postId) {
+  const url = `${location.origin}/post/${postId}`;
+  if (navigator.share) {
+    navigator.share({ url, title: "Check out this post on Circle" }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(url)
+      .then(() => showToast("Link copied!"))
+      .catch(() => {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.cssText = "position:fixed;opacity:0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); showToast("Link copied!"); }
+        catch (_) { showToast(url); }
+        document.body.removeChild(ta);
+      });
+  }
+}
+window.sharePostLink = sharePostLink;
+
 // ── Share-link button injector ───────────────────────────────
 // Adds a copy-link button to post-detail and profile headers if not already there
 function _ensureCopyLinkBtn(containerId, label = "Copy link") {
@@ -499,6 +521,7 @@ window.goTo = function goTo(view, _opts = {}) {
 /*AUTH  */
 // Stores the newly registered user data while waiting for email verification
 let _pendingVerifyUser = null;
+let _pendingVerifyEmail = null;
 
 async function registerUser() {
   const name = document.getElementById("reg-name").value.trim();
@@ -539,7 +562,7 @@ async function registerUser() {
     _pendingVerifyUser = res.data;
     // Ask the backend to send a verification code to the email
     try {
-      await api("POST", "/api/auth/email/send-verification", { email });
+      await api("POST", "/api/users/email/send-verification", { email });
     } catch (_) {
       // Non-fatal: backend might send automatically on register
     }
@@ -592,18 +615,26 @@ async function emailVerifyOtp() {
   const el = document.getElementById("register-alert");
   el.className = "alert";
   if (code.length < 6) return showAlert(el, "Enter the full 6-digit code.", "error");
-  const email = document.getElementById("reg-email-display").textContent;
+  const email = document.getElementById("reg-email-display").textContent || _pendingVerifyEmail;
   const btn = document.getElementById("email-verify-btn");
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
   try {
-    await api("POST", "/api/auth/email/verify", { email, code });
-    // Mark user as verified and log them in
+    await api("POST", "/api/users/email/verify", { email, code });
     if (_pendingVerifyUser) {
+      // Coming from registration — user data already in memory
       setCurrentUser(_pendingVerifyUser);
       _pendingVerifyUser = null;
+      showAlert(el, "Email verified! Welcome to Circle 🎉", "success");
+      setTimeout(() => goTo("feed"), 900);
+    } else if (_pendingVerifyEmail) {
+      // Coming from login — redirect back to login
+      _pendingVerifyEmail = null;
+      showAlert(el, "Email verified! Please log in to continue.", "success");
+      setTimeout(() => goTo("login"), 1200);
+    } else {
+      showAlert(el, "Email verified! Welcome to Circle 🎉", "success");
+      setTimeout(() => goTo("feed"), 900);
     }
-    showAlert(el, "Email verified! Welcome to Circle 🎉", "success");
-    setTimeout(() => goTo("feed"), 900);
   } catch (e) {
     showAlert(el, e.message || "Invalid code. Please try again.", "error");
     _shakeOtpGroup("email-verify");
@@ -612,11 +643,11 @@ async function emailVerifyOtp() {
 }
 
 async function emailResendCode() {
-  const email = document.getElementById("reg-email-display").textContent;
+  const email = document.getElementById("reg-email-display").textContent || _pendingVerifyEmail;
   const el = document.getElementById("register-alert");
   el.className = "alert";
   try {
-    await api("POST", "/api/auth/email/send-verification", { email });
+    await api("POST", "/api/users/email/send-verification", { email });
     showAlert(el, "New code sent! Check your inbox.", "success");
     _clearOtpDigits("email-verify");
     _startEmailVerifyTimer();
@@ -655,16 +686,11 @@ async function loginUser() {
     btn.innerHTML = '<span class="spinner"></span>';
   }
   try {
-    const res = await api("POST", "/api/users/login", {
-      email,
-      password,
-    });
+    const res = await api("POST", "/api/users/login", { email, password });
     // Store the JWT for authenticated requests
     if (res.token) localStorage.setItem("circle_token", res.token);
     setCurrentUser(res.data);
-    showToast(
-      "Welcome back, " + (res.data?.name ?? "there").split(" ")[0] + "! 👋",
-    );
+    showToast("Welcome back, " + (res.data?.name ?? "there").split(" ")[0] + "! 👋");
     const _postLoginRedir = sessionStorage.getItem("_redirectAfterLogin");
     if (_postLoginRedir && _postLoginRedir.startsWith("/articles/")) {
       sessionStorage.removeItem("_redirectAfterLogin");
@@ -673,6 +699,28 @@ async function loginUser() {
       setTimeout(() => goTo("feed"), 400);
     }
   } catch (e) {
+    // Unverified account — send them to the OTP screen
+    if (e.unverified) {
+      _pendingVerifyEmail = email;
+      try {
+        await api("POST", "/api/users/email/send-verification", { email });
+      } catch (sendErr) {
+        showAlert(el, "Could not send verification code. Try again.", "error");
+        if (btn) { btn.disabled = false; btn.textContent = "Sign In"; }
+        return;
+      }
+      goTo("register");
+      document.getElementById("reg-email-display").textContent = email;
+      document.getElementById("reg-email-step1").classList.remove("active");
+      document.getElementById("reg-email-step2").classList.add("active");
+      _clearOtpDigits("email-verify");
+      _startEmailVerifyTimer();
+      setTimeout(() => {
+        const firstDigit = document.querySelector("#email-verify-otp-group .otp-digit");
+        if (firstDigit) firstDigit.focus();
+      }, 120);
+      return;
+    }
     showAlert(el, e.message, "error");
     if (btn) {
       btn.disabled = false;
@@ -680,6 +728,7 @@ async function loginUser() {
     }
   }
 }
+
 
 /* ── PHONE / OTP AUTH ─────────────────────────────────────────── */
 let _otpTimerInterval = null;
@@ -3225,6 +3274,7 @@ function buildPostCard(post, showDelete = false) {
         }</span>
       </button>
       <button class="act-btn repost-btn" onclick="openRepostAsQuote(event,${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg><span>${targetReposts.length || ""}</span></button>
+      <button class="act-btn share-btn" title="Share post" onclick="event.stopPropagation();sharePostLink(${targetId})"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
       <span class="act-views" id="views-${targetId}" title="Views">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         <span>${(isNoQuoteRepost ? post.originalPost.views : post.views) ? fmtViews(isNoQuoteRepost ? post.originalPost.views : post.views) : ""}</span>

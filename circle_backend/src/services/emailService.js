@@ -5,7 +5,7 @@ const FROM = process.env.NODE_ENV === 'production'
   : `"Circle" <${process.env.EMAIL_USER}>`;
 
 async function sendPasswordResetEmail({ to, name, token }) {
-  const resetUrl = `${process.env.FRONTEND_URL}/?token=${token}`;
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
 
   await sendEmail({
     from: FROM,

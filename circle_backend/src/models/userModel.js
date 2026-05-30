@@ -5,7 +5,7 @@ const UserModel = {
 
   async findByEmail(email) {
     const [rows] = await db.query(
-      "SELECT id, name, email, password FROM users WHERE email = ?",
+      "SELECT id, name, email, password, email_verified FROM users WHERE email = ?",
       [email]
     );
     return rows[0] || null;
@@ -301,4 +301,4 @@ async function markEmailVerified(userId) {
   );
 }
 
-module.exports = { ...UserModel, getNewMembers };
+module.exports = { ...UserModel, getNewMembers, saveVerificationCode, findByValidVerificationCode, markEmailVerified };

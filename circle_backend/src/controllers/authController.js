@@ -50,7 +50,7 @@ async function sendVerification(req, res) {
   }
 
   try {
-    await emailVerificationService.sendVerification(email);
+    await emailVerificationService.sendVerificationToUser(email);
     // Always return 200 — don't reveal whether the email exists
     return sendOk(res, 200, "Verification code sent.");
   } catch (e) {
@@ -69,7 +69,7 @@ async function verifyEmail(req, res) {
   }
 
   try {
-    await emailVerificationService.verifyCode(email, code);
+    await emailVerificationService.verifyEmailCode(email, code);
     return sendOk(res, 200, "Email verified successfully.");
   } catch (e) {
     console.error("[verifyEmail]", e);

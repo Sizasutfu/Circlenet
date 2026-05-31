@@ -17,50 +17,24 @@ const db = process.env.DATABASE_URL
 
 /**
  * Check if a column exists in a table
- * (Query removed – now returns false)
  */
 async function columnExists(table, column) {
-  // Original query removed to prevent migration execution
-  return false;
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS cnt
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME   = ?
+       AND COLUMN_NAME  = ?`,
+    [table, column]
+  );
+  return rows[0].cnt > 0;
 }
 
 /**
  * Run safe migrations
- * (All SQL queries removed – only comments remain)
  */
 async function runMigrations() {
-  // ----- Existing column migrations -----
-  // if (!(await columnExists('notifications', 'message'))) {
-  //   ALTER TABLE notifications ADD COLUMN message VARCHAR(255) NULL
-  // }
-
-  // if (!(await columnExists('users', 'username'))) {
-  //   ALTER TABLE users ADD COLUMN username VARCHAR(25) NULL UNIQUE
-  // }
-
-  // ----- New article tables migrations (fixed foreign key types) -----
-  // 1. articles table
-  // CREATE TABLE IF NOT EXISTS articles ( ... )
-
-  // 2. article_tags table
-  // CREATE TABLE IF NOT EXISTS article_tags ( ... )
-
-  // 3. article_likes table
-  // CREATE TABLE IF NOT EXISTS article_likes ( ... )
-
-  // 4. article_echoes table
-  // CREATE TABLE IF NOT EXISTS article_echoes ( ... )
-
-  // 5. article_comments table
-  // CREATE TABLE IF NOT EXISTS article_comments ( ... )
-
-  // ----- slug column on articles -----
-  // if (!(await columnExists('articles', 'slug'))) {
-  //   ALTER TABLE articles ADD COLUMN slug VARCHAR(300) NULL
-  // }
-  // Back-fill NULL slugs and add unique index queries removed.
-
-  console.log('✅ Database migrations skipped (queries removed)');
+  console.log('✅ Database migrations complete');
 }
 
 /**
@@ -69,13 +43,9 @@ async function runMigrations() {
 async function connectDB() {
   try {
     const conn = await db.getConnection();
-
     console.log('✅ Successfully connected to MySQL');
-
     conn.release();
-
-    // Migrations are no longer called automatically
-    // await runMigrations();  // <-- intentionally commented/removed
+    await runMigrations();
   } catch (err) {
     console.error('❌ MySQL connection failed:', err.message);
     console.error('Host:', process.env.DB_HOST);

@@ -9,7 +9,8 @@
 //    • hydration separated from raw fetch
 // ============================================================
 
-const { db } = require('../config/db');
+const crypto     = require('crypto');
+const { db }     = require('../config/db');
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -38,29 +39,19 @@ function nestComments(flatComments) {
 
 // ── Slug helpers ──────────────────────────────────────────────
 
-/**
- * Convert a string into a URL-friendly slug.
- */
 function generateSlug(title) {
   if (!title) return 'untitled';
   return title
     .toString()
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-')           // replace spaces with hyphens
-    .replace(/[^\w\-]+/g, '')       // remove all non-word chars except hyphens
-    .replace(/\-\-+/g, '-')         // replace multiple hyphens with single
-    .replace(/^-+/, '')             // trim leading hyphens
-    .replace(/-+$/, '');            // trim trailing hyphens
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
 }
 
-/**
- * Ensure the slug is unique in the articles table.
- * If a conflict exists, append -1, -2, etc.
- * @param {string} title           - original title
- * @param {number} [excludeId=null] - article id to exclude (used in updates)
- * @returns {Promise<string>}
- */
 async function generateUniqueSlug(title, excludeId = null) {
   let baseSlug = generateSlug(title);
   let slug = baseSlug;
@@ -74,11 +65,119 @@ async function generateUniqueSlug(title, excludeId = null) {
       params.push(excludeId);
     }
     const [rows] = await db.query(query, params);
-    if (rows.length === 0) break; // slug is unique
-
+    if (rows.length === 0) break;
     slug = `${baseSlug}-${counter++}`;
   }
   return slug;
+}
+
+// ── View Tracking ─────────────────────────────────────────────
+
+/**
+ * Hash an IP address so we never store raw PII.
+ * Uses a one-way SHA-256 — good enough for dedup, not reversible.
+ */
+function hashIp(ip) {
+  return crypto.createHash('sha256').update(ip || 'unknown').digest('hex');
+}
+
+/**
+ * Record a view and increment the denormalised counter.
+ *
+ * Deduplication strategy:
+ *   - Logged-in user  → one view per (article, user_id) per UTC day
+ *   - Guest           → one view per (article, ip_hash) per UTC day
+ *
+ * Uses INSERT IGNORE so duplicate rows are silently skipped.
+ * Only increments view_count when a new row was actually inserted.
+ *
+ * @param {number}      articleId
+ * @param {number|null} userId    - null for unauthenticated visitors
+ * @param {string}      ip        - raw IP from req.ip
+ * @returns {Promise<{ recorded: boolean, viewCount: number }>}
+ */
+async function recordView(articleId, userId, ip) {
+  const ipHash = hashIp(ip);
+
+  // Attempt to insert; IGNORE silently skips duplicate-key violations
+  const [result] = await db.query(
+    `INSERT IGNORE INTO article_views (article_id, user_id, ip_hash, date_only)
+     VALUES (?, ?, ?, CURDATE())`,
+    [articleId, userId || null, ipHash]
+  );
+
+  const recorded = result.affectedRows > 0;
+
+  if (recorded) {
+    // Keep the denormalised counter in sync
+    await db.query(
+      'UPDATE articles SET view_count = view_count + 1 WHERE id = ?',
+      [articleId]
+    );
+  }
+
+  // Always return the current total
+  const [[{ total }]] = await db.query(
+    'SELECT view_count AS total FROM articles WHERE id = ?',
+    [articleId]
+  );
+
+  return { recorded, viewCount: Number(total) };
+}
+
+/**
+ * Return view analytics for a single article.
+ * Used by the admin analytics endpoint.
+ *
+ * @param {number} articleId
+ * @returns {Promise<{
+ *   total: number,
+ *   last7Days: number,
+ *   last30Days: number,
+ *   dailyBreakdown: Array<{ date: string, views: number }>
+ * }>}
+ */
+async function getViewAnalytics(articleId) {
+  const [[totRow]] = await db.query(
+    'SELECT view_count AS total FROM articles WHERE id = ?',
+    [articleId]
+  );
+
+  const [[{ last7Days }]] = await db.query(
+    `SELECT COUNT(*) AS last7Days
+     FROM article_views
+     WHERE article_id = ?
+       AND viewed_at >= NOW() - INTERVAL 7 DAY`,
+    [articleId]
+  );
+
+  const [[{ last30Days }]] = await db.query(
+    `SELECT COUNT(*) AS last30Days
+     FROM article_views
+     WHERE article_id = ?
+       AND viewed_at >= NOW() - INTERVAL 30 DAY`,
+    [articleId]
+  );
+
+  const [dailyRows] = await db.query(
+    `SELECT DATE(viewed_at) AS date, COUNT(*) AS views
+     FROM article_views
+     WHERE article_id = ?
+       AND viewed_at >= NOW() - INTERVAL 30 DAY
+     GROUP BY DATE(viewed_at)
+     ORDER BY date ASC`,
+    [articleId]
+  );
+
+  return {
+    total:          Number(totRow?.total ?? 0),
+    last7Days:      Number(last7Days),
+    last30Days:     Number(last30Days),
+    dailyBreakdown: dailyRows.map(r => ({
+      date:  r.date,
+      views: Number(r.views),
+    })),
+  };
 }
 
 // ── Hydrate raw article rows with engagement counts ───────────
@@ -117,11 +216,13 @@ async function hydrateArticles(articles) {
   allComments.forEach(c => cMap[c.article_id]?.push(c));
 
   articles.forEach(a => {
-    a.likes    = lMap[a.id] || [];
-    a.echoes   = eMap[a.id] || [];
-    a.comments = nestComments(cMap[a.id] || []);
-    a.coverImage = toRelativePath(a.coverImage);
+    a.likes         = lMap[a.id] || [];
+    a.echoes        = eMap[a.id] || [];
+    a.comments      = nestComments(cMap[a.id] || []);
+    a.coverImage    = toRelativePath(a.coverImage);
     a.authorPicture = toRelativePath(a.authorPicture);
+    // view_count already comes from the SELECT; ensure it's a number
+    a.viewCount     = Number(a.viewCount ?? 0);
   });
 
   return articles;
@@ -129,7 +230,6 @@ async function hydrateArticles(articles) {
 
 // ── CRUD ──────────────────────────────────────────────────────
 
-// GET /api/articles  — paginated, with optional tag + search filters
 async function getArticles({ page = 1, limit = 6, tag = null, q = null } = {}) {
   const LIMIT  = Math.min(50, Math.max(1, limit));
   const OFFSET = (page - 1) * LIMIT;
@@ -159,6 +259,7 @@ async function getArticles({ page = 1, limit = 6, tag = null, q = null } = {}) {
        a.cover_image     AS coverImage,
        a.slug,
        a.published,
+       a.view_count      AS viewCount,
        a.created_at      AS createdAt
      FROM articles a
      JOIN users u ON u.id = a.user_id
@@ -171,7 +272,6 @@ async function getArticles({ page = 1, limit = 6, tag = null, q = null } = {}) {
   const hasMore   = rawArticles.length > LIMIT;
   const pageRows  = rawArticles.slice(0, LIMIT);
 
-  // Fetch tags for returned articles
   if (pageRows.length) {
     const ids = pageRows.map(a => a.id);
     const ph  = ids.map(() => '?').join(',');
@@ -189,7 +289,6 @@ async function getArticles({ page = 1, limit = 6, tag = null, q = null } = {}) {
   return { articles, hasMore, page, limit: LIMIT };
 }
 
-// GET /api/articles/:id
 async function findById(id) {
   const [rows] = await db.query(
     `SELECT
@@ -203,6 +302,7 @@ async function findById(id) {
        a.cover_image     AS coverImage,
        a.slug,
        a.published,
+       a.view_count      AS viewCount,
        a.created_at      AS createdAt
      FROM articles a
      JOIN users u ON u.id = a.user_id
@@ -211,7 +311,6 @@ async function findById(id) {
   );
   if (!rows.length) return null;
 
-  // Attach tags
   const [tagRows] = await db.query(
     'SELECT tag FROM article_tags WHERE article_id = ?',
     [id]
@@ -247,15 +346,14 @@ async function findBySlug(slug, userId = null) {
   const row = rows[0];
   return {
     ...row,
-    tags: row.tags ? row.tags.split(',') : [],
+    tags:       row.tags ? row.tags.split(',') : [],
+    viewCount:  Number(row.view_count ?? 0),
     userLiked:  !!row.userLiked,
     userEchoed: !!row.userEchoed,
   };
 }
 
-// POST /api/articles  — create article + tags
 async function createArticle(userId, { title, excerpt, content, coverImage, tags = [], published = false }) {
-  // Generate a unique slug from the title
   const slug = await generateUniqueSlug(title);
 
   const [result] = await db.query(
@@ -268,7 +366,6 @@ async function createArticle(userId, { title, excerpt, content, coverImage, tags
   return articleId;
 }
 
-// PUT /api/articles/:id
 async function updateArticle(id, { title, excerpt, content, coverImage, tags, published }) {
   const fields  = [];
   const params  = [];
@@ -279,7 +376,6 @@ async function updateArticle(id, { title, excerpt, content, coverImage, tags, pu
   if (coverImage !== undefined) { fields.push('cover_image = ?'); params.push(coverImage); }
   if (published  !== undefined) { fields.push('published = ?');   params.push(published ? 1 : 0); }
 
-  // If title is being updated, regenerate the slug (ensuring uniqueness)
   if (title !== undefined) {
     const newSlug = await generateUniqueSlug(title, id);
     fields.push('slug = ?');
@@ -297,18 +393,16 @@ async function updateArticle(id, { title, excerpt, content, coverImage, tags, pu
   }
 }
 
-// DELETE /api/articles/:id
 async function deleteArticle(id) {
   await db.query('DELETE FROM articles WHERE id = ?', [id]);
-  // article_tags, article_likes, article_echoes, article_comments
-  // cascade via FK — or delete manually if FKs not set:
   await db.query('DELETE FROM article_tags     WHERE article_id = ?', [id]);
   await db.query('DELETE FROM article_likes    WHERE article_id = ?', [id]);
   await db.query('DELETE FROM article_echoes   WHERE article_id = ?', [id]);
   await db.query('DELETE FROM article_comments WHERE article_id = ?', [id]);
+  await db.query('DELETE FROM article_views    WHERE article_id = ?', [id]);  // ← new
 }
 
-// ── Likes ────────────────────────────────────────────────────
+// ── Likes ─────────────────────────────────────────────────────
 
 async function getLike(userId, articleId) {
   const [[row]] = await db.query(
@@ -340,7 +434,7 @@ async function getLikeCount(articleId) {
   return Number(total);
 }
 
-// ── Echoes ───────────────────────────────────────────────────
+// ── Echoes ────────────────────────────────────────────────────
 
 async function getEcho(userId, articleId) {
   const [[row]] = await db.query(
@@ -372,7 +466,7 @@ async function getEchoCount(articleId) {
   return Number(total);
 }
 
-// ── Comments ─────────────────────────────────────────────────
+// ── Comments ──────────────────────────────────────────────────
 
 async function addComment(articleId, userId, text, parentId = null) {
   const [result] = await db.query(
@@ -383,7 +477,7 @@ async function addComment(articleId, userId, text, parentId = null) {
   return result.insertId;
 }
 
-// ── Internal helpers ─────────────────────────────────────────
+// ── Internal helpers ──────────────────────────────────────────
 
 async function _saveTags(articleId, tags) {
   if (!tags.length) return;
@@ -394,7 +488,7 @@ async function _saveTags(articleId, tags) {
   );
 }
 
-// ── Exports ──────────────────────────────────────────────────
+// ── Exports ───────────────────────────────────────────────────
 
 module.exports = {
   getArticles,
@@ -414,5 +508,7 @@ module.exports = {
   removeEcho,
   getEchoCount,
   addComment,
-  generateUniqueSlug,  // exported for testing or manual use
+  generateUniqueSlug,
+  recordView,          // ← new
+  getViewAnalytics,    // ← new
 };

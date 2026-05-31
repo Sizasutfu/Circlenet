@@ -24,7 +24,7 @@ function resolveFileUrl(compressed, req) {
   return { path: relativePath, url: `${baseUrl}${relativePath}` };
 }
 
-// ── GET /api/articles ────────────────────────────────────────
+// ── GET /api/articles ─────────────────────────────────────────
 async function getArticles(req, res) {
   const page  = Math.max(1, parseInt(req.query.page)  || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 6));
@@ -46,7 +46,7 @@ async function getArticles(req, res) {
   }
 }
 
-// ── GET /api/articles/:id ────────────────────────────────────
+// ── GET /api/articles/:id ─────────────────────────────────────
 async function getArticleById(req, res) {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
@@ -61,12 +61,37 @@ async function getArticleById(req, res) {
   }
 }
 
+// ── GET /api/articles/slug/:slug ──────────────────────────────
+// Primary public-facing read — this is where views are recorded.
 async function getArticleBySlug(req, res) {
   const { slug } = req.params;
   if (!slug) return sendError(res, 400, 'Slug is required.');
+
   try {
     const article = await ArticleModel.findBySlug(slug, req.actorId || null);
     if (!article) return sendError(res, 404, 'Article not found.');
+
+    // ── Record view (fire-and-forget, never block the response) ──
+    // We don't await so a slow DB write never slows down page load.
+    // Errors are logged but swallowed — a failed view record is not
+    // worth returning a 500 to the reader.
+    ArticleModel.recordView(
+      article.id,
+      req.actorId || null,
+      req.ip
+    ).then(({ recorded, viewCount }) => {
+      if (recorded) {
+        // Optionally update the value already in `article` for the
+        // response — but since we fire-and-forget this runs AFTER the
+        // response is sent, so it only matters for logging here.
+        console.debug(`[views] article=${article.id} total=${viewCount}`);
+      }
+    }).catch(err => {
+      console.error('[views] recordView failed (non-fatal):', err);
+    });
+
+    // Attach the current view count before sending
+    // (view_count is already on the article object from findBySlug)
     return sendOk(res, 200, 'Article fetched.', article);
   } catch (err) {
     console.error('getArticleBySlug error:', err);
@@ -74,9 +99,33 @@ async function getArticleBySlug(req, res) {
   }
 }
 
-// ── POST /api/articles ───────────────────────────────────────
+// ── GET /api/articles/:id/analytics  (admin only) ─────────────
+async function getArticleAnalytics(req, res) {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
+
+  try {
+    const article = await ArticleModel.findById(id);
+    if (!article) return sendError(res, 404, 'Article not found.');
+
+    const viewAnalytics = await ArticleModel.getViewAnalytics(id);
+
+    return sendOk(res, 200, 'Analytics fetched.', {
+      articleId:  id,
+      title:      article.title,
+      views:      viewAnalytics,
+      likes:      article.likes?.length  ?? 0,
+      echoes:     article.echoes?.length ?? 0,
+      comments:   article.comments?.length ?? 0,
+    });
+  } catch (err) {
+    console.error('getArticleAnalytics error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ── POST /api/articles ────────────────────────────────────────
 async function createArticle(req, res) {
-  // requireAdmin sets req.adminId and req.adminName
   const userId   = req.adminId;
   const userName = req.adminName;
 
@@ -99,8 +148,6 @@ async function createArticle(req, res) {
   const { path: coverPath, url: coverUrl } = resolveFileUrl(req.compressedFiles?.image, req);
 
   try {
-    // Fetch the admin's user record from the users table
-    // (admin_sessions joins users, so the admin IS a user row)
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'Admin user record not found.');
 
@@ -113,7 +160,6 @@ async function createArticle(req, res) {
       published:  published === 'true',
     });
 
-    // Notify followers if published
     if (published === 'true') {
       const followerIds = await FollowModel.getFollowerIds(userId);
       const sampled = [...followerIds]
@@ -150,6 +196,7 @@ async function createArticle(req, res) {
       like_count:    0,
       echo_count:    0,
       comment_count: 0,
+      viewCount:     0,
       created_at:    new Date(),
     });
   } catch (err) {
@@ -158,7 +205,7 @@ async function createArticle(req, res) {
   }
 }
 
-// ── PUT /api/articles/:id ────────────────────────────────────
+// ── PUT /api/articles/:id ─────────────────────────────────────
 async function updateArticle(req, res) {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
@@ -167,7 +214,6 @@ async function updateArticle(req, res) {
     const article = await ArticleModel.findById(id);
     if (!article) return sendError(res, 404, 'Article not found.');
 
-    // Admins can update any article; ownership check removed for admin routes
     const { title, excerpt, content, published } = req.body;
     if (title !== undefined && !title.trim())     return sendError(res, 400, 'Title cannot be empty.');
     if (content !== undefined && !content.trim()) return sendError(res, 400, 'Content cannot be empty.');
@@ -196,7 +242,7 @@ async function updateArticle(req, res) {
   }
 }
 
-// ── DELETE /api/articles/:id ─────────────────────────────────
+// ── DELETE /api/articles/:id ──────────────────────────────────
 async function deleteArticle(req, res) {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return sendError(res, 400, 'Invalid article ID.');
@@ -205,7 +251,6 @@ async function deleteArticle(req, res) {
     const article = await ArticleModel.findById(id);
     if (!article) return sendError(res, 404, 'Article not found.');
 
-    // Admins can delete any article; ownership check removed for admin routes
     await ArticleModel.deleteArticle(id);
     return sendOk(res, 200, 'Article deleted.');
   } catch (err) {
@@ -214,7 +259,7 @@ async function deleteArticle(req, res) {
   }
 }
 
-// ── POST /api/articles/:id/like ──────────────────────────────
+// ── POST /api/articles/:id/like ───────────────────────────────
 async function toggleLike(req, res) {
   const articleId = parseInt(req.params.id);
   const userId    = req.actorId;
@@ -247,7 +292,7 @@ async function toggleLike(req, res) {
   }
 }
 
-// ── POST /api/articles/:id/echo ──────────────────────────────
+// ── POST /api/articles/:id/echo ───────────────────────────────
 async function toggleEcho(req, res) {
   const articleId = parseInt(req.params.id);
   const userId    = req.actorId;
@@ -280,7 +325,7 @@ async function toggleEcho(req, res) {
   }
 }
 
-// ── GET /api/articles/tags ───────────────────────────────────
+// ── GET /api/articles/tags ────────────────────────────────────
 async function getAllTags(req, res) {
   try {
     const [rows] = await db.query(`SELECT DISTINCT tag FROM article_tags ORDER BY tag`);
@@ -292,7 +337,7 @@ async function getAllTags(req, res) {
   }
 }
 
-// ── POST /api/articles/:id/comment ───────────────────────────
+// ── POST /api/articles/:id/comment ────────────────────────────
 async function addComment(req, res) {
   const articleId = parseInt(req.params.id);
   const userId    = req.actorId;
@@ -340,6 +385,7 @@ module.exports = {
   getArticles,
   getArticleById,
   getArticleBySlug,
+  getArticleAnalytics,   // ← new
   createArticle,
   updateArticle,
   deleteArticle,

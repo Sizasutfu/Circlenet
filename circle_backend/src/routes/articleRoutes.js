@@ -40,4 +40,6 @@ router.post('/:id/like',    requireAuth, articleController.toggleLike);
 router.post('/:id/echo',    requireAuth, articleController.toggleEcho);
 router.post('/:id/comment', requireAuth, articleController.addComment);
 
+router.get('/:id/analytics', requireAdmin, articleController.getArticleAnalytics);
+
 module.exports = router;

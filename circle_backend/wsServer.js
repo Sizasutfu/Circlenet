@@ -224,6 +224,7 @@ function isOnline(userId) {
 function _broadcastTyping(conversationId, typingUserId, isTyping) {
   const members = activeConversations.get(conversationId);
   if (!members) return;
+  console.log('[WS] broadcastTyping', { conversationId, typingUserId, isTyping, members: members ? [...members] : null });
   const payload = { type: 'typing', conversationId, userId: typingUserId, isTyping };
   for (const memberId of members) {
     if (memberId === typingUserId) continue; // don't echo back to sender

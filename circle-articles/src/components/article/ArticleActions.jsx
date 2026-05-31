@@ -20,7 +20,7 @@ export default function ArticleActions({ articleId, initialLikes, initialEchoes,
   };
 
   const handleEcho = async () => {
-    if (!user) { window.location.href = '/login'; return; }
+    if (!user) { window.location.href = 'https://www.circlenet.social/login'; return; }
     try {
       const res = await apiClient(`/api/articles/${articleId}/echo`, { method: 'POST' });
       setEchoed(res.data.echoed);

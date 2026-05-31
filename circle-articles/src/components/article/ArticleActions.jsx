@@ -11,7 +11,7 @@ export default function ArticleActions({ articleId, initialLikes, initialEchoes,
   const [echoCount, setEchoCount] = useState(initialEchoes);
 
   const handleLike = async () => {
-    if (!user) { window.location.href = '/login'; return; }
+    if (!user) { window.location.href = 'https://www.circlenet.social/login'; return; }
     try {
       const res = await apiClient(`/api/articles/${articleId}/like`, { method: 'POST' });
       setLiked(res.data.liked);

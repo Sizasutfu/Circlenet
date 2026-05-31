@@ -366,6 +366,15 @@ async function getReadStatus(messageIds) {
   return rows.map(r => r.id);
 }
 
+async function getOtherParticipant(conversationId, userId) {
+  const [rows] = await db.query(
+    `SELECT user_id FROM conversation_participants
+     WHERE conversation_id = ? AND user_id != ? LIMIT 1`,
+    [conversationId, userId]
+  );
+  return rows[0]?.user_id ?? null;
+}
+
 module.exports = {
   getOrCreateConversation,
   getInboxForUser,
@@ -378,4 +387,5 @@ module.exports = {
   touchPresence,
   getPresence,
   getReadStatus,
+  getOtherParticipant,
 };

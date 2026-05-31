@@ -22,6 +22,10 @@ const userSockets = new Map();
 // conversationId → Set<userId>  (who is currently "in" this convo)
 const activeConversations = new Map();
 
+// ── Typing state ─────────────────────────────────────────────
+// `${conversationId}:${userId}` → auto-clear timer
+const typingTimers = new Map();
+
 let wss = null;
 
 // ── Attach to existing HTTP server ──────────────────────────
@@ -110,6 +114,32 @@ function handleClientMessage(ws, userId, msg) {
       send(ws, { type: 'pong' });
       break;
 
+    // Typing indicator
+    case 'typing': {
+      const convId = Number(msg.conversationId);
+      if (!convId) break;
+      const key = `${convId}:${userId}`;
+
+      // Clear any pending auto-stop timer
+      if (typingTimers.has(key)) {
+        clearTimeout(typingTimers.get(key));
+        typingTimers.delete(key);
+      }
+
+      if (msg.isTyping) {
+        // Broadcast start, then auto-stop after 4 s if client goes quiet
+        _broadcastTyping(convId, userId, true);
+        const timer = setTimeout(() => {
+          _broadcastTyping(convId, userId, false);
+          typingTimers.delete(key);
+        }, 4000);
+        typingTimers.set(key, timer);
+      } else {
+        _broadcastTyping(convId, userId, false);
+      }
+      break;
+    }
+
     default:
       break;
   }
@@ -185,6 +215,20 @@ function notifyUser(recipientId, notifType, data) {
  */
 function isOnline(userId) {
   return (userSockets.get(userId)?.size ?? 0) > 0;
+}
+
+/**
+ * Push a typing indicator to the OTHER participant(s) in a conversation.
+ * Only users who have joined the conversation room receive it.
+ */
+function _broadcastTyping(conversationId, typingUserId, isTyping) {
+  const members = activeConversations.get(conversationId);
+  if (!members) return;
+  const payload = { type: 'typing', conversationId, userId: typingUserId, isTyping };
+  for (const memberId of members) {
+    if (memberId === typingUserId) continue; // don't echo back to sender
+    notify(memberId, payload);
+  }
 }
 
 module.exports = { attachWS, notify, notifyConversation, notifyUser, isOnline };

@@ -38,6 +38,7 @@
     disconnect,
     joinConversation,
     leaveConversation,
+    sendTyping,
     isAlive: () => _wsAlive,
   };
 
@@ -117,6 +118,11 @@
       // ── Sender sees "Seen" when recipient calls markRead ─
       case "dm_read":
         _handleDMRead(msg);
+        break;
+
+      // ── Typing indicator ─────────────────────────────────
+      case "typing":
+        _handleTyping(msg);
         break;
 
       case "pong":
@@ -230,6 +236,19 @@
       seen.textContent = "Seen";
       msgEl.appendChild(seen);
     }
+  }
+
+  /* ── Emit typing state to the server ───────────────────── */
+  function sendTyping(conversationId, isTyping) {
+    _send({ type: "typing", conversationId, isTyping });
+  }
+
+  /* ── Handler: typing (other user is/isn't typing) ────────── */
+  function _handleTyping(msg) {
+    if (!currentUser) return;
+    if (typeof DM === "undefined") return;
+    if (DM.getActiveConvId() !== msg.conversationId) return;
+    DM._setTyping(msg.isTyping);
   }
 
   /* ── Handler: dm_read (markRead called by the other side) ── */

@@ -5732,6 +5732,10 @@ const DM = (() => {
   let _presenceTimer = null; // interval for GET .../presence
   let _peerOnline = false; // last known peer status
 
+  // Typing indicator state
+  let _typingTimeout = null;   // debounce timer for outgoing typing events
+  let _isTypingOut   = false;  // are we currently flagged as typing to the server
+
   // ── Time helpers ────────────────────────────────────────
   function _fmtTime(ts) {
     return new Date(ts).toLocaleTimeString([], {
@@ -6304,6 +6308,7 @@ const DM = (() => {
     const text = input.value.trim();
     if (!text) return;
     _sending = true;
+    _emitTypingStop(); // user sent — stop typing indicator immediately
 
     // Optimistic bubble shows plaintext immediately
     const tempId = "tmp_" + Date.now();
@@ -6421,6 +6426,36 @@ const DM = (() => {
     }
   }
 
+  // ── Typing indicator helpers ─────────────────────────────
+
+  // Called by wsClient when the OTHER user's typing state changes.
+  function _setTyping(isTyping) {
+    const el = document.getElementById("dm-typing-indicator");
+    if (el) el.style.display = isTyping ? "flex" : "none";
+  }
+
+  // Emit our own typing state to the server (debounced).
+  function _emitTypingStart() {
+    if (!_activeConvId || typeof CircleWS === "undefined" || !CircleWS.isAlive()) return;
+    if (!_isTypingOut) {
+      _isTypingOut = true;
+      CircleWS.sendTyping(_activeConvId, true);
+    }
+    clearTimeout(_typingTimeout);
+    _typingTimeout = setTimeout(_emitTypingStop, 2000);
+  }
+
+  function _emitTypingStop() {
+    clearTimeout(_typingTimeout);
+    _typingTimeout = null;
+    if (_isTypingOut) {
+      _isTypingOut = false;
+      if (_activeConvId && typeof CircleWS !== "undefined" && CircleWS.isAlive()) {
+        CircleWS.sendTyping(_activeConvId, false);
+      }
+    }
+  }
+
   // ── WebSocket injection hooks (called by ws-client.js) ──────
   // Appends a message that arrived via WS into the open chat view.
   function _wsInjectMessage(convId, message) {
@@ -6468,6 +6503,9 @@ const DM = (() => {
     _tonePlay: () => _msgTone.play(),
     _wsInjectMessage,
     _wsRefreshInbox,
+    _setTyping,
+    _emitTypingStart,
+    _emitTypingStop,
   };
 })();
 
@@ -6481,6 +6519,7 @@ function dmSendMessage() {
 function dmAutoResize(el) {
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  DM._emitTypingStart(); // user is actively typing
 }
 function dmSendOnEnter(e) {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -6492,6 +6531,7 @@ function dmBackToInbox() {
   // Leave the WS conversation room before going back
   const _leavingConv = DM.getActiveConvId();
   if (_leavingConv && typeof CircleWS !== "undefined") CircleWS.leaveConversation(_leavingConv);
+  DM._emitTypingStop(); // clear any in-flight typing event
   DM.stopHeartbeat(); // no longer in an active conversation
   document.getElementById("dm-inbox").classList.remove("hidden-mobile");
   document.getElementById("dm-chat").classList.remove("visible-mobile");

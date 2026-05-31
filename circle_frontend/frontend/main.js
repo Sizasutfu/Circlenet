@@ -1111,6 +1111,8 @@ function logout() {
   stopNotifPolling();
   updateNotifBadge(0);
   E2E.clearCache();
+  // Disconnect WebSocket on logout
+  if (typeof CircleWS !== "undefined") CircleWS.disconnect();
   showToast("Logged out successfully.");
   goTo("feed");
 }
@@ -1173,6 +1175,8 @@ function setCurrentUser(user) {
   loadSuggestions();
   // Generate / load E2E key-pair and publish public key to server
   E2E.publishMyPublicKey().catch(() => {});
+  // Connect WebSocket for real-time DMs and notifications
+  if (typeof CircleWS !== "undefined") CircleWS.connect();
 }
 
 async function sendResetEmail() {
@@ -6030,6 +6034,8 @@ const DM = (() => {
     _startPolling();
     _startHeartbeat();   // keep current user's presence alive
     _fetchPresence(cid); // immediate fetch on open
+    // Tell WebSocket server we are viewing this conversation
+    if (typeof CircleWS !== "undefined") CircleWS.joinConversation(cid);
   }
 
   // ── Fetch messages (initial load or conversation switch) ──
@@ -6415,6 +6421,37 @@ const DM = (() => {
     }
   }
 
+  // ── WebSocket injection hooks (called by ws-client.js) ──────
+  // Appends a message that arrived via WS into the open chat view.
+  function _wsInjectMessage(convId, message) {
+    if (_activeConvId !== convId) return;
+    // Don't double-add if the same message already arrived via HTTP send
+    if (_messages.find(m => m.id === message.id)) return;
+    _messages = [..._messages, message];
+    _latestId = message.id;
+    _renderMessages(_messages);
+    // Auto-mark as read since the user is actively viewing this conversation
+    api("PATCH", `/api/dm/conversations/${convId}/read`).catch(() => {});
+  }
+
+  // Refreshes the inbox preview row for a conversation after a WS new_dm event.
+  function _wsRefreshInbox(convId, message) {
+    const conv = _inbox.find(c => c.id === convId);
+    if (conv) {
+      conv.last_message    = message.body;
+      conv.last_sender_id  = message.sender_id;
+      conv.last_message_at = message.created_at;
+      if (message.sender_id !== currentUser.id && convId !== _activeConvId) {
+        conv.unread_count = (conv.unread_count || 0) + 1;
+      }
+    } else {
+      // Conversation not in inbox yet (first ever message) — reload fully
+      _loadInbox();
+      return;
+    }
+    renderInbox();
+  }
+
   return {
     init: _loadInbox,
     renderInbox,
@@ -6429,6 +6466,8 @@ const DM = (() => {
     stopHeartbeat: _stopHeartbeat,
     startHeartbeat: _startHeartbeat,
     _tonePlay: () => _msgTone.play(),
+    _wsInjectMessage,
+    _wsRefreshInbox,
   };
 })();
 
@@ -6450,6 +6489,9 @@ function dmSendOnEnter(e) {
   }
 }
 function dmBackToInbox() {
+  // Leave the WS conversation room before going back
+  const _leavingConv = DM.getActiveConvId();
+  if (_leavingConv && typeof CircleWS !== "undefined") CircleWS.leaveConversation(_leavingConv);
   DM.stopHeartbeat(); // no longer in an active conversation
   document.getElementById("dm-inbox").classList.remove("hidden-mobile");
   document.getElementById("dm-chat").classList.remove("visible-mobile");

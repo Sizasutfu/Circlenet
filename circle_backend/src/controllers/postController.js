@@ -18,6 +18,7 @@ const GroupModel            = require('../models/GroupModel');
 const { getPostsPage }      = require('../feed/feedPipeline');
 const { db }                = require('../config/db');
 const { sendOk, sendError } = require('../middleware/response');
+const { notifyUser, isOnline } = require('../../wsServer');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -36,7 +37,7 @@ function resolveFileUrl(compressed, req) {
 
   if (IS_PROD) {
     const url = compressed.secure_url;
-    return { path: url, url };           // store the CDN url directly in the DB
+    return { path: url, url };
   }
 
   const relativePath = `/uploads/${compressed.filename}`;
@@ -53,7 +54,6 @@ async function getPosts(req, res) {
 
   try {
     if (profileUserId) {
-      // Profile pages are chronological — no scoring needed
       const result  = await PostModel.getProfilePosts(profileUserId, page, limit);
       const posts   = result.posts   ?? result ?? [];
       const hasMore = result.hasMore ?? (posts.length === limit);
@@ -63,7 +63,6 @@ async function getPosts(req, res) {
     const viewerUserId = req.actorId || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
     const mediaFilter  = req.query.media === 'video' ? 'video' : null;
 
-    // New feed pipeline (replaces PostModel.getPostsPage)
     const result = await getPostsPage(viewerUserId, feedMode, page, limit, mediaFilter);
     return sendOk(res, 200, 'Posts fetched.', result);
   } catch (err) {
@@ -123,11 +122,12 @@ async function createPost(req, res) {
 
   // ── Group validation ───────────────────────────────────────
   const groupId = req.body.groupId ? parseInt(req.body.groupId) : null;
+  let group = null;
   if (groupId) {
     if (isNaN(groupId) || groupId < 1)
       return sendError(res, 400, 'Invalid groupId.');
 
-    const group = await GroupModel.getGroupById(groupId, userId);
+    group = await GroupModel.getGroupById(groupId, userId);
     if (!group)
       return sendError(res, 404, 'Group not found.');
     if (!group.isMember)
@@ -143,7 +143,7 @@ async function createPost(req, res) {
     // ── Extract and save hashtags ──────────────────────────────
     await PostModel.savePostTopics(postId, text);
 
-    // ── Notify 20% of followers (in-app + push) ────────────────
+    // ── Notify 20% of followers (WS + push fallback) ──────────
     const followerIds = await FollowModel.getFollowerIds(userId);
 
     const sampled = [...followerIds]
@@ -153,14 +153,26 @@ async function createPost(req, res) {
     await Promise.all(
       sampled.map(async fId => {
         const notif = await NotificationModel.createNotification(fId, userId, 'new_post', postId);
-        await PushModel.sendPushToUser(
-          fId,
-          'new_post',
-          user.name,
-          text ? text.slice(0, 100) : '📷 New post',
-          './',
-          { postId, actorId: userId, notifId: notif?.insertId ?? null }
-        );
+
+        // Real-time delivery for online followers
+        notifyUser(fId, 'new_post', {
+          actorId:   userId,
+          actorName: user.name,
+          postId,
+          notifId:   notif?.insertId ?? null,
+        });
+
+        // Only push if they're NOT connected via WebSocket
+        if (!isOnline(fId)) {
+          await PushModel.sendPushToUser(
+            fId,
+            'new_post',
+            user.name,
+            text ? text.slice(0, 100) : '📷 New post',
+            './',
+            { postId, actorId: userId, notifId: notif?.insertId ?? null }
+          );
+        }
       })
     );
 
@@ -219,12 +231,21 @@ async function toggleLike(req, res) {
       const total = await PostModel.getLikeCount(postId);
 
       const post = await PostModel.findById(postId);
-      if (post) {
-        await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
+      if (post && post.user_id !== userId) {
+        const notif = await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
 
-        // ── Bump topic affinity ────────────────────────────────
+        // ── Bump topic affinity ──────────────────────────────
         const topics = await TopicPreferenceModel.getPostTopics(postId);
         await TopicPreferenceModel.recordEngagement(userId, topics, 'like');
+
+        // ── Real-time notification ───────────────────────────
+        const actor = await UserModel.findById(userId);
+        notifyUser(post.user_id, 'like', {
+          actorId:   userId,
+          actorName: actor?.name ?? 'Someone',
+          postId,
+          notifId:   notif?.insertId ?? null,
+        });
       }
 
       return sendOk(res, 200, 'Liked.', { likes: total, liked: true });
@@ -234,9 +255,6 @@ async function toggleLike(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
-
-
-
 
 // POST /api/posts/:id/comment
 async function addComment(req, res) {
@@ -260,7 +278,16 @@ async function addComment(req, res) {
 
     const commentId = await PostModel.addComment(postId, userId, text, parentIdInt);
 
-    await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
+    if (post.user_id !== userId) {
+      await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
+
+      // ── Real-time notification ─────────────────────────────
+      notifyUser(post.user_id, 'comment', {
+        actorId:   userId,
+        actorName: user.name,
+        postId,
+      });
+    }
 
     // ── Bump topic affinity ──────────────────────────────────
     const topics = await TopicPreferenceModel.getPostTopics(postId);
@@ -305,7 +332,16 @@ async function repost(req, res) {
     const repostId  = await PostModel.createRepost(userId, text, origId);
     const origEmbed = await PostModel.getOriginalPostEmbed(origId);
 
-    await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
+    if (original.user_id !== userId) {
+      await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
+
+      // ── Real-time notification ─────────────────────────────
+      notifyUser(original.user_id, 'repost', {
+        actorId:   userId,
+        actorName: user.name,
+        postId:    origId,
+      });
+    }
 
     // ── Bump topic affinity ──────────────────────────────────
     const topics = await TopicPreferenceModel.getPostTopics(origId);
@@ -331,7 +367,6 @@ async function repost(req, res) {
   }
 }
 
-
 // POST /api/posts/:id/view
 // Body: { fingerprint?: string, dwellMs?: number }
 // Auth is optional — logged-in users identified by actorId,
@@ -350,7 +385,6 @@ async function recordView(req, res) {
   try {
     await PostModel.recordView(postId, viewerId);
 
-    // Record dwell time and emit short_view signal if below threshold
     if (userId && dwellMs !== null) {
       await NegativeSignalModel.recordDwellView(userId, postId, dwellMs);
     }
@@ -409,6 +443,7 @@ async function getPostsByTopic(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
+
 // GET /api/groups/:groupId/posts?page=<n>&limit=<n>
 // Returns posts scoped to a group via group_id column.
 // Any authenticated or guest user can read; only members can post.
@@ -455,6 +490,7 @@ async function updatePost(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
+
 module.exports = {
   getPosts,
   getPostById,
@@ -469,5 +505,4 @@ module.exports = {
   getPostsByTopic,
   getGroupPosts,
   updatePost,
-  
 };

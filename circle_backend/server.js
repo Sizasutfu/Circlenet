@@ -4,43 +4,48 @@ require('dotenv').config();
 
 const { connectDB } = require('./src/config/db');
 const app           = require('./src/app');
+const { attachWS }  = require('./wsServer');
 
-const PORT     = process.env.PORT || 5000;
-const isProd   = process.env.NODE_ENV === 'production';
+const PORT   = process.env.PORT || 5000;
+const isProd = process.env.NODE_ENV === 'production';
 
 async function start() {
   await connectDB();
 
   if (isProd) {
-    // Production: plain HTTP — Railway handles HTTPS externally
-    const http = require('http');
-    http.createServer(app).listen(PORT, '0.0.0.0', () => {
+    const http   = require('http');
+    const server = http.createServer(app);
+    attachWS(server);
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Circle API running on port ${PORT} (production)`);
     });
   } else {
-    // Development: HTTPS with mkcert certs
-    const https = require('https');
-    const fs    = require('fs');
-    const path  = require('path');
+    const fs   = require('fs');
+    const path = require('path');
 
     const certKey  = path.join(__dirname, 'src/sizabeats+1-key.pem');
     const certFile = path.join(__dirname, 'src/sizabeats+1.pem');
 
     if (!fs.existsSync(certKey) || !fs.existsSync(certFile)) {
       console.warn('⚠️  SSL certs not found — falling back to HTTP for development');
-      const http = require('http');
-      http.createServer(app).listen(PORT, '0.0.0.0', () => {
+      const http   = require('http');
+      const server = http.createServer(app);
+      attachWS(server);
+      server.listen(PORT, '0.0.0.0', () => {
         console.log(`⚠️  Circle API running on http://localhost:${PORT} (no certs)`);
       });
       return;
     }
 
+    const https      = require('https');
     const sslOptions = {
       key:  fs.readFileSync(certKey),
       cert: fs.readFileSync(certFile),
     };
 
-    https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
+    const server = https.createServer(sslOptions, app);
+    attachWS(server);
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Circle API running on https://sizabeats:${PORT} (development)`);
       console.log(`✅ Phone (same WiFi): https://192.168.163.203:${PORT}`);
     });

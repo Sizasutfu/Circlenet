@@ -34,6 +34,30 @@ async function columnExists(table, column) {
  * Run safe migrations
  */
 async function runMigrations() {
+  if (!(await columnExists('articles', 'view_count'))) {
+    await db.query(`ALTER TABLE articles ADD COLUMN view_count INT UNSIGNED NOT NULL DEFAULT 0`);
+  }
+
+  if (!(await columnExists('articles', 'updated_at'))) {
+    await db.query(`ALTER TABLE articles ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`);
+  }
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS article_views (
+      id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      article_id INT             NOT NULL,
+      user_id    INT             NULL,
+      ip_hash    VARCHAR(64)     NOT NULL,
+      date_only  DATE            NOT NULL,
+      viewed_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_user_view (article_id, user_id, date_only),
+      UNIQUE KEY uq_ip_view   (article_id, ip_hash, date_only),
+      INDEX idx_article_viewed (article_id, viewed_at),
+      INDEX idx_viewed_at      (viewed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   console.log('✅ Database migrations complete');
 }
 

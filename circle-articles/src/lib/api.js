@@ -1,10 +1,11 @@
 // src/lib/api.js
 const getBaseURL = () => {
-  if (process.env.NODE_ENV === 'development') {
-    return 'http://localhost:5000';   // force HTTP
+  // In production, use the environment variable
+  if (process.env.NODE_ENV === 'production') {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
   }
-  // production (adjust as needed)
-  return 'https://sizabeats:5000';
+  // Development fallback
+  return 'http://localhost:5000';
 };
 
 export async function apiClient(endpoint, options = {}) {

@@ -3,7 +3,7 @@ import { usePathname } from 'next/navigation';
 
 export default function ShareButtons({ title }) {
   const pathname = usePathname();
-  const url = typeof window !== 'undefined' ? window.location.href : `http://localhost:3000${pathname}`;
+  const url = typeof window !== 'undefined' ? window.location.href : `http://blog.circlenet.social${pathname}`;
   const encodedUrl = encodeURIComponent(url);
   const encodedTitle = encodeURIComponent(title);
 

@@ -368,11 +368,14 @@ async function getReadStatus(messageIds) {
 
 async function getOtherParticipant(conversationId, userId) {
   const [rows] = await db.query(
-    `SELECT user_id FROM conversation_participants
-     WHERE conversation_id = ? AND user_id != ? LIMIT 1`,
-    [conversationId, userId]
+    `SELECT IF(participant_one_id = ?, participant_two_id, participant_one_id) AS other_id
+     FROM dm_conversations
+     WHERE id = ?
+       AND (participant_one_id = ? OR participant_two_id = ?)
+     LIMIT 1`,
+    [Number(userId), Number(conversationId), Number(userId), Number(userId)]
   );
-  return rows[0]?.user_id ?? null;
+  return rows[0]?.other_id ?? null;
 }
 
 module.exports = {

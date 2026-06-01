@@ -12,7 +12,6 @@
 // ============================================================
 
 const { WebSocketServer, WebSocket } = require('ws');
-const jwt = require('jsonwebtoken');
 const url = require('url');
 
 // ── Connection registries ────────────────────────────────────
@@ -33,16 +32,10 @@ function attachWS(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   wss.on('connection', (ws, req) => {
-    // ── Auth: expect ?token=<jwt> in the upgrade URL ─────────
+    // ── Auth: expect ?userId=<id> in the upgrade URL ─────────
     const { query } = url.parse(req.url, true);
-    const token = query.token;
-
-    let userId;
-    try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      userId = payload.id ?? payload.userId;
-      if (!userId) throw new Error('No userId in token');
-    } catch {
+    const userId = parseInt(query.userId);
+    if (!userId) {
       ws.close(4001, 'Unauthorized');
       return;
     }
@@ -114,20 +107,15 @@ function handleClientMessage(ws, userId, msg) {
       send(ws, { type: 'pong' });
       break;
 
-    // Typing indicator
     case 'typing': {
       const convId = Number(msg.conversationId);
       if (!convId) break;
       const key = `${convId}:${userId}`;
-
-      // Clear any pending auto-stop timer
       if (typingTimers.has(key)) {
         clearTimeout(typingTimers.get(key));
         typingTimers.delete(key);
       }
-
       if (msg.isTyping) {
-        // Broadcast start, then auto-stop after 4 s if client goes quiet
         _broadcastTyping(convId, userId, true);
         const timer = setTimeout(() => {
           _broadcastTyping(convId, userId, false);
@@ -217,17 +205,12 @@ function isOnline(userId) {
   return (userSockets.get(userId)?.size ?? 0) > 0;
 }
 
-/**
- * Push a typing indicator to the OTHER participant(s) in a conversation.
- * Only users who have joined the conversation room receive it.
- */
 function _broadcastTyping(conversationId, typingUserId, isTyping) {
   const members = activeConversations.get(conversationId);
   if (!members) return;
-  console.log('[WS] broadcastTyping', { conversationId, typingUserId, isTyping, members: members ? [...members] : null });
   const payload = { type: 'typing', conversationId, userId: typingUserId, isTyping };
   for (const memberId of members) {
-    if (memberId === typingUserId) continue; // don't echo back to sender
+    if (memberId === typingUserId) continue;
     notify(memberId, payload);
   }
 }

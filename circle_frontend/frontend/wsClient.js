@@ -44,11 +44,11 @@
 
   /* ── Connect ─────────────────────────────────────────────── */
   function connect() {
-    const token = localStorage.getItem("circle_token");
-    if (!token) return;                        // not logged in, skip
+    const user = JSON.parse(localStorage.getItem("circle_user") || "null");
+    if (!user?.id) return;                     // not logged in, skip
     if (_socket && _socket.readyState <= WebSocket.OPEN) return;
 
-    _socket = new WebSocket(`${_wsUrl()}?token=${token}`);
+    _socket = new WebSocket(`${_wsUrl()}?userId=${user.id}`);
 
     _socket.addEventListener("open", _onOpen);
     _socket.addEventListener("message", _onMessage);
@@ -89,7 +89,7 @@
     _stopPing();
     console.warn(`[WS] Closed (${e.code}). Retry in ${_reconnectMs}ms`);
     if (e.code === 4001) return;               // auth failure — don't retry
-    if (!localStorage.getItem("circle_token")) return; // logged out
+    if (!JSON.parse(localStorage.getItem("circle_user") || "null")?.id) return; // logged out
     setTimeout(connect, _reconnectMs);
     _reconnectMs = Math.min(_reconnectMs * 2, 30_000);
   }
@@ -120,7 +120,6 @@
         _handleDMRead(msg);
         break;
 
-      // ── Typing indicator ─────────────────────────────────
       case "typing":
         _handleTyping(msg);
         break;
@@ -238,12 +237,10 @@
     }
   }
 
-  /* ── Emit typing state to the server ───────────────────── */
   function sendTyping(conversationId, isTyping) {
     _send({ type: "typing", conversationId, isTyping });
   }
 
-  /* ── Handler: typing (other user is/isn't typing) ────────── */
   function _handleTyping(msg) {
     if (!currentUser) return;
     if (typeof DM === "undefined") return;
@@ -288,7 +285,7 @@
   /* ── Auto-connect on DOMContentLoaded ───────────────────── */
   // If a token already exists (page refresh while logged in), connect right away.
   document.addEventListener("DOMContentLoaded", () => {
-    if (localStorage.getItem("circle_token")) connect();
+    if (JSON.parse(localStorage.getItem("circle_user") || "null")?.id) connect();
   });
 
 })();

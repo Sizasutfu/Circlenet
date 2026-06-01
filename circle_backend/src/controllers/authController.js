@@ -1,21 +1,24 @@
 const passwordService = require("../services/passwordService");
 const emailVerificationService = require("../services/emailVerificationService");
 const { sendOk, sendError } = require("../middleware/response");
+const parseUserAgent = require("../utils/userAgentParser");
 
 async function requestPasswordReset(req, res) {
   const { email } = req.body;
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const requestTimestamp = new Date();
+  const userAgent = req.headers['user-agent'];
+  const deviceInfo = parseUserAgent(userAgent);
 
   if (!email) {
     return sendError(res, 400, "Email is required.");
   }
 
   try {
-    // Pass IP and timestamp to the password service for enhanced email & audit log
     await passwordService.initiatePasswordReset(email, {
       ip,
       requestTimestamp,
+      deviceInfo,
       logger: req.log || console,
     });
     return sendOk(res, 200, "A reset link has been sent.");
@@ -47,8 +50,6 @@ async function confirmResetPassword(req, res) {
   }
 }
 
-// ─── POST /api/auth/email/send-verification ────────────────────────────────────
-
 async function sendVerification(req, res) {
   const { email } = req.body;
 
@@ -58,15 +59,12 @@ async function sendVerification(req, res) {
 
   try {
     await emailVerificationService.sendVerificationToUser(email);
-    // Always return 200 — don't reveal whether the email exists
     return sendOk(res, 200, "Verification code sent.");
   } catch (e) {
     console.error("[sendVerification]", e);
     return sendError(res, 500, "Failed to send verification email. Please try again.");
   }
 }
-
-// ─── POST /api/auth/email/verify ──────────────────────────────────────────────
 
 async function verifyEmail(req, res) {
   const { email, code } = req.body;

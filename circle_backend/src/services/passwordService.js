@@ -70,14 +70,15 @@ function validatePasswordStrength(password) {
  * and sends email with reset instructions.
  *
  * @param {string} email - User's email address
- * @param {Object} options - Optional metadata (ip, requestTimestamp, auditLogger)
+ * @param {Object} options - Optional metadata (ip, requestTimestamp, deviceInfo, logger)
  * @param {string} [options.ip] - IP address of the requester
  * @param {Date} [options.requestTimestamp] - Timestamp of the request (defaults to now)
+ * @param {string} [options.deviceInfo] - Parsed device/browser info
  * @param {Object} [options.logger] - Logger instance (defaults to console)
  * @returns {Promise<boolean>} True if user exists and email was sent
  */
 async function initiatePasswordReset(email, options = {}) {
-  const { ip, requestTimestamp = new Date(), logger = console } = options;
+  const { ip, requestTimestamp = new Date(), deviceInfo, logger = console } = options;
 
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return false;
@@ -91,17 +92,18 @@ async function initiatePasswordReset(email, options = {}) {
 
   await UserModel.saveResetToken(user.id, token, expires);
 
-  // Send enhanced email with IP and timestamp
+  // Send enhanced email with IP, timestamp, and device info
   await sendPasswordResetEmail({
     to: email,
     name: user.name,
     token,
     ip: ip || 'unavailable',
     requestTimestamp,
+    deviceInfo,
   });
 
   // Security audit log
-  logger.info(`[AUDIT] Password reset requested for user ${user.id} (email: ${email}) from IP ${ip || 'unknown'} at ${requestTimestamp.toISOString()}`);
+  logger.info(`[AUDIT] Password reset requested for user ${user.id} (email: ${email}) from IP ${ip || 'unknown'} (${deviceInfo || 'unknown device'}) at ${requestTimestamp.toISOString()}`);
 
   return true;
 }

@@ -1,13 +1,13 @@
 const { sendEmail } = require('../config/mailer');
 
-// Branding & links – set these in your .env
 const FROM = process.env.NODE_ENV === 'production'
   ? '"CircleNet" <noreply@circlenet.social>'
   : `"CircleNet" <${process.env.EMAIL_USER}>`;
-const LOGO_URL = process.env.CIRCLE_LOGO_URL || 'https://circlenet.social/logo.png'; // Replace with actual logo URL
+const LOGO_URL = process.env.CIRCLE_LOGO_URL || 'https://circlenet.social/logo.png';
 const COMPANY_URL = process.env.COMPANY_URL || 'https://circlenet.social';
 const PRIVACY_URL = process.env.PRIVACY_POLICY_URL || 'https://circlenet.social/privacy';
 const TERMS_URL = process.env.TERMS_URL || 'https://circlenet.social/terms';
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@circlenet.social';
 
 function formatDateTime(date) {
   if (!date) return 'Not available';
@@ -22,8 +22,41 @@ function formatDateTime(date) {
   });
 }
 
-// Build email HTML with full responsiveness, dark mode support, and accessibility
-function buildPasswordResetHtml({ name, resetUrl, ip, requestTime, expiryTime }) {
+/**
+ * Mask IPv4 or IPv6 address: show first two octets for IPv4, first 4 hex groups for IPv6.
+ */
+function maskIp(ip) {
+  if (!ip || ip === 'unavailable') return 'unavailable';
+  // IPv4
+  if (ip.includes('.') && ip.split('.').length === 4) {
+    const parts = ip.split('.');
+    return `${parts[0]}.${parts[1]}.xxx.xxx`;
+  }
+  // IPv6 – show first 4 hex groups, rest masked
+  if (ip.includes(':')) {
+    const groups = ip.split(':');
+    const shown = groups.slice(0, 2).join(':');
+    return `${shown}:xxxx:xxxx:xxxx:xxxx`;
+  }
+  return 'unavailable';
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  });
+}
+
+function buildPasswordResetHtml({ name, resetUrl, ip, requestTime, expiryTime, deviceInfo }) {
+  const maskedIp = maskIp(ip);
+  const shortLinkText = `${COMPANY_URL}/reset-password`; // domain only
+  // For the fallback, we provide a clickable link with the full URL but display only the domain
+  const fallbackLink = `<a href="${escapeHtml(resetUrl)}" style="color:#7c6bff; text-decoration:underline;">${shortLinkText}</a>`;
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -47,16 +80,11 @@ function buildPasswordResetHtml({ name, resetUrl, ip, requestTime, expiryTime })
 </head>
 <body style="margin:0; padding:0; background:#f5f7fc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
   <div style="max-width: 600px; margin: 0 auto; padding: 30px 20px;">
-    <!-- Main container (table for Outlook compatibility) -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff; border-radius: 24px; box-shadow: 0 8px 20px rgba(0,0,0,0.05);">
-      <tr>
-        <td style="padding: 32px 30px 20px 30px;" align="center">
-          <!-- Logo with alt text -->
+      <tr><td style="padding: 32px 30px 20px 30px;" align="center">
           <img src="${LOGO_URL}" alt="CircleNet logo" width="140" style="max-width:100%; height:auto; border:0;" />
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 10px 30px 30px 30px;">
+        </td></tr>
+      <tr><td style="padding: 10px 30px 30px 30px;">
           <h1 style="color:#2c3e4f; font-size:24px; margin:0 0 12px 0; font-weight:600;">Reset your password</h1>
           <p style="color:#4a5b6e; font-size:16px; line-height:1.5; margin:0 0 20px 0;">Hi <strong>${escapeHtml(name)}</strong>,</p>
           <p style="color:#4a5b6e; font-size:16px; line-height:1.5; margin:0 0 24px 0;">
@@ -68,24 +96,24 @@ function buildPasswordResetHtml({ name, resetUrl, ip, requestTime, expiryTime })
           <div style="background:#f8f9fc; border-left: 4px solid #7c6bff; padding: 14px 18px; margin: 20px 0 24px 0; border-radius: 8px;">
             <p style="margin:0 0 6px 0; font-size:14px; color:#3b4b5e;"><strong>🔐 Security information</strong></p>
             <p style="margin:4px 0; font-size:13px; color:#5d6f82;">Requested on: ${formatDateTime(requestTime)}</p>
-            <p style="margin:4px 0; font-size:13px; color:#5d6f82;">IP address: ${ip || 'Not available'}</p>
-            <p style="margin:8px 0 0 0; font-size:13px; color:#5d6f82;">Expires at: ${formatDateTime(expiryTime)}</p>
+            <p style="margin:4px 0; font-size:13px; color:#5d6f82;">IP address: ${maskedIp}</p>
+            ${deviceInfo ? `<p style="margin:4px 0; font-size:13px; color:#5d6f82;">Device: ${escapeHtml(deviceInfo)}</p>` : ''}
+            <p style="margin:4px 0; font-size:13px; color:#5d6f82;">Expires at: ${formatDateTime(expiryTime)}</p>
             <p style="margin:12px 0 0 0; font-size:13px; color:#7c6bff;">⚠️ If you didn't request this, you can safely ignore this email. No changes have been made to your account.</p>
+            <p style="margin:8px 0 0 0; font-size:13px;"><a href="mailto:${SUPPORT_EMAIL}" style="color:#7c6bff; text-decoration:none;">📧 Contact Support</a> if you need help.</p>
           </div>
 
           <!-- Primary reset button -->
           <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0 20px;">
-            <tr>
-              <td align="center">
+            <tr><td align="center">
                 <a href="${resetUrl}" class="button" style="display: inline-block; background:#7c6bff; color:#ffffff; font-weight:600; text-decoration:none; padding: 14px 32px; border-radius: 40px; font-size:16px; letter-spacing:0.5px; box-shadow: 0 2px 6px rgba(124,107,255,0.3);">Reset your password</a>
-              </td>
-            </tr>
+               </td></tr>
           </table>
 
-          <!-- Fallback link -->
+          <!-- Fallback link (shortened display) -->
           <div style="margin-top: 24px; padding: 16px 0 8px; border-top: 1px solid #e9edf2;">
-            <p style="font-size:13px; color:#7e8c9e; margin:0 0 8px 0;">If the button doesn't work, copy and paste the following link into your browser:</p>
-            <p class="fallback-link" style="font-size:13px; background:#f5f7fc; padding:10px 12px; border-radius:8px; word-break:break-all; margin:0; font-family: monospace;">${escapeHtml(resetUrl)}</p>
+            <p style="font-size:13px; color:#7e8c9e; margin:0 0 8px 0;">If the button doesn't work, click this link:</p>
+            <p style="font-size:13px; background:#f5f7fc; padding:10px 12px; border-radius:8px; word-break:break-all; margin:0;">${fallbackLink}</p>
           </div>
 
           <!-- Professional footer -->
@@ -98,36 +126,25 @@ function buildPasswordResetHtml({ name, resetUrl, ip, requestTime, expiryTime })
               <a href="${TERMS_URL}" style="color:#7c6bff; text-decoration:none;">Terms of Service</a>
             </p>
           </div>
-        </td>
-      </tr>
+        </td></tr>
     </table>
   </div>
 </body>
 </html>`;
 }
 
-// Helper to prevent XSS in name / URL
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>]/g, function(m) {
-    if (m === '&') return '&amp;';
-    if (m === '<') return '&lt;';
-    if (m === '>') return '&gt;';
-    return m;
-  });
-}
-
-async function sendPasswordResetEmail({ to, name, token, ip, requestTimestamp }) {
+async function sendPasswordResetEmail({ to, name, token, ip, requestTimestamp, deviceInfo }) {
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
   const requestTime = requestTimestamp || new Date();
-  const expiryTime = new Date(requestTime.getTime() + 60 * 60 * 1000); // exactly 1 hour
+  const expiryTime = new Date(requestTime.getTime() + 60 * 60 * 1000);
 
   const html = buildPasswordResetHtml({
     name,
     resetUrl,
     ip: ip || 'unavailable',
     requestTime,
-    expiryTime
+    expiryTime,
+    deviceInfo: deviceInfo || null,
   });
 
   await sendEmail({
@@ -138,7 +155,7 @@ async function sendPasswordResetEmail({ to, name, token, ip, requestTimestamp })
   });
 }
 
-// Also improve verification email with consistent branding & footer
+// sendVerificationEmail also updated for consistency (optional, add support link)
 async function sendVerificationEmail({ to, name, code }) {
   const html = `<!DOCTYPE html>
 <html>
@@ -168,7 +185,7 @@ async function sendVerificationEmail({ to, name, code }) {
       <p style="color:#7e8c9e; font-size:13px;">If you didn't create an account, please ignore this email.</p>
       <div class="footer" style="margin-top:40px; padding-top:18px; border-top:1px solid #eef2f8; text-align:center; font-size:12px; color:#8a99aa;">
         <p style="margin:0 0 6px;">© 2026 CircleNet. All rights reserved.</p>
-        <p><a href="${COMPANY_URL}" style="color:#7c6bff; text-decoration:none;">CircleNet</a> &nbsp;|&nbsp; <a href="${PRIVACY_URL}" style="color:#7c6bff;">Privacy</a> &nbsp;|&nbsp; <a href="${TERMS_URL}" style="color:#7c6bff;">Terms</a></p>
+        <p><a href="${COMPANY_URL}" style="color:#7c6bff; text-decoration:none;">CircleNet</a> &nbsp;|&nbsp; <a href="${PRIVACY_URL}" style="color:#7c6bff;">Privacy</a> &nbsp;|&nbsp; <a href="${TERMS_URL}" style="color:#7c6bff;">Terms</a> &nbsp;|&nbsp; <a href="mailto:${SUPPORT_EMAIL}" style="color:#7c6bff;">Support</a></p>
       </div>
     </div>
   </div>

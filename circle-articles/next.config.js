@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async rewrites() {
+  rewrites() {
     return [
       {
         source: '/uploads/:path*',
@@ -9,17 +9,17 @@ const nextConfig = {
     ];
   },
 
-  async headers() {
+  headers() {
     return [
       {
         source: '/(.*)',
         headers: [
-          { key: 'X-Frame-Options',              value: 'DENY' },
-          { key: 'X-Content-Type-Options',        value: 'nosniff' },
-          { key: 'Referrer-Policy',               value: 'strict-origin-when-cross-origin' },
-          { key: 'Strict-Transport-Security',     value: 'max-age=63072000; includeSubDomains; preload' },
-          { key: 'Cross-Origin-Opener-Policy',    value: 'same-origin' },
-          { key: 'Permissions-Policy',            value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'X-Frame-Options',           value: 'DENY' },
+          { key: 'X-Content-Type-Options',     value: 'nosniff' },
+          { key: 'Referrer-Policy',            value: 'strict-origin-when-cross-origin' },
+          { key: 'Strict-Transport-Security',  value: 'max-age=63072000; includeSubDomains; preload' },
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Permissions-Policy',         value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
     ];
@@ -32,7 +32,6 @@ const nextConfig = {
         hostname: 'blog.circlenet.social',
       },
       {
-        // Allow backend uploads in development
         protocol: 'http',
         hostname: 'localhost',
         port: '5000',

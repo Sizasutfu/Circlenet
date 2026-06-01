@@ -72,7 +72,7 @@
 
   /* ── Socket event handlers ──────────────────────────────── */
   function _onOpen() {
-    console.log("[WS] Connected ✓");
+    // console.log("[WS] Connected ✓");
     _wsAlive     = true;
     _connected   = true;
     _reconnectMs = 1500;
@@ -87,7 +87,7 @@
     _wsAlive   = false;
     _connected = false;
     _stopPing();
-    console.warn(`[WS] Closed (${e.code}). Retry in ${_reconnectMs}ms`);
+    // console.warn(`[WS] Closed (${e.code}). Retry in ${_reconnectMs}ms`);
     if (e.code === 4001) return;               // auth failure — don't retry
     if (!JSON.parse(localStorage.getItem("circle_user") || "null")?.id) return; // logged out
     setTimeout(connect, _reconnectMs);

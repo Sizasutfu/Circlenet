@@ -1,4 +1,3 @@
-// services/passwordService.js
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const UserModel = require('../models/userModel');
@@ -71,9 +70,15 @@ function validatePasswordStrength(password) {
  * and sends email with reset instructions.
  *
  * @param {string} email - User's email address
+ * @param {Object} options - Optional metadata (ip, requestTimestamp, auditLogger)
+ * @param {string} [options.ip] - IP address of the requester
+ * @param {Date} [options.requestTimestamp] - Timestamp of the request (defaults to now)
+ * @param {Object} [options.logger] - Logger instance (defaults to console)
  * @returns {Promise<boolean>} True if user exists and email was sent
  */
-async function initiatePasswordReset(email) {
+async function initiatePasswordReset(email, options = {}) {
+  const { ip, requestTimestamp = new Date(), logger = console } = options;
+
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return false;
   }
@@ -85,11 +90,18 @@ async function initiatePasswordReset(email) {
   const expires = getTokenExpiry();
 
   await UserModel.saveResetToken(user.id, token, expires);
+
+  // Send enhanced email with IP and timestamp
   await sendPasswordResetEmail({
     to: email,
     name: user.name,
     token,
+    ip: ip || 'unavailable',
+    requestTimestamp,
   });
+
+  // Security audit log
+  logger.info(`[AUDIT] Password reset requested for user ${user.id} (email: ${email}) from IP ${ip || 'unknown'} at ${requestTimestamp.toISOString()}`);
 
   return true;
 }

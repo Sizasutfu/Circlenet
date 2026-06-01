@@ -4,13 +4,20 @@ const { sendOk, sendError } = require("../middleware/response");
 
 async function requestPasswordReset(req, res) {
   const { email } = req.body;
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const requestTimestamp = new Date();
 
   if (!email) {
     return sendError(res, 400, "Email is required.");
   }
 
   try {
-    await passwordService.initiatePasswordReset(email);
+    // Pass IP and timestamp to the password service for enhanced email & audit log
+    await passwordService.initiatePasswordReset(email, {
+      ip,
+      requestTimestamp,
+      logger: req.log || console,
+    });
     return sendOk(res, 200, "A reset link has been sent.");
   } catch (e) {
     console.error("[requestPasswordReset]", e);

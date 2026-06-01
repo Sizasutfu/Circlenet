@@ -1,29 +1,36 @@
-// src/app/sitemap.js
 import { apiClient } from '@/lib/api';
 
-const BASE_URL = 'https://blog.circlenet.social'; 
+const BASE_URL = 'https://blog.circlenet.social';
 
 export default async function sitemap() {
-  // Fetch all articles (you may need to paginate if many)
-  let allArticles = [];
+  const allArticles = [];
   let page = 1;
-  let hasMore = true;
 
-  while (hasMore) {
+  while (true) {
     try {
       const res = await apiClient(`/api/articles?page=${page}&limit=50`);
-      const articles = res.data?.articles || [];
+      const articles = res?.data?.articles ?? [];
+
+      if (!articles.length) break;
+
       allArticles.push(...articles);
-      hasMore = articles.length === 50; // if limit reached, assume more
+
+      if (articles.length < 50) break; // last page
       page++;
     } catch (err) {
-      console.error('Failed to fetch articles for sitemap:', err);
+      // Log and stop — partial sitemap is better than a build failure
+      console.error(`Sitemap: failed fetching page ${page}:`, err);
       break;
     }
   }
 
-  // Static routes
   const staticRoutes = [
+    {
+      url: BASE_URL,
+      lastModified: new Date(),
+      changeFrequency: 'daily',
+      priority: 1.0,
+    },
     {
       url: `${BASE_URL}/articles`,
       lastModified: new Date(),
@@ -32,13 +39,14 @@ export default async function sitemap() {
     },
   ];
 
-  // Dynamic article routes
-  const articleRoutes = allArticles.map((article) => ({
-    url: `${BASE_URL}/articles/${article.slug}`,
-    lastModified: new Date(article.updatedAt || article.createdAt),
-    changeFrequency: 'weekly',
-    priority: 0.7,
-  }));
+  const articleRoutes = allArticles
+    .filter((a) => a.slug) // skip any malformed entries
+    .map((article) => ({
+      url: `${BASE_URL}/articles/${article.slug}`,
+      lastModified: new Date(article.updatedAt ?? article.createdAt),
+      changeFrequency: 'weekly',
+      priority: 0.7,
+    }));
 
   return [...staticRoutes, ...articleRoutes];
 }

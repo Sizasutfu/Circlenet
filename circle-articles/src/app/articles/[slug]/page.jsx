@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 import ArticleHeader from '@/components/article/ArticleHeader';
@@ -7,68 +8,114 @@ import CommentSection from '@/components/article/CommentSection';
 import RelatedArticles from '@/components/article/RelatedArticles';
 import ShareButtons from '@/components/article/ShareButtons';
 
-export async function generateMetadata({ params }) {
-  const { slug } = await params;
+const BASE_URL = 'https://blog.circlenet.social';
+
+// Memoized per-request so generateMetadata and the page share one fetch
+const getArticle = cache(async (slug) => {
   try {
     const res = await apiClient(`/api/articles/by-slug/${slug}`);
-    // Extract article from response (nested or direct)
-    const article = res.data?.article || res.data || res;
-    return {
-      title: article.title || 'Article',
-      description: article.excerpt || '',
-    };
+    const article = res?.data?.article ?? res?.data ?? null;
+    if (!article?.id) return null;
+    return article;
   } catch {
-    return { title: 'Article Not Found' };
+    // Return null for any API error — callers decide whether to 404 or error
+    return null;
   }
+});
+
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const article = await getArticle(slug);
+  if (!article) return { title: 'Article Not Found', robots: 'noindex' };
+
+  const url = `${BASE_URL}/articles/${slug}`;
+  const images = article.coverImage ? [{ url: article.coverImage }] : [];
+
+  return {
+    title: article.title,
+    description: article.excerpt || '',
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      title: article.title,
+      description: article.excerpt || '',
+      type: 'article',
+      url,
+      images,
+      publishedTime: article.createdAt,
+      modifiedTime: article.updatedAt,
+      authors: article.author?.name ? [article.author.name] : [],
+      tags: article.tags ?? [],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: article.title,
+      description: article.excerpt || '',
+      images: article.coverImage ? [article.coverImage] : [],
+    },
+  };
 }
 
 export default async function ArticlePage({ params }) {
   const { slug } = await params;
-  let article;
-  try {
-    const res = await apiClient(`/api/articles/by-slug/${slug}`);
-    console.log('🔍 Raw article response:', JSON.stringify(res, null, 2));
 
-    // Try to extract the article object from common response shapes
-    article = res.data?.article || res.data || res;
+  const article = await getArticle(slug);
 
-    if (!article || !article.id) {
-      console.error('❌ No article or missing id in response:', res);
-      notFound();
-    }
-    console.log('✅ Extracted article ID:', article.id);
-  } catch (err) {
-    console.error('Failed to fetch article:', err);
+  if (!article) {
     notFound();
   }
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: article.title,
+    description: article.excerpt || '',
+    url: `${BASE_URL}/articles/${slug}`,
+    datePublished: article.createdAt,
+    dateModified: article.updatedAt ?? article.createdAt,
+    author: article.author?.name
+      ? { '@type': 'Person', name: article.author.name }
+      : undefined,
+    image: article.coverImage ?? undefined,
+    publisher: {
+      '@type': 'Organization',
+      name: 'Circlenet',
+      url: BASE_URL,
+    },
+    keywords: article.tags?.join(', ') ?? '',
+  };
 
   let related = [];
   if (article.tags?.length) {
     try {
-      const relatedRes = await apiClient(`/api/articles?tags=${article.tags.join(',')}&limit=3`);
-      const relatedArticles = relatedRes.data?.articles || relatedRes.articles || [];
-      related = relatedArticles.filter(a => a.id !== article.id);
-    } catch (e) {
-      console.error('Failed to fetch related articles:', e);
+      const tagParams = article.tags.map(encodeURIComponent).join(',');
+      const relatedRes = await apiClient(`/api/articles?tags=${tagParams}&limit=3`);
+      const relatedArticles = relatedRes?.data?.articles ?? relatedRes?.articles ?? [];
+      related = relatedArticles.filter((a) => a.id !== article.id);
+    } catch {
+      // Non-critical — page still renders without related articles
     }
   }
 
-  const articleId = article.id; // now guaranteed to be a number
-
   return (
     <main className="page-wrap">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <ArticleHeader article={article} />
       <ArticleBody content={article.content} />
       <ArticleActions
-        articleId={articleId}
-        initialLikes={article.likes?.length || 0}
-        initialEchoes={article.echoes?.length || 0}
+        articleId={article.id}
+        initialLikes={article.likes?.length ?? 0}
+        initialEchoes={article.echoes?.length ?? 0}
         userLiked={article.userLiked}
         userEchoed={article.userEchoed}
       />
       <ShareButtons title={article.title} />
       <RelatedArticles articles={related} />
-      <CommentSection articleId={articleId} />
+      <CommentSection articleId={article.id} />
     </main>
   );
 }

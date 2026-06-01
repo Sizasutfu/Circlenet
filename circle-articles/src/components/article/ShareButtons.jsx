@@ -1,18 +1,24 @@
 'use client';
-import { usePathname } from 'next/navigation';
+
+import { useEffect, useState } from 'react';
 
 export default function ShareButtons({ title }) {
-  const pathname = usePathname();
-  const url = typeof window !== 'undefined' ? window.location.href : `http://blog.circlenet.social${pathname}`;
-  const encodedUrl = encodeURIComponent(url);
-  const encodedTitle = encodeURIComponent(title);
+  const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    setUrl(window.location.href);
+  }, []);
+
+  if (!url) return null;
+
+  const encode = encodeURIComponent;
 
   return (
-    <div className="art-share" suppressHydrationWarning>
+    <div className="art-share" suppressHydrationWarning={true}>
       <span className="art-share-label">Share this article</span>
       <div className="art-share-btns">
         <a
-          href={`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`}
+          href={`https://www.facebook.com/sharer/sharer.php?u=${encode(url)}`}
           target="_blank"
           rel="noopener"
           className="art-share-btn"
@@ -20,7 +26,7 @@ export default function ShareButtons({ title }) {
           Facebook
         </a>
         <a
-          href={`https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedUrl}`}
+          href={`https://twitter.com/intent/tweet?text=${encode(title)}&url=${encode(url)}`}
           target="_blank"
           rel="noopener"
           className="art-share-btn"
@@ -28,7 +34,7 @@ export default function ShareButtons({ title }) {
           Twitter
         </a>
         <a
-          href={`https://www.linkedin.com/shareArticle?mini=true&url=${encodedUrl}&title=${encodedTitle}`}
+          href={`https://www.linkedin.com/shareArticle?mini=true&url=${encode(url)}&title=${encode(title)}`}
           target="_blank"
           rel="noopener"
           className="art-share-btn"

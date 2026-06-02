@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import ArticleCard from './ArticleListItem';
+import ArticleCard from './ArticleListItem';  // Note: This imports ArticleListItem but aliases as ArticleCard
 import ArticleFilters from './ArticleFilters';
 import Pagination from './Pagination';
 
@@ -48,7 +48,7 @@ export default function ArticleGrid({ initialArticles = [], initialTotal = 0 }) 
         setActiveTag={setActiveTag}
         allTags={allTags}
       />
-      <div className="art-grid">
+      <div className="flex flex-col mt-8">
         {paginated.map((article, idx) => (
           <ArticleCard key={article.id} article={article} delay={idx * 45} />
         ))}

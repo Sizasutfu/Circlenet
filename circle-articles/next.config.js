@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Allow access from other devices on your local network
+  allowedDevOrigins: ['10.205.240.203'],
+
   rewrites() {
     return [
       {

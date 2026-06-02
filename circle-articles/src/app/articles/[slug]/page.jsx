@@ -29,7 +29,8 @@ export async function generateMetadata({ params }) {
   if (!article) return { title: 'Article Not Found', robots: 'noindex' };
 
   const url = `${BASE_URL}/articles/${slug}`;
-  const images = article.coverImage ? [{ url: article.coverImage }] : [];
+  // 👇 Use the API route for the OG image
+  const ogImageUrl = `${BASE_URL}/api/og/${slug}`;
 
   return {
     title: article.title,
@@ -42,7 +43,7 @@ export async function generateMetadata({ params }) {
       description: article.excerpt || '',
       type: 'article',
       url,
-      images,
+      images: [{ url: ogImageUrl }],               // ✅ dynamic OG image
       publishedTime: article.createdAt,
       modifiedTime: article.updatedAt,
       authors: article.author?.name ? [article.author.name] : [],
@@ -52,11 +53,10 @@ export async function generateMetadata({ params }) {
       card: 'summary_large_image',
       title: article.title,
       description: article.excerpt || '',
-      images: article.coverImage ? [article.coverImage] : [],
+      images: [ogImageUrl],                        // ✅ also for Twitter
     },
   };
 }
-
 export default async function ArticlePage({ params }) {
   const { slug } = await params;
 

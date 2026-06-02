@@ -8,22 +8,26 @@ async function requestPasswordReset(req, res) {
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const requestTimestamp = new Date();
   const userAgent = req.headers['user-agent'];
-  const deviceInfo = parseUserAgent(userAgent);
+  const deviceInfo = parseUserAgent(userAgent); // now returns rich object
 
   if (!email) {
     return sendError(res, 400, "Email is required.");
   }
 
+  // Optional: normalize email
+  const normalizedEmail = email.trim().toLowerCase();
+
   try {
-    await passwordService.initiatePasswordReset(email, {
+    await passwordService.initiatePasswordReset(normalizedEmail, {
       ip,
       requestTimestamp,
-      deviceInfo,
+      deviceInfo,  // passes the full object including brand/model
       logger: req.log || console,
     });
     return sendOk(res, 200, "A reset link has been sent.");
   } catch (e) {
     console.error("[requestPasswordReset]", e);
+    // Don't leak internal errors to the client
     return sendError(res, 500, "Failed to send reset email. Please try again.");
   }
 }

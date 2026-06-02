@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Allow access from other devices on your local network
+  // Allow access from other devices on your local network (development only)
   allowedDevOrigins: ['10.205.240.203'],
 
   rewrites() {
@@ -23,6 +23,13 @@ const nextConfig = {
           { key: 'Strict-Transport-Security',  value: 'max-age=63072000; includeSubDomains; preload' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Permissions-Policy',         value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+      // Cache dynamic OG images for 1 day (revalidate while stale)
+      {
+        source: '/articles/:slug/opengraph-image.png',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=86400' },
         ],
       },
     ];

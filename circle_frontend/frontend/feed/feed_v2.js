@@ -73,6 +73,16 @@ const Feed = (() => {
     }
   }
 
+  // ── Helper: deduplicate posts array by ID ─────────────────────
+  function _dedupPosts(postsArray) {
+    const seen = new Set();
+    return postsArray.filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }
+
   // ── Live polling ──────────────────────────────────────────────
   let _liveTimer = null;
   let _liveQueue = [];
@@ -149,7 +159,6 @@ const Feed = (() => {
     const c = document.getElementById("feed-list");
     if (!c) return;
 
-    // NEVER show empty state while loading
     if (!_state.posts.length) {
       if (_state.loading) return;
 
@@ -334,7 +343,9 @@ const Feed = (() => {
 
     const cached = PostCache.getFeedPage(_state.tab, _state.page);
     if (cached && cached.posts.length > 0) {
-      _state.posts = [..._state.posts, ...cached.posts];
+      // Deduplicate before merging
+      const combined = _dedupPosts([..._state.posts, ...cached.posts]);
+      _state.posts = combined;
       posts = _state.posts;
       _state.hasMore = cached.hasMore;
       _state.page++;
@@ -342,6 +353,11 @@ const Feed = (() => {
       const frag = document.createDocumentFragment();
       const addedCards = [];
       cached.posts.forEach((p) => {
+        // Only add card if it's not already in DOM (by checking state after dedup)
+        const alreadyInState = _state.posts.some(existing => existing.id === p.id);
+        if (alreadyInState && _state.posts.indexOf(p) < _state.posts.length - cached.posts.length) {
+          return; // skip if it was already present before this merge
+        }
         const d = document.createElement("div");
         d.innerHTML = buildPostCard(p);
         const card = d.firstElementChild;
@@ -398,7 +414,9 @@ const Feed = (() => {
       skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
 
       PostCache.storeFeedPage(_state.tab, _state.page, newPosts, hasMore);
-      _state.posts = [..._state.posts, ...newPosts].slice(-100);
+      // Deduplicate before merging
+      const combined = _dedupPosts([..._state.posts, ...newPosts]);
+      _state.posts = combined.slice(-100); // keep last 100 to avoid memory bloat
       posts = _state.posts;
       if (_state.tab === "global") _state.masterPosts = [..._state.posts];
       _state.hasMore = hasMore;
@@ -408,7 +426,9 @@ const Feed = (() => {
 
       const frag = document.createDocumentFragment();
       const addedCards = [];
+      // Only add cards that are truly new (not already present in DOM)
       newPosts.forEach((p) => {
+        if (!_state.posts.some(existing => existing.id === p.id)) return; // safety check
         _liveSeenIds.add(p.id);
         const d = document.createElement("div");
         d.innerHTML = buildPostCard(p);
@@ -465,7 +485,7 @@ const Feed = (() => {
     } catch (e) { /* silent */ }
   }
 
-  // ── Live polling (unchanged) ──────────────────────────────────
+  // ── Live polling ──────────────────────────────────────────────
   function _startLivePolling() {
     if (_liveTimer) return;
     _state.posts.forEach((p) => _liveSeenIds.add(p.id));
@@ -501,10 +521,14 @@ const Feed = (() => {
   function _drainQueueToTop(feedList) {
     if (!_liveQueue.length) return;
     const toInsert = _liveQueue.splice(0);
-    _state.posts = [...toInsert, ..._state.posts];
+    // Deduplicate against existing posts before prepending
+    const existingIds = new Set(_state.posts.map(p => p.id));
+    const uniqueNew = toInsert.filter(p => !existingIds.has(p.id));
+    if (uniqueNew.length === 0) return;
+    _state.posts = [...uniqueNew, ..._state.posts];
     posts = _state.posts;
     const frag = document.createDocumentFragment();
-    toInsert.reverse().forEach((p) => {
+    uniqueNew.reverse().forEach((p) => {
       const d = document.createElement("div");
       d.innerHTML = buildPostCard(p);
       const card = d.firstElementChild;
@@ -612,7 +636,6 @@ const Feed = (() => {
       document.getElementById("ftab-global").classList.toggle("active", tab === "global");
       document.getElementById("ftab-following").classList.toggle("active", tab === "following");
 
-      // Try in-memory filter only if masterPosts exists AND following set is ready
       if (_state.masterPosts.length > 0 && (tab !== "following" || _followingSetLoaded)) {
         const ps = _state.pageState[tab];
         _state.page    = ps.page;
@@ -628,9 +651,7 @@ const Feed = (() => {
         }
         posts = _state.posts;
 
-        // If filter produced empty posts but masterPosts is not empty, we should fetch fresh data
         if (_state.posts.length === 0 && _state.masterPosts.length > 0) {
-          // MasterPosts exist but nothing matched – might be stale or following set changed
           _state.page = 1;
           _state.hasMore = true;
           _state.posts = [];
@@ -650,7 +671,6 @@ const Feed = (() => {
         return;
       }
 
-      // No usable cache or master posts – fetch from network
       const cached = PostCache.getFeedPage(tab, 1);
       if (cached && cached.posts.length > 0) {
         _state.posts = cached.posts;
@@ -724,7 +744,7 @@ const _tabState = {
 let feedPage = 1, feedHasMore = true, feedLoading = false;
 
 /* ═══════════════════════════════════════════════════════════════
-   POST CACHE — (unchanged except fix 7 already applied)
+   POST CACHE
    ═══════════════════════════════════════════════════════════════ */
 const PostCache = (() => {
   const STORAGE_KEY = "circle_post_cache_v1";

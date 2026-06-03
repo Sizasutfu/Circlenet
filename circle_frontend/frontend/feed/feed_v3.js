@@ -57,7 +57,6 @@ const Feed = (() => {
     if (!currentUser) {
       _followingSet.clear();
       _followingSetLoaded = false;
-      window._followingSetLoaded = false;
       return;
     }
     try {
@@ -69,7 +68,6 @@ const Feed = (() => {
       // non-critical
     } finally {
       _followingSetLoaded = true;
-      window._followingSetLoaded = true;
     }
   }
 
@@ -87,9 +85,6 @@ const Feed = (() => {
   // ── Fetch sequence guard (prevents race conditions) ───────────
   let _fetchSeq = 0;
   let _activeTabAtFetch = null;
-
-  // ── Expected page size (used for hasMore heuristic) ───────────
-  const PAGE_SIZE = 10;
 
   // ── Skeleton HTML ─────────────────────────────────────────────
   function _skelHTML() {
@@ -119,29 +114,13 @@ const Feed = (() => {
   // ── Normalise API response into { posts[], hasMore } ──────────
   function _normalise(res) {
     const payload = res.data ?? res;
-    let posts = [];
-    let explicitHasMore = null;
-
     if (Array.isArray(payload)) {
-      posts = payload;
-      if (typeof res.hasMore === 'boolean') explicitHasMore = res.hasMore;
-      else if (typeof res.data?.hasMore === 'boolean') explicitHasMore = res.data.hasMore;
-    } else if (Array.isArray(payload?.posts)) {
-      posts = payload.posts;
-      if (typeof payload.hasMore === 'boolean') explicitHasMore = payload.hasMore;
-      else if (typeof res.hasMore === 'boolean') explicitHasMore = res.hasMore;
-    } else {
-      return { posts: [], hasMore: false };
+      return { posts: payload, hasMore: payload.length > 0 };
     }
-
-    let hasMore;
-    if (explicitHasMore !== null) {
-      hasMore = explicitHasMore;
-    } else {
-      hasMore = posts.length >= PAGE_SIZE;
+    if (Array.isArray(payload?.posts)) {
+      return { posts: payload.posts, hasMore: payload.hasMore ?? payload.posts.length > 0 };
     }
-
-    return { posts, hasMore };
+    return { posts: [], hasMore: false };
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -149,9 +128,9 @@ const Feed = (() => {
     const c = document.getElementById("feed-list");
     if (!c) return;
 
-    // NEVER show empty state while loading
+    // ── GUARD: never show empty state while a fetch is in flight ──
     if (!_state.posts.length) {
-      if (_state.loading) return;
+      if (_state.loading) return;   // THE KEY FIX — no "Nothing here yet" flash
 
       if (_state.tab === "following") {
         c.innerHTML = `<div class="empty">
@@ -168,9 +147,11 @@ const Feed = (() => {
 
     const parts = _state.posts.map((p) => buildPostCard(p));
 
+    // Inject inline suggestions card after 5th post if not dismissed
     if (!_feedSugDismissed && currentUser && parts.length >= 5) {
       parts.splice(5, 0, buildFeedSugCard());
     }
+    // Inject new member card between positions 3-5 if not dismissed
     if (!_feedNewDismissed && currentUser && _newMembers.length) {
       const member = _newMembers[_feedNewIndex % _newMembers.length];
       if (member) {
@@ -195,17 +176,11 @@ const Feed = (() => {
       s = document.createElement("div");
       s.id = "feed-sentinel";
       s.style.cssText = "height:40px;width:100%";
-      const feedList = document.getElementById("feed-list");
-      if (feedList) feedList.appendChild(s);
-      else return;
+      document.getElementById("feed-list").appendChild(s);
     }
     if (_scrollObserver) _scrollObserver.disconnect();
     _scrollObserver = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !_state.loading && _state.hasMore) {
-          _fetchMore();
-        }
-      },
+      (entries) => { if (entries[0].isIntersecting) _fetchMore(); },
       { rootMargin: "800px" }
     );
     _scrollObserver.observe(s);
@@ -240,7 +215,7 @@ const Feed = (() => {
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
       const { posts: newPosts, hasMore } = _normalise(res);
       PostCache.storeFeedPage(_state.tab, _state.page, newPosts, hasMore);
-    } catch (e) { /* silent */ }
+    } catch (e) { /* silent — fetchMore will retry on scroll */ }
   }
 
   // ── Core fetch: first page ────────────────────────────────────
@@ -252,8 +227,9 @@ const Feed = (() => {
 
     const c = document.getElementById("feed-list");
 
+    // Check cache — paint instantly if fresh
     const cached = PostCache.getFeedPage(_state.tab, 1);
-    if (cached && cached.posts.length > 0) {
+    if (cached) {
       _state.posts = cached.posts;
       posts = _state.posts;
       if (_state.tab === "global") _state.masterPosts = [...cached.posts];
@@ -268,6 +244,7 @@ const Feed = (() => {
       return;
     }
 
+    // No cache — show skeletons then fetch
     _state.loading = true;
     c.innerHTML = _skelHTML();
 
@@ -275,13 +252,14 @@ const Feed = (() => {
       const feedTab = currentUser ? _state.tab : "global";
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
 
+      // Race condition guard: if tab changed during request, discard result
       if (thisFetch !== _fetchSeq || _activeTabAtFetch !== _state.tab) {
         return;
       }
 
       let { posts: newPosts, hasMore } = _normalise(res);
 
-      // New user fallback – try trending (Fix 1)
+      // New user fallback: personalised feed empty, show trending
       if (!newPosts.length && _state.tab === "global" && currentUser) {
         const fb = await api("GET", "/api/posts?feed=trending&page=1");
         const n = _normalise(fb);
@@ -289,6 +267,7 @@ const Feed = (() => {
         hasMore = n.hasMore;
       }
 
+      // Filter reposts on global tab (only from followed users)
       if (currentUser && _state.tab !== "following" && _followingSetLoaded) {
         newPosts = newPosts.filter((p) => !p.isRepost || _followingSet.has(p.userId));
       }
@@ -304,9 +283,9 @@ const Feed = (() => {
 
       newPosts.forEach((p) => _liveSeenIds.add(p.id));
       _render();
-      _updateSentinel();
       _startLivePolling();
     } catch (e) {
+      // Error path: try stale cache rather than showing "Nothing here yet"
       const stale = PostCache.getFeedPage(_state.tab, 1);
       if (stale?.posts?.length) {
         _state.posts = stale.posts;
@@ -315,7 +294,6 @@ const Feed = (() => {
         _state.page = 2;
         showOfflineBanner();
         _render();
-        _updateSentinel();
       } else {
         c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><h3>You're offline</h3><p>No cached posts available yet. Connect to the internet to load your feed.</p></div>`;
         showOfflineBanner();
@@ -332,8 +310,9 @@ const Feed = (() => {
     const thisFetch = ++_fetchSeq;
     _activeTabAtFetch = _state.tab;
 
+    // Serve from cache if available
     const cached = PostCache.getFeedPage(_state.tab, _state.page);
-    if (cached && cached.posts.length > 0) {
+    if (cached) {
       _state.posts = [..._state.posts, ...cached.posts];
       posts = _state.posts;
       _state.hasMore = cached.hasMore;
@@ -355,6 +334,7 @@ const Feed = (() => {
 
     _state.loading = true;
 
+    // Show inline skeleton cards for pages 2+
     const c = document.getElementById("feed-list");
     const oldSentinel = document.getElementById("feed-sentinel");
     if (oldSentinel) oldSentinel.remove();
@@ -384,8 +364,11 @@ const Feed = (() => {
       const feedTab = currentUser ? _state.tab : "global";
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=${_state.page}`);
 
+      // Race condition guard: discard if tab changed
       if (thisFetch !== _fetchSeq || _activeTabAtFetch !== _state.tab) {
         skelIds.forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
+        _state.loading = false;
+        _updateSentinel();
         return;
       }
 
@@ -427,6 +410,7 @@ const Feed = (() => {
 
   // ── Background refresh (stale-while-revalidate) ───────────────
   async function _backgroundRefresh() {
+    // Do not refresh when page is hidden
     if (document.hidden) return;
 
     try {
@@ -434,11 +418,13 @@ const Feed = (() => {
       const res = await api("GET", `/api/posts?feed=${feedTab}&page=1`);
       const { posts: fresh, hasMore } = _normalise(res);
 
+      // Prevent caching empty first page
       if (!(fresh.length === 0 && !hasMore)) {
         PostCache.storeFeedPage(_state.tab, 1, fresh, hasMore);
       }
 
       if (feedTab === "global") {
+        // Merge new posts with existing masterPosts (preserve older posts)
         const merged = [...fresh];
         _state.masterPosts.forEach(p => {
           if (!merged.some(fp => fp.id === p.id)) merged.push(p);
@@ -446,6 +432,7 @@ const Feed = (() => {
         _state.masterPosts = merged;
       }
 
+      // Patch like/comment/repost counts silently
       fresh.forEach((fp) => {
         const existing = _state.posts.find((p) => p.id === fp.id);
         if (existing) {
@@ -456,16 +443,21 @@ const Feed = (() => {
         }
       });
 
-      const newPosts = fresh.filter(p => !_liveSeenIds.has(p.id));
-      if (newPosts.length > 0 && feedTab === "global") {
-        newPosts.forEach(p => _liveSeenIds.add(p.id));
-        _liveQueue = [...newPosts, ..._liveQueue];
-        _showNewPostsBanner(_liveQueue.length);
+      // Queue truly-new posts as a banner instead of wiping the DOM with _render()
+      const currentTopIds = _state.posts.slice(0, fresh.length).map(p => p.id).join(',');
+      const freshTopIds = fresh.map(p => p.id).join(',');
+      if (currentTopIds !== freshTopIds && feedTab === "global") {
+        const newPosts = fresh.filter((p) => !_liveSeenIds.has(p.id));
+        if (newPosts.length) {
+          newPosts.forEach((p) => _liveSeenIds.add(p.id));
+          _liveQueue = [...newPosts, ..._liveQueue];
+          _showNewPostsBanner(_liveQueue.length);
+        }
       }
     } catch (e) { /* silent */ }
   }
 
-  // ── Live polling (unchanged) ──────────────────────────────────
+  // ── Live polling ──────────────────────────────────────────────
   function _startLivePolling() {
     if (_liveTimer) return;
     _state.posts.forEach((p) => _liveSeenIds.add(p.id));
@@ -481,7 +473,7 @@ const Feed = (() => {
 
   async function _pollForNew() {
     if (!document.getElementById("view-feed")?.classList.contains("active")) return;
-    if (document.hidden) return;
+    if (document.hidden) return; // skip when tab is hidden
 
     try {
       const feedTab = currentUser ? _state.tab : "global";
@@ -524,18 +516,18 @@ const Feed = (() => {
     const MIX_PER_PAGE = 2;
     const toMix = _liveQueue.splice(0, MIX_PER_PAGE);
     toMix.forEach((p) => {
-      if (!_state.posts.some(existing => existing.id === p.id)) {
+      if (!_state.posts.some((existing) => existing.id === p.id)) {
         _state.posts.push(p);
         posts = _state.posts;
-        const d = document.createElement("div");
-        d.innerHTML = buildPostCard(p);
-        const card = d.firstElementChild;
-        if (!card) return;
-        card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
-        const insertAfter = newCards[Math.min(1, newCards.length - 1)];
-        if (insertAfter?.nextSibling) feedList.insertBefore(card, insertAfter.nextSibling);
-        else feedList.appendChild(card);
       }
+      const d = document.createElement("div");
+      d.innerHTML = buildPostCard(p);
+      const card = d.firstElementChild;
+      if (!card) return;
+      card.style.animation = "livePostIn 0.4s cubic-bezier(0.34,1.4,0.64,1)";
+      const insertAfter = newCards[Math.min(1, newCards.length - 1)];
+      if (insertAfter?.nextSibling) feedList.insertBefore(card, insertAfter.nextSibling);
+      else feedList.appendChild(card);
     });
   }
 
@@ -566,6 +558,7 @@ const Feed = (() => {
 
   // ── Public API ────────────────────────────────────────────────
   return {
+    // Called by goTo('feed') — restores feed without wiping it
     resume() {
       const feedList = document.getElementById("feed-list");
       const hasRenderedDOM = feedList &&
@@ -581,10 +574,13 @@ const Feed = (() => {
         return;
       }
 
+      // Don't start a second fetch if one is already in flight
       if (_state.loading) return;
+
       _fetchFirstPage();
     },
 
+    // Full load from scratch (first visit, logout)
     load() {
       _state.page = 1;
       _state.hasMore = true;
@@ -592,6 +588,7 @@ const Feed = (() => {
       _fetchFirstPage();
     },
 
+    // Switch between global/following tabs
     switchTab(tab) {
       if (!currentUser && tab === "following") {
         showToast("Log in to see posts from people you follow.");
@@ -599,21 +596,27 @@ const Feed = (() => {
         return;
       }
 
+      // Invalidate all ongoing fetches
       _fetchSeq++;
 
+      // Clear trending filter on tab switch
       if (_activeFilter) {
         _activeFilter = null;
         document.getElementById("trending-filter-bar").style.display = "none";
       }
 
+      // Save scroll position of the tab we're leaving
       _state.scrollY[_state.tab] = window.scrollY;
+
+      // Update tab UI and legacy global
       _state.tab = tab;
       currentFeedTab = tab;
       document.getElementById("ftab-global").classList.toggle("active", tab === "global");
       document.getElementById("ftab-following").classList.toggle("active", tab === "following");
 
-      // Try in-memory filter only if masterPosts exists AND following set is ready
-      if (_state.masterPosts.length > 0 && (tab !== "following" || _followingSetLoaded)) {
+      // In-memory tab switch: filter without a network call
+      // Skip if switching to "following" and the set isn't loaded yet — fall through to fetch
+      if (_state.masterPosts.length > 0 && !(tab === "following" && !_followingSetLoaded)) {
         const ps = _state.pageState[tab];
         _state.page    = ps.page;
         _state.hasMore = ps.hasMore;
@@ -628,18 +631,6 @@ const Feed = (() => {
         }
         posts = _state.posts;
 
-        // If filter produced empty posts but masterPosts is not empty, we should fetch fresh data
-        if (_state.posts.length === 0 && _state.masterPosts.length > 0) {
-          // MasterPosts exist but nothing matched – might be stale or following set changed
-          _state.page = 1;
-          _state.hasMore = true;
-          _state.posts = [];
-          posts = [];
-          _fetchFirstPage();
-          loadTrending(true);
-          return;
-        }
-
         _render();
         _updateSentinel();
         requestAnimationFrame(() => {
@@ -650,9 +641,9 @@ const Feed = (() => {
         return;
       }
 
-      // No usable cache or master posts – fetch from network
+      // No master posts — check cache before going blank
       const cached = PostCache.getFeedPage(tab, 1);
-      if (cached && cached.posts.length > 0) {
+      if (cached) {
         _state.posts = cached.posts;
         posts = _state.posts;
         if (tab === 'global') _state.masterPosts = [...cached.posts];
@@ -675,12 +666,20 @@ const Feed = (() => {
       loadTrending(true);
     },
 
+    // Save scroll position when navigating away from feed
     saveScroll() { _state.scrollY[_state.tab] = window.scrollY; },
+
+    // Called after post creation/deletion to re-render
     renderFeed: _render,
+
+    // Called by infinite scroll machinery
     fetchMore: _fetchMore,
     updateSentinel: _updateSentinel,
+
+    // Stop live polling (navigating away from feed)
     stopLivePolling: _stopLivePolling,
 
+    // Called on logout: wipe all feed state
     reset() {
       _stopLivePolling();
       _cleanPrefetch();
@@ -700,8 +699,10 @@ const Feed = (() => {
       currentFeedTab = "global";
     },
 
+    // Load following set after login
     loadFollowingSet: _loadFollowingSet,
 
+    // Read-only state accessors for legacy code
     get tab()                { return _state.tab; },
     get loading()            { return _state.loading; },
     get hasMore()            { return _state.hasMore; },
@@ -711,11 +712,17 @@ const Feed = (() => {
   };
 })();
 
-// Legacy shims
+// ── Legacy global shims ────────────────────────────────────────────
+// These keep the rest of the codebase (profile, groups, suggestions etc.)
+// working without changes. They proxy into Feed state so everything stays in sync.
 let currentFeedTab = "global";
-const _followingSet = Feed.followingSet;
-let _followingSetLoaded = false;
-let _masterPosts = [];
+const _followingSet = Feed.followingSet;     // same Set reference — no duplication
+// Proxy into Feed so this always reflects _loadFollowingSet()'s result
+Object.defineProperty(window, "_followingSetLoaded", {
+  get() { return Feed.followingSetLoaded; },
+  configurable: true,
+});
+let _masterPosts = [];                       // kept for any external references
 let _feedScrollY = 0;
 const _tabState = {
   global:    { scrollY: 0, page: 1, hasMore: true },
@@ -724,7 +731,15 @@ const _tabState = {
 let feedPage = 1, feedHasMore = true, feedLoading = false;
 
 /* ═══════════════════════════════════════════════════════════════
-   POST CACHE — (unchanged except fix 7 already applied)
+   POST CACHE  —  in-memory + localStorage persistence
+   ═══════════════════════════════════════════════════════════════
+   Key rules:
+     • storeFeedPage() is the ONLY method that writes to localStorage.
+     • invalidateFeed() is in-memory ONLY — it NEVER calls _save().
+       Persisting the emptied feed index to localStorage causes
+       "Nothing here yet" on the next page refresh if the API fetch
+       hasn't completed yet. The TTL handles stale data; storeFeedPage()
+       persists fresh data once the network fetch succeeds.
    ═══════════════════════════════════════════════════════════════ */
 const PostCache = (() => {
   const STORAGE_KEY = "circle_post_cache_v1";
@@ -784,13 +799,18 @@ const PostCache = (() => {
     init() { _load(); },
 
     storeFeedPage(tab, page, newPosts, hasMore) {
+      // Do NOT cache an empty first page – it causes "disappearing feed" on refresh
+      if (page === 1 && newPosts.length === 0 && !hasMore) {
+        // If there is already a non-empty cached version, keep it
+        const existing = _feeds[_feedKey(tab, 1)];
+        if (existing && existing.ids.length > 0) return;
+      }
+
+      // Do NOT let a shorter hasMore:false response overwrite a larger warm cache —
+      // this prevents a stale/partial refresh from cutting off infinite scroll.
       if (page === 1 && !hasMore) {
         const existing = _feeds[_feedKey(tab, 1)];
         if (existing && existing.ids.length > newPosts.length) return;
-      }
-      if (page === 1 && newPosts.length === 0 && !hasMore) {
-        const existing = _feeds[_feedKey(tab, 1)];
-        if (existing && existing.ids.length > 0) return;
       }
 
       newPosts.forEach((p) => _byId.set(p.id, p));
@@ -847,6 +867,12 @@ const PostCache = (() => {
       if (post) { patchFn(post); _save(); }
     },
 
+    // ── CRITICAL: NEVER calls _save() ────────────────────────────
+    // Persisting the emptied feed index to localStorage causes the
+    // "Nothing here yet" flash on the next page refresh.
+    // The TTL handles stale data. storeFeedPage() persists fresh data
+    // once the network fetch succeeds.
+    // NEVER calls _save() — see PostCache header for why
     invalidateFeed(tab) {
       Object.keys(_feeds).forEach((k) => {
         if (k.startsWith(tab + "|")) delete _feeds[k];
@@ -870,3 +896,4 @@ const PostCache = (() => {
     },
   };
 })();
+/* END PostCache ════════════════════════════════════════════════ */

@@ -35,6 +35,12 @@ export async function generateMetadata({ params }) {
   return {
     title: article.title,
     description: article.excerpt || '',
+    keywords: article.tags?.slice(0, 12) || [],
+    authors: article.author?.name ? [{ name: article.author.name }] : [],
+    robots: {
+      index: true,
+      follow: true,
+    },
     alternates: {
       canonical: url,
     },
@@ -48,6 +54,7 @@ export async function generateMetadata({ params }) {
       modifiedTime: article.updatedAt,
       authors: article.author?.name ? [article.author.name] : [],
       tags: article.tags ?? [],
+      locale: 'en_US',
     },
     twitter: {
       card: 'summary_large_image',

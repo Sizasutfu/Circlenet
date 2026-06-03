@@ -1,6 +1,15 @@
 import { apiClient } from '@/lib/api';
 import ArticleGrid from '@/components/articles/ArticleGrid';
 
+export const metadata = {
+  title: 'Articles | Circlenet',
+  description:
+    'Browse the latest Circlenet articles, guides, and community stories curated for modern readers.',
+  alternates: {
+    canonical: '/articles',
+  },
+};
+
 export default async function ArticlesPage() {
   let articles = [];
   let total = 0;

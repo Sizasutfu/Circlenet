@@ -2,6 +2,8 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const UserModel = require('../models/userModel');
 const { sendPasswordResetEmail } = require('./emailService');
+const parseUserAgent = require('../utils/userAgentParser');
+const formatDeviceString = require('../utils/deviceFormatter');
 
 // ---------- Configuration ----------
 const SALT_ROUNDS = 10;
@@ -9,73 +11,50 @@ const RESET_TOKEN_BYTES = 32;
 const RESET_TOKEN_EXPIRY_HOURS = 1;
 
 // ---------- Token Management ----------
-
-/**
- * Generates a cryptographically secure reset token.
- * @returns {string} A 64-character hexadecimal token
- */
 function generateResetToken() {
   return crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
 }
 
-/**
- * Calculates token expiry timestamp.
- * @param {number} hours - Hours until expiry (default: 1)
- * @returns {Date} Expiry date
- */
 function getTokenExpiry(hours = RESET_TOKEN_EXPIRY_HOURS) {
   return new Date(Date.now() + hours * 60 * 60 * 1000);
+}
+
+// ---------- Password Validation ----------
+function validatePasswordStrength(password) {
+  if (!password || typeof password !== 'string') {
+    return { isValid: false, message: 'Password is required' };
+  }
+  if (password.length < 8) {
+    return { isValid: false, message: 'Password must be at least 8 characters long' };
+  }
+  if (password.length > 128) {
+    return { isValid: false, message: 'Password must not exceed 128 characters' };
+  }
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasNumbers = /\d/.test(password);
+  const hasSpecialChar = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password);
+  const strength = [hasUpperCase, hasLowerCase, hasNumbers, hasSpecialChar].filter(Boolean).length;
+  if (strength < 2) {
+    return {
+      isValid: false,
+      message: 'Password must contain at least 2 of: uppercase, lowercase, numbers, special characters',
+    };
+  }
+  return { isValid: true, message: 'Password meets requirements' };
 }
 
 // ---------- Public API ----------
 
 /**
- * Validates password strength.
- * @param {string} password - Password to validate
- * @returns {Object} Validation result with isValid and message
- */
-function validatePasswordStrength(password) {
-  if (!password || typeof password !== 'string') {
-    return { isValid: false, message: 'Password is required' };
-  }
-
-  if (password.length < 8) {
-    return { isValid: false, message: 'Password must be at least 8 characters long' };
-  }
-
-  if (password.length > 128) {
-    return { isValid: false, message: 'Password must not exceed 128 characters' };
-  }
-
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasNumbers = /\d/.test(password);
-  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
-
-  const strength = [hasUpperCase, hasLowerCase, hasNumbers, hasSpecialChar].filter(Boolean).length;
-
-  if (strength < 2) {
-    return {
-      isValid: false,
-      message: 'Password must contain at least 2 of: uppercase letters, lowercase letters, numbers, special characters',
-    };
-  }
-
-  return { isValid: true, message: 'Password meets requirements' };
-}
-
-/**
- * Initiates password reset for an email address.
- * Returns true if user exists (silent otherwise to prevent email enumeration),
- * and sends email with reset instructions.
- *
- * @param {string} email - User's email address
- * @param {Object} options - Optional metadata (ip, requestTimestamp, deviceInfo, logger)
- * @param {string} [options.ip] - IP address of the requester
- * @param {Date} [options.requestTimestamp] - Timestamp of the request (defaults to now)
- * @param {string} [options.deviceInfo] - Parsed device/browser info
- * @param {Object} [options.logger] - Logger instance (defaults to console)
- * @returns {Promise<boolean>} True if user exists and email was sent
+ * Initiates password reset.
+ * @param {string} email - User's email
+ * @param {Object} options - Metadata
+ * @param {string} [options.ip] - IP address
+ * @param {Date} [options.requestTimestamp] - Request time
+ * @param {string|Object} [options.deviceInfo] - Can be a string (preferred) or a raw user-agent string / parsed object
+ * @param {Object} [options.logger] - Logger
+ * @returns {Promise<boolean>} True if user exists and email sent
  */
 async function initiatePasswordReset(email, options = {}) {
   const { ip, requestTimestamp = new Date(), deviceInfo, logger = console } = options;
@@ -85,37 +64,45 @@ async function initiatePasswordReset(email, options = {}) {
   }
 
   const user = await UserModel.findByEmail(email.trim().toLowerCase());
-  if (!user) return false; // Silent to avoid email enumeration
+  if (!user) return false;
+
+  // 🔥 FIX: Convert deviceInfo to a readable string if it's an object or user-agent string
+  let deviceString = 'Unknown device';
+  if (deviceInfo) {
+    if (typeof deviceInfo === 'string') {
+      // It might be a raw user-agent string – try to parse it for better readability
+      const parsed = parseUserAgent(deviceInfo);
+      deviceString = parsed ? formatDeviceString(parsed) : deviceInfo.substring(0, 100);
+    } else if (typeof deviceInfo === 'object') {
+      // Assume it's already parsed from parseUserAgent()
+      deviceString = formatDeviceString(deviceInfo);
+    } else {
+      deviceString = String(deviceInfo);
+    }
+  }
 
   const token = generateResetToken();
   const expires = getTokenExpiry();
-
   await UserModel.saveResetToken(user.id, token, expires);
 
-  // Send enhanced email with IP, timestamp, and device info
+  const resetUrl = `${process.env.APP_URL}/reset-password?token=${token}`;
+
   await sendPasswordResetEmail({
     to: email,
     name: user.name,
-    token,
+    resetUrl,
     ip: ip || 'unavailable',
     requestTimestamp,
-    deviceInfo,
+    expiryTime: expires,
+    deviceInfo: deviceString,   // ✅ Now always a readable string
   });
 
-  // Security audit log
-  logger.info(`[AUDIT] Password reset requested for user ${user.id} (email: ${email}) from IP ${ip || 'unknown'} (${deviceInfo || 'unknown device'}) at ${requestTimestamp.toISOString()}`);
-
+  logger.info(`[AUDIT] Password reset for user ${user.id} (${email}) from IP ${ip || 'unknown'} - ${deviceString}`);
   return true;
 }
 
 /**
- * Confirms password reset using token and new password.
- * Validates token, checks password strength, updates password,
- * and clears the reset token.
- *
- * @param {string} token - Reset token from email
- * @param {string} newPassword - New password
- * @throws {Error} If token invalid/expired or password invalid
+ * Confirms password reset with token and new password.
  */
 async function confirmPasswordReset(token, newPassword) {
   if (!token || typeof token !== 'string') {

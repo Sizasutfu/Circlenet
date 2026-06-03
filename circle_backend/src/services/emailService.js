@@ -37,7 +37,9 @@ function maskIp(ip) {
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
+  // Convert null/undefined to empty string, other types to string
+  if (str == null) return '';
+  str = String(str);
   return str.replace(/[&<>]/g, function(m) {
     if (m === '&') return '&amp;';
     if (m === '<') return '&lt;';

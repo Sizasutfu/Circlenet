@@ -41,7 +41,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'blog.circlenet.social',
+        hostname: 'www.circlenet.social',
       },
       {
         protocol: 'http',

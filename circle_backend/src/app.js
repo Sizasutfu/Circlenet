@@ -6,7 +6,6 @@ const webpush            = require('web-push');
 const { cors }           = require('./middleware/cors');
 const { sendError }      = require('./middleware/response');
 const { seoMiddleware }  = require('./middleware/seo');
-const proxy = require('express-http-proxy');
 
 const isProd   = process.env.NODE_ENV === 'production';
 const FRONTEND = path.join(__dirname, '../../circle_frontend/frontend');
@@ -104,34 +103,10 @@ seoMiddleware(app);
 
 // ... after app.use('/api/...', ...) and before static file serving
 
-// Proxy all /articles requests to the Next.js blog
-app.use('/articles', proxy('https://blog.circlenet.social', {
-  proxyReqPathResolver: (req) => {
-    // Remove the /articles prefix before forwarding to the blog
-    // Because the blog uses basePath: '/articles'
-    const originalPath = req.originalUrl;
-    const newPath = originalPath.replace(/^\/articles/, '') || '/';
-    return newPath;
-  },
-  proxyReqOptDecorator: (proxyReqOpts, srcReq) => {
-    // Preserve the original Host header so the blog knows it's being proxied
-    proxyReqOpts.headers['Host'] = 'blog.circlenet.social';
-    return proxyReqOpts;
-  },
-  userResDecorator: (proxyRes, proxyResData, userReq, userRes) => {
-    // Optional: rewrite any absolute URLs in HTML responses (like _next/static)
-    // but your Next.js blog should have basePath: '/articles' already set.
-    return proxyResData;
-  }
-}));
+// /articles is served by the Next.js app on Vercel at www.circlenet.social/articles
 
 // ── SPA fallback (dev only) ───────────────────────────────
 if (!isProd) {
-  // Article pages — serve full_blog.html for /articles/:slug
-  app.get('/articles/:slug', (req, res) => {
-    res.sendFile(path.join(FRONTEND, 'full_blog.html'));
-  });
-
   // Everything else → SPA shell
   app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(FRONTEND, 'index.html'));

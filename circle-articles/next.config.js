@@ -4,6 +4,8 @@ const nextConfig = {
   //  Serve the entire blog under the /articles path prefix
   // ──────────────────────────────────────────────────────────
   //basePath: '/articles',
+  //assetPrefix: '/articles',
+
 
   // assetPrefix is usually not needed unless static assets are on a CDN.
   // Keep it commented unless you have a specific reason.

@@ -6,6 +6,7 @@ const webpush            = require('web-push');
 const { cors }           = require('./middleware/cors');
 const { sendError }      = require('./middleware/response');
 const { seoMiddleware }  = require('./middleware/seo');
+const articlesProxy       = require('./middleware/articlesProxy');
 
 const isProd   = process.env.NODE_ENV === 'production';
 const FRONTEND = path.join(__dirname, '../../circle_frontend/frontend');
@@ -95,6 +96,7 @@ app.use('/api/push',            pushRoutes);
 app.use('/api/groups',          groupRoutes);
 app.use('/api/link-preview',    linkPreviewRoutes);
 app.use('/api/articles',        articleRoutes);
+app.use('/articles',            articlesProxy);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 

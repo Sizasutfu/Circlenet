@@ -2,6 +2,8 @@
 const nextConfig = {
   // Allow access from other devices on your local network (development only)
   allowedDevOrigins: ['10.205.240.203'],
+   basePath: '/articles',
+  assetPrefix: '/articles',
 
   rewrites() {
     return [

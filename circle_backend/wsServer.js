@@ -12,7 +12,7 @@
 // ============================================================
 
 const { WebSocketServer, WebSocket } = require('ws');
-const url = require('url');
+// const url = require('url');  // <-- No longer needed – remove this line
 
 // ── Connection registries ────────────────────────────────────
 // userId  → Set<WebSocket>   (one user can have multiple tabs)
@@ -33,8 +33,11 @@ function attachWS(httpServer) {
 
   wss.on('connection', (ws, req) => {
     // ── Auth: expect ?userId=<id> in the upgrade URL ─────────
-    const { query } = url.parse(req.url, true);
-    const userId = parseInt(query.userId);
+    // ✅ FIXED: no more url.parse()
+    const queryIndex = req.url.indexOf('?');
+    const searchParams = new URLSearchParams(queryIndex !== -1 ? req.url.slice(queryIndex) : '');
+    const userId = parseInt(searchParams.get('userId'));
+
     if (!userId) {
       ws.close(4001, 'Unauthorized');
       return;

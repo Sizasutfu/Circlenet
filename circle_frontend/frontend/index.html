@@ -150,7 +150,7 @@
             </svg>
             <span class="nav-label">Groups</span>
           </div>
-          <div class="nav-item" onclick="window.open('https://blog.circlenet.social','_blank')" id="snav-articles">
+          <div class="nav-item" onclick="location.href='/articles'" id="snav-articles">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M4 4h16v4H4z"/><path d="M4 12h10"/><path d="M4 16h7"/><rect x="14" y="11" width="6" height="9" rx="1"/>
             </svg>
@@ -518,7 +518,7 @@
           </div>
 
           <!-- ARTICLES -->
-          <div class="view" id="view-articles">
+        <!--  <div class="view" id="view-articles">-->
             <!-- Header -->
             <div class="page-header" style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--border)">
               <button class="back-btn" onclick="goBack()" id="back-btn-articles">
@@ -2920,6 +2920,8 @@
 <script src="lightbox/lightbox_v2.js"></script>
 <script src="articles/articles.js"></script>
 <script src="feed/feed_v2.js"></script>
+<script src="groups/groups.js"></script>
+<script src="pushNotifications/pushNotifications.js"></script>
 <script src="wsClient.js"></script>
 <script src="main.js"></script>
 </html>

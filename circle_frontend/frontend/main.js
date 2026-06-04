@@ -131,7 +131,6 @@ const _routes = [
     auth: true,
   },
   { path: "/groups", view: "groups", title: "Groups · Circle" },
-  { path: "/articles", view: "articles", title: "Articles · Circle" },
   { path: "/groups/:groupId", view: "group-detail", title: "Group · Circle" },
   { path: "/profile", view: "profile", title: "Profile · Circle", auth: true },
   {
@@ -461,7 +460,7 @@ window.goTo = function goTo(view, _opts = {}) {
   if (view === "settings") populateSettings();
   if (view === "explore") loadExplore();
   if (view === "groups") loadGroups();
-  if (view === "articles") ArticlesFeed.init();
+  if (view === "articles") { window.location.href = "https://www.circlenet.social/articles"; return; }
   if (view === "group-detail") {
     /* data already loaded by openGroup() */
   }
@@ -692,9 +691,9 @@ async function loginUser() {
     setCurrentUser(res.data);
     showToast("Welcome back, " + (res.data?.name ?? "there").split(" ")[0] + "! 👋");
     const _postLoginRedir = sessionStorage.getItem("_redirectAfterLogin");
-    if (_postLoginRedir && _postLoginRedir.startsWith("/articles/")) {
+    if (_postLoginRedir && _postLoginRedir.startsWith("/articles")) {
       sessionStorage.removeItem("_redirectAfterLogin");
-      setTimeout(() => { location.href = _postLoginRedir; }, 400);
+      setTimeout(() => { location.href = "https://www.circlenet.social/articles"; }, 400);
     } else {
       setTimeout(() => goTo("feed"), 400);
     }
@@ -7012,8 +7011,8 @@ function _populateDialSelects() {
           const redir = sessionStorage.getItem("_redirectAfterLogin");
           if (redir && _initState.view === "feed" && currentUser) {
             sessionStorage.removeItem("_redirectAfterLogin");
-            if (redir.startsWith("/articles/")) {
-              location.href = redir;
+            if (redir.startsWith("/articles")) {
+              location.href = "https://www.circlenet.social/articles";
             } else {
               const redirState = _pathToState(redir);
               if (redirState.view !== "feed") goTo(redirState.view, redirState);
@@ -7030,8 +7029,8 @@ function _populateDialSelects() {
       const redir = sessionStorage.getItem("_redirectAfterLogin");
       if (redir && currentUser) {
         sessionStorage.removeItem("_redirectAfterLogin");
-        if (redir.startsWith("/articles/")) {
-          location.href = redir;
+        if (redir.startsWith("/articles")) {
+          location.href = "https://www.circlenet.social/articles";
         } else {
           const redirState = _pathToState(redir);
           if (redirState.view !== "feed") {
@@ -8323,4 +8322,3 @@ function togglePw(fieldId, btn) {
     });
   };
 })();
-

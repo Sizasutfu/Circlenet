@@ -43,7 +43,7 @@
     },
     {
       "source": "/articles/:slug",
-      "destination": "/full_blog.html"
+      "destination": "http://blog.circlenet.social/articles/:slug"
     },
     {
       "source": "/(.*)",

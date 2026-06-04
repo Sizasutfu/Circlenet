@@ -1,10 +1,22 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Allow access from other devices on your local network (development only)
-  allowedDevOrigins: ['10.205.240.203'],
-   basePath: '/articles',
-  //assetPrefix: '/articles',
+  // ──────────────────────────────────────────────────────────
+  //  Serve the entire blog under the /articles path prefix
+  // ──────────────────────────────────────────────────────────
+  //basePath: '/articles',
 
+  // assetPrefix is usually not needed unless static assets are on a CDN.
+  // Keep it commented unless you have a specific reason.
+  // assetPrefix: '/articles',
+
+  // ──────────────────────────────────────────────────────────
+  //  Development only – allow LAN access (optional)
+  // ──────────────────────────────────────────────────────────
+  allowedDevOrigins: ['10.205.240.203'],
+
+  // ──────────────────────────────────────────────────────────
+  //  Rewrites – proxy API uploads to your Circle backend
+  // ──────────────────────────────────────────────────────────
   rewrites() {
     return [
       {
@@ -14,6 +26,9 @@ const nextConfig = {
     ];
   },
 
+  // ──────────────────────────────────────────────────────────
+  //  Security headers
+  // ──────────────────────────────────────────────────────────
   headers() {
     return [
       {
@@ -27,9 +42,12 @@ const nextConfig = {
           { key: 'Permissions-Policy',         value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
-      // Cache dynamic OG images for 1 day (revalidate while stale)
+      // ──────────────────────────────────────────────────────
+      //  OG image caching – path corrected for basePath
+      //  (source is matched after basePath is stripped)
+      // ──────────────────────────────────────────────────────
       {
-        source: '/articles/:slug/opengraph-image.png',
+        source: '/:slug/opengraph-image.png',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=86400' },
         ],
@@ -37,6 +55,9 @@ const nextConfig = {
     ];
   },
 
+  // ──────────────────────────────────────────────────────────
+  //  Image domains – allow external images
+  // ──────────────────────────────────────────────────────────
   images: {
     remotePatterns: [
       {

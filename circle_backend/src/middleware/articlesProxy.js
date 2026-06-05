@@ -2,7 +2,7 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const articlesProxy = createProxyMiddleware({
-  target: 'https://www.circlenet.social', // Proxy to the canonical www host to avoid redirect loops
+  target: 'https://blog.circlenet.social', // Proxy to the Vercel blog host (articles app)
   changeOrigin: true,
   pathRewrite: {
     '^/articles': '/articles',

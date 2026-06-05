@@ -1,5 +1,6 @@
 // src/app/layout.jsx
 import './globals.css';
+import { Suspense } from 'react';
 import Providers from './Providers';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
@@ -44,7 +45,9 @@ export default function RootLayout({ children }) {
       </head>
       <body className="bg-bg text-txt font-body antialiased">
         <Providers>
-          <Header />
+          <Suspense fallback={null}>
+            <Header />
+          </Suspense>
           {children}
           <Footer />
         </Providers>

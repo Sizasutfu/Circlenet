@@ -1,5 +1,6 @@
 // src/app/layout.jsx
 import './globals.css';
+import Script from 'next/script';
 import Providers from './Providers';
 
 export const metadata = {
@@ -33,6 +34,13 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <Script
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX"
+          strategy="afterInteractive"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body className="bg-bg text-txt font-body antialiased">
         <Providers>{children}</Providers>
       </body>

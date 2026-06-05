@@ -15,8 +15,8 @@ export function middleware(request) {
     return NextResponse.next();
   }
 
-  // Redirect blog.circlenet.social -> www.circlenet.social (preserve path + query)
-  if (host === 'blog.circlenet.social' || host.startsWith('blog.circlenet.social:')) {
+  // Redirect the blog root only; keep /articles and asset requests on the blog host
+  if ((host === 'blog.circlenet.social' || host.startsWith('blog.circlenet.social:')) && pathname === '/') {
     url.hostname = 'www.circlenet.social';
     url.protocol = 'https';
     return NextResponse.redirect(url, 301);

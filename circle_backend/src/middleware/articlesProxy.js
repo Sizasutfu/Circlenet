@@ -8,6 +8,12 @@ const articlesProxy = createProxyMiddleware({
     '^/articles': '/articles',
     '^/_next': '/_next',
   },
+  onProxyReq: (proxyReq, req, res) => {
+    // mark proxied requests so the blog app can avoid redirecting them
+    try {
+      proxyReq.setHeader('x-proxied-by', 'circle-backend');
+    } catch (e) {}
+  },
   onProxyRes: (proxyRes, req, res) => {
     proxyRes.headers['x-proxied-by'] = 'circle-proxy';
   },

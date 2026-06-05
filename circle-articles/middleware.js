@@ -10,6 +10,11 @@ export function middleware(request) {
     return NextResponse.next();
   }
 
+  // If the request was proxied by our backend, skip the redirect to avoid loops
+  if (request.headers.get('x-proxied-by')) {
+    return NextResponse.next();
+  }
+
   // Redirect blog.circlenet.social -> www.circlenet.social (preserve path + query)
   if (host === 'blog.circlenet.social' || host.startsWith('blog.circlenet.social:')) {
     url.hostname = 'www.circlenet.social';

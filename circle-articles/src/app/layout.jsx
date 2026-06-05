@@ -1,6 +1,8 @@
 // src/app/layout.jsx
 import './globals.css';
 import Providers from './Providers';
+import Header from '../components/layout/Header';
+import Footer from '../components/layout/Footer';
 
 export const metadata = {
   title: {
@@ -32,7 +34,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" data-theme="dark">
       <head>
         <script
           async
@@ -41,7 +43,11 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="bg-bg text-txt font-body antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          <Header />
+          {children}
+          <Footer />
+        </Providers>
       </body>
     </html>
   );

@@ -1,17 +1,10 @@
 // components/articles/ArticleFilters.jsx
 'use client';
 
-export default function ArticleFilters({ searchTerm, setSearchTerm, activeTag, setActiveTag, allTags }) {
+export default function ArticleFilters({ activeTag, setActiveTag, allTags }) {
   return (
     <div className="mb-6">
-      <input
-        type="text"
-        placeholder="Search articles..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full px-4 py-3 bg-surface border border-border rounded-radius-sm text-txt text-sm font-body outline-none focus:border-accent transition-colors"
-      />
-      <div className="flex gap-2 flex-wrap mt-3">
+      <div className="flex gap-2 flex-wrap">
         {allTags.slice(0, 6).map(tag => (
           <button
             key={tag}

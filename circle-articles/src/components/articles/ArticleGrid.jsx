@@ -1,31 +1,33 @@
 'use client';
-import { useState, useEffect } from 'react';
-import ArticleCard from './ArticleListItem';  // Note: This imports ArticleListItem but aliases as ArticleCard
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import ArticleCard from './ArticleListItem';
 import ArticleFilters from './ArticleFilters';
 import Pagination from './Pagination';
 
-export default function ArticleGrid({ initialArticles = [], initialTotal = 0 }) {
+export default function ArticleGrid({ initialArticles = [] }) {
   // Ensure initialArticles is always an array
   const safeArticles = Array.isArray(initialArticles) ? initialArticles : [];
-  const [articles, setArticles] = useState(safeArticles);
+  const [articles] = useState(safeArticles);
   const [filtered, setFiltered] = useState(safeArticles);
   const [page, setPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
   const [activeTag, setActiveTag] = useState('');
+  const searchParams = useSearchParams();
+  const searchTerm = searchParams.get('search')?.trim() || '';
   const perPage = 6;
 
   useEffect(() => {
     let filteredList = Array.isArray(articles) ? [...articles] : [];
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filteredList = filteredList.filter(a =>
+      filteredList = filteredList.filter((a) =>
         a.title?.toLowerCase().includes(term) ||
         (a.excerpt || '').toLowerCase().includes(term) ||
         (a.author || '').toLowerCase().includes(term)
       );
     }
     if (activeTag) {
-      filteredList = filteredList.filter(a => (a.tags || []).includes(activeTag));
+      filteredList = filteredList.filter((a) => (a.tags || []).includes(activeTag));
     }
     setFiltered(filteredList);
     setPage(1);
@@ -41,13 +43,7 @@ export default function ArticleGrid({ initialArticles = [], initialTotal = 0 }) 
 
   return (
     <>
-      <ArticleFilters
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-        activeTag={activeTag}
-        setActiveTag={setActiveTag}
-        allTags={allTags}
-      />
+      <ArticleFilters activeTag={activeTag} setActiveTag={setActiveTag} allTags={allTags} />
       <div className="flex flex-col mt-8">
         {paginated.map((article, idx) => (
           <ArticleCard key={article.id} article={article} delay={idx * 45} />

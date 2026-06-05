@@ -35,18 +35,6 @@ export default function ArticleHeader({ article }) {
 
   return (
     <>
-      <div className="mb-6">
-        <Link
-          href="/articles"
-          className="inline-flex items-center gap-2 text-txt2 text-sm font-semibold px-3 py-1.5 rounded-radius-sm border border-border bg-card hover:text-accent hover:border-accent hover:bg-accent-bg transition-all"
-        >
-          <svg fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" className="w-4 h-4">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Back to Articles
-        </Link>
-      </div>
-
       <img
         className="w-full max-h-[420px] object-cover rounded-radius mb-8 border border-border"
         src={coverSrc}

@@ -2,7 +2,7 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const articlesProxy = createProxyMiddleware({
-  target: 'https://blog.circlenet.social', // The address of your running Next.js blog
+  target: 'https://www.circlenet.social', // Proxy to the canonical www host to avoid redirect loops
   changeOrigin: true,
   pathRewrite: {
     '^/articles': '/articles',

@@ -1,7 +1,9 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { Suspense } from 'react';
-import Header from './Header';
+
+const Header = dynamic(() => import('./Header'), { ssr: false });
 
 export default function HeaderWrapper() {
   return (

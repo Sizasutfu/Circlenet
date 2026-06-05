@@ -1,8 +1,10 @@
 // src/lib/api.js
 const getBaseURL = () => {
-  // In production, use the environment variable
+  // In production, prefer the environment variable. If it's not set,
+  // fall back to same-origin so client requests go to the current host
+  // (e.g. https://www.circlenet.social) instead of an invalid URL.
   if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_API_BASE_URL;
+    return process.env.NEXT_PUBLIC_API_BASE_URL || '';
   }
   // Development fallback
   return 'http://localhost:5000';

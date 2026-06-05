@@ -1,8 +1,7 @@
 // src/app/layout.jsx
 import './globals.css';
-import { Suspense } from 'react';
 import Providers from './Providers';
-import Header from '../components/layout/Header';
+import HeaderWrapper from '../components/layout/HeaderWrapper';
 import Footer from '../components/layout/Footer';
 
 export const metadata = {
@@ -45,9 +44,7 @@ export default function RootLayout({ children }) {
       </head>
       <body className="bg-bg text-txt font-body antialiased">
         <Providers>
-          <Suspense fallback={null}>
-            <Header />
-          </Suspense>
+          <HeaderWrapper />
           {children}
           <Footer />
         </Providers>

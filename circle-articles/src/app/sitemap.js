@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/api';
 
-const BASE_URL = 'https://blog.circlenet.social';
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.circlenet.social';
 
 export default async function sitemap() {
   const allArticles = [];

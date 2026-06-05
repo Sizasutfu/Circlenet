@@ -39,11 +39,15 @@
           "value": "(.*)(googlebot|bingbot|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|pinterestbot)(.*)"
         }
       ],
-      "destination": "https://circleappapp-production.up.railway.app/articles/:slug"
+      "destination": "https://blog.circlenet.social/articles/:slug"
+    },
+    {
+      "source": "/articles",
+      "destination": "https://blog.circlenet.social/articles"
     },
     {
       "source": "/articles/:slug",
-      "destination": "http://blog.circlenet.social/articles/:slug"
+      "destination": "https://blog.circlenet.social/articles/:slug"
     },
     {
       "source": "/(.*)",

@@ -8,7 +8,7 @@ import CommentSection from '@/components/article/CommentSection';
 import RelatedArticles from '@/components/article/RelatedArticles';
 import ShareButtons from '@/components/article/ShareButtons';
 
-const BASE_URL = 'https://blog.circlenet.social';
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.circlenet.social';
 
 // Memoized per-request so generateMetadata and the page share one fetch
 const getArticle = cache(async (slug) => {

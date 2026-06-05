@@ -11,7 +11,7 @@ export const metadata = {
   },
   description:
     'Circlenet Articles is a modern blog for community stories, tutorials, and insights about social publishing.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://blog.circlenet.social'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://www.circlenet.social'),
   openGraph: {
     title: 'Circlenet',
     description:

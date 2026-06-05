@@ -6,6 +6,6 @@ export default function robots() {
       allow: '/',
       disallow: '/api/', // block internal API routes
     },
-    sitemap: 'https://blog.circlenet.social/sitemap.xml',
+    sitemap: `${process.env.NEXT_PUBLIC_APP_URL || 'https://www.circlenet.social'}/sitemap.xml`,
   };
 }

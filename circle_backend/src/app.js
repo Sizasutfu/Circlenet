@@ -96,7 +96,8 @@ app.use('/api/push',            pushRoutes);
 app.use('/api/groups',          groupRoutes);
 app.use('/api/link-preview',    linkPreviewRoutes);
 app.use('/api/articles',        articleRoutes);
-app.use('/articles',            articlesProxy);
+app.use('/articles',             articlesProxy);
+app.use('/_next',                articlesProxy);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 

@@ -50,6 +50,10 @@
       "destination": "https://blog.circlenet.social/articles/:slug"
     },
     {
+      "source": "/_next/:path*",
+      "destination": "https://blog.circlenet.social/_next/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

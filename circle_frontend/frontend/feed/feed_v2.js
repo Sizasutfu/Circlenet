@@ -154,10 +154,21 @@ const Feed = (() => {
     return { posts, hasMore };
   }
 
+  // ── Live strip preservation ───────────────────────────────────
+  // Saves the #live-feed-strip element before any innerHTML write and
+  // re-prepends it after, so feed reloads/renders never wipe live cards.
+  function _saveLiveStrip(c) {
+    return c.querySelector('#live-feed-strip') || null;
+  }
+  function _restoreLiveStrip(c, strip) {
+    if (strip && !c.contains(strip)) c.prepend(strip);
+  }
+
   // ── Render ────────────────────────────────────────────────────
   function _render() {
     const c = document.getElementById("feed-list");
     if (!c) return;
+    const liveStrip = _saveLiveStrip(c);
 
     if (!_state.posts.length) {
       if (_state.loading) return;
@@ -172,6 +183,7 @@ const Feed = (() => {
       } else {
         c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><h3>Nothing here yet</h3><p>Be the first to post something!</p></div>`;
       }
+      _restoreLiveStrip(c, liveStrip);
       return;
     }
 
@@ -189,6 +201,7 @@ const Feed = (() => {
     }
 
     c.innerHTML = parts.join("");
+    _restoreLiveStrip(c, liveStrip);
     _initPostCardLinkPreviews();
   }
 
@@ -278,7 +291,9 @@ const Feed = (() => {
     }
 
     _state.loading = true;
+    const _liveStripSkel = _saveLiveStrip(c);
     c.innerHTML = _skelHTML();
+    _restoreLiveStrip(c, _liveStripSkel);
 
     try {
       const feedTab = currentUser ? _state.tab : "global";
@@ -326,7 +341,9 @@ const Feed = (() => {
         _render();
         _updateSentinel();
       } else {
+        const _liveStripOffline = _saveLiveStrip(c);
         c.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><h3>You're offline</h3><p>No cached posts available yet. Connect to the internet to load your feed.</p></div>`;
+        _restoreLiveStrip(c, _liveStripOffline);
         showOfflineBanner();
       }
     } finally {

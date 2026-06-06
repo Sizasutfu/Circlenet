@@ -23,8 +23,8 @@ async function start() {
     const fs   = require('fs');
     const path = require('path');
 
-    const certKey  = path.join(__dirname, 'src/sizabeats+22-key.pem');
-    const certFile = path.join(__dirname, 'src/sizabeats+2.pem');
+    const certKey  = path.join(__dirname, 'src/sizabeats+3-key.pem');
+    const certFile = path.join(__dirname, 'src/sizabeats+3.pem');
 
     if (!fs.existsSync(certKey) || !fs.existsSync(certFile)) {
       console.warn('⚠️  SSL certs not found — falling back to HTTP for development');

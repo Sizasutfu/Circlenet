@@ -1,0 +1,640 @@
+/* ═══════════════════════════════════════════════
+   CircleNet — Live Video  |  live.css
+   Depends on design tokens in style.css
+═══════════════════════════════════════════════ */
+
+/* ── Feed live cards ─────────────────────────── */
+.live-feed-strip {
+  display: flex;
+  gap: 10px;
+  padding: 0 0 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.live-feed-strip::-webkit-scrollbar { display: none; }
+
+.live-feed-card {
+  flex: 0 0 auto;
+  width: 160px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform var(--tr), box-shadow var(--tr);
+  position: relative;
+}
+.live-feed-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+.live-feed-card__thumb {
+  width: 100%;
+  height: 90px;
+  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+}
+.live-feed-card__thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.live-feed-card__thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a1a28 0%, #0e0e18 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--txt3);
+}
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--rose);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 7px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.live-badge__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  animation: livePulse 1.2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+.live-feed-card__overlay {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+.live-feed-card__viewers {
+  position: absolute;
+  bottom: 5px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.live-feed-card__meta {
+  padding: 8px 10px;
+}
+.live-feed-card__name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--txt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-head);
+}
+.live-feed-card__title {
+  font-size: 11px;
+  color: var(--txt2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Full-screen live overlay ─────────────────── */
+#live-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+  display: none;
+  flex-direction: column;
+  font-family: var(--font-body);
+}
+#live-overlay.live-active {
+  display: flex;
+}
+
+/* Video fills the screen */
+#live-video-el {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Gradient veils for readability */
+.live-veil-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 130px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+.live-veil-bottom {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 220px;
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Top bar ──────────────────────────────────── */
+.live-top-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+}
+.live-top-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.live-broadcaster-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--rose);
+  object-fit: cover;
+  background: var(--surface);
+}
+.live-broadcaster-info {
+  display: flex;
+  flex-direction: column;
+}
+.live-broadcaster-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  font-family: var(--font-head);
+  line-height: 1.2;
+}
+.live-stream-title {
+  font-size: 11px;
+  color: rgba(255,255,255,0.65);
+  line-height: 1.2;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-viewer-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.live-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.1);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  transition: background var(--tr), transform var(--tr);
+}
+.live-close-btn:hover {
+  background: rgba(255,255,255,0.15);
+  transform: scale(1.05);
+}
+
+/* ── Bottom controls ──────────────────────────── */
+.live-bottom-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  z-index: 10;
+  padding: 0 14px 20px;
+}
+
+/* Chat messages list */
+.live-chat-messages {
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-bottom: 10px;
+}
+.live-chat-messages::-webkit-scrollbar { display: none; }
+
+.live-chat-msg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  color: #fff;
+  animation: chatMsgIn 0.25s var(--tr-spring) both;
+  max-width: 75%;
+}
+@keyframes chatMsgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.live-chat-msg__name {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.live-chat-msg__text {
+  line-height: 1.45;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+}
+
+/* Chat input row */
+.live-chat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.live-chat-input {
+  flex: 1;
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 22px;
+  padding: 9px 16px;
+  font-size: 13.5px;
+  color: #fff;
+  font-family: var(--font-body);
+  outline: none;
+  transition: border-color var(--tr), background var(--tr);
+}
+.live-chat-input::placeholder { color: rgba(255,255,255,0.4); }
+.live-chat-input:focus {
+  border-color: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.17);
+}
+.live-chat-send-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  flex-shrink: 0;
+  transition: background var(--tr), transform var(--tr);
+}
+.live-chat-send-btn:hover {
+  background: var(--accent-h);
+  transform: scale(1.06);
+}
+
+/* Reactions pill row */
+.live-reactions-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.live-reaction-btn {
+  font-size: 20px;
+  background: rgba(0,0,0,0.3);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  transition: transform var(--tr-spring), background var(--tr);
+}
+.live-reaction-btn:hover {
+  background: rgba(255,255,255,0.15);
+  transform: scale(1.2);
+}
+.live-reaction-btn:active { transform: scale(0.92); }
+
+/* ── Broadcaster controls (shown only when hosting) ── */
+.live-host-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  justify-content: flex-end;
+}
+.live-ctrl-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.12);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  transition: background var(--tr), transform var(--tr);
+}
+.live-ctrl-btn:hover { background: rgba(255,255,255,0.15); transform: scale(1.06); }
+.live-ctrl-btn.muted,
+.live-ctrl-btn.cam-off {
+  background: rgba(255, 95, 122, 0.25);
+  border-color: var(--rose);
+  color: var(--rose);
+}
+.live-end-btn {
+  padding: 10px 20px;
+  border-radius: 22px;
+  background: var(--rose);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  transition: background var(--tr), transform var(--tr);
+}
+.live-end-btn:hover { background: #ff3858; transform: scale(1.03); }
+
+/* ── Floating emoji reactions ─────────────────── */
+#live-reaction-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+.live-floating-emoji {
+  position: absolute;
+  font-size: 28px;
+  pointer-events: none;
+  animation: floatUp 2.6s ease-out forwards;
+  will-change: transform, opacity;
+}
+@keyframes floatUp {
+  0%   { transform: translateY(0) scale(1) rotate(0deg);   opacity: 1; }
+  60%  { transform: translateY(-220px) scale(1.15) rotate(8deg); opacity: 0.85; }
+  100% { transform: translateY(-360px) scale(0.8) rotate(-4deg); opacity: 0; }
+}
+
+/* ── Pre-live setup modal ─────────────────────── */
+#live-setup-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+#live-setup-modal.open { display: flex; }
+
+.live-setup-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 28px;
+  width: min(420px, 92vw);
+  box-shadow: var(--shadow-lg);
+}
+.live-setup-card h2 {
+  font-family: var(--font-head);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--txt);
+  margin-bottom: 6px;
+}
+.live-setup-card p {
+  font-size: 13px;
+  color: var(--txt2);
+  margin-bottom: 20px;
+  line-height: 1.55;
+}
+.live-setup-preview {
+  width: 100%;
+  height: 180px;
+  border-radius: 14px;
+  background: #0a0a0d;
+  overflow: hidden;
+  margin-bottom: 18px;
+  position: relative;
+}
+.live-setup-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror for self-preview */
+}
+.live-title-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 14px;
+  color: var(--txt);
+  font-family: var(--font-body);
+  outline: none;
+  margin-bottom: 16px;
+  transition: border-color var(--tr);
+}
+.live-title-input:focus { border-color: var(--accent); }
+.live-title-input::placeholder { color: var(--txt3); }
+.live-go-btn {
+  width: 100%;
+  padding: 13px;
+  border-radius: 14px;
+  background: var(--rose);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--font-head);
+  transition: background var(--tr), transform var(--tr);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.live-go-btn:hover { background: #ff3858; transform: scale(1.02); }
+.live-go-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.live-setup-cancel {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  font-size: 13.5px;
+  color: var(--txt2);
+  text-align: center;
+  transition: color var(--tr);
+}
+.live-setup-cancel:hover { color: var(--txt); }
+
+/* ── "Someone is live" toast ──────────────────── */
+.live-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  z-index: 900;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.3s var(--tr-spring);
+  min-width: 240px;
+  cursor: pointer;
+}
+.live-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+.live-toast__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--rose);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.live-toast__text {
+  font-size: 13px;
+  color: var(--txt);
+  line-height: 1.4;
+}
+.live-toast__text strong { color: var(--txt); }
+.live-toast__badge { margin-left: auto; flex-shrink: 0; }
+
+/* ── Viewer join banner ───────────────────────── */
+.live-join-banner {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.8);
+  animation: bannerIn 0.3s var(--tr-spring) both, bannerOut 0.3s 2.2s ease-in forwards;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@keyframes bannerIn  { from { opacity:0; transform: translateX(-50%) scale(0.88); } to { opacity:1; transform: translateX(-50%) scale(1); } }
+@keyframes bannerOut { from { opacity:1; } to { opacity:0; } }
+
+/* ── Stream ended screen ──────────────────────── */
+.live-ended-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0,0,0,0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  display: none;
+}
+.live-ended-screen.show { display: flex; }
+.live-ended-icon {
+  font-size: 48px;
+  animation: endedPop 0.5s var(--tr-spring) both;
+}
+@keyframes endedPop { from { transform: scale(0); } to { transform: scale(1); } }
+.live-ended-screen h3 {
+  font-family: var(--font-head);
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+}
+.live-ended-screen p {
+  font-size: 14px;
+  color: rgba(255,255,255,0.55);
+}
+.live-ended-close {
+  margin-top: 8px;
+  padding: 11px 28px;
+  border-radius: 22px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  transition: background var(--tr), transform var(--tr);
+}
+.live-ended-close:hover { background: var(--accent-h); transform: scale(1.04); }
+
+/* ── Responsive ───────────────────────────────── */
+@media (max-width: 480px) {
+  .live-chat-messages { max-height: 140px; }
+  .live-setup-card { padding: 20px 16px; }
+  .live-feed-card { width: 140px; }
+}
+
+/* ── Go Live compose toolbar button ──────────────────────── */
+.compose-tab-tool--live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  color: var(--rose);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background var(--tr), color var(--tr), transform var(--tr);
+  line-height: 1;
+}
+.compose-tab-tool--live svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.compose-tab-tool--live:hover {
+  background: rgba(var(--rose-rgb, 255, 95, 122), 0.1);
+  transform: scale(1.04);
+}
+.compose-tab-tool--live:active {
+  transform: scale(0.96);
+}

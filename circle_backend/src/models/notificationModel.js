@@ -15,6 +15,7 @@ const PUSH_COPY = {
   mention:     (actor, snippet) => ({ title: 'You were mentioned 📣',   body: snippet ? `${actor} mentioned you: "${snippet}"` : `${actor} mentioned you in a post` }),
   new_post:    (actor, snippet) => ({ title: 'New post ✨',             body: snippet ? `${actor} posted: "${snippet}"` : `${actor} published a new post` }),
   profile_pic: (actor)          => ({ title: 'Profile updated 📸',      body: `${actor} updated their profile photo` }),
+  live:        (actor)          => ({ title: 'Live now 🔴',                body: `${actor} just started a live stream` }),
 };
 
 // Maps notification `type` values to push_subscriptions pref columns
@@ -26,26 +27,28 @@ const TYPE_TO_PREF = {
   mention:     'mentions',
   new_post:    'new_post',
   profile_pic: 'profile_pic',
+  live:        'live',
 };
 
 // ── Create a notification (deduplicates automatically) ─────
-async function createNotification(recipientId, actorId, type, postId = null) {
+async function createNotification(recipientId, actorId, type, postId = null, sessionId = null) {
   if (recipientId === actorId) return; // never notify yourself
 
   try {
     const [dup] = await db.query(
       `SELECT id FROM notifications
        WHERE recipient_id=? AND actor_id=? AND type=?
-         AND (post_id=? OR (post_id IS NULL AND ? IS NULL))`,
-      [recipientId, actorId, type, postId, postId]
+         AND (post_id=? OR (post_id IS NULL AND ? IS NULL))
+         AND (session_id=? OR (session_id IS NULL AND ? IS NULL))`,
+      [recipientId, actorId, type, postId, postId, sessionId, sessionId]
     );
     if (dup.length > 0) return; // already exists
 
     // INSERT and capture the new row's id for the push payload
     const [result] = await db.query(
-      `INSERT INTO notifications (recipient_id, actor_id, type, post_id)
-       VALUES (?, ?, ?, ?)`,
-      [recipientId, actorId, type, postId]
+      `INSERT INTO notifications (recipient_id, actor_id, type, post_id, session_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [recipientId, actorId, type, postId, sessionId]
     );
     const notifId = result.insertId;
 
@@ -67,7 +70,8 @@ async function createNotification(recipientId, actorId, type, postId = null) {
           if (!row) return;
           const { title, body } = copyFn(row.actorName, row.snippet || null);
           return sendPushToUser(recipientId, prefType, title, body, './', {
-            postId,           // ← which post (null for follow/profile_pic)
+            postId,           // ← which post (null for follow/profile_pic/live)
+            sessionId,        // ← live session id (null for all other types)
             actorId,          // ← who triggered it
             notifId,          // ← DB row id so client can mark as read
           });
@@ -113,6 +117,7 @@ async function getNotifications(userId, limit = 10, offset = 0) {
        n.is_read      AS isRead,
        n.created_at   AS createdAt,
        n.post_id      AS postId,
+       n.session_id   AS sessionId,
        a.id           AS actorId,
        a.name         AS actorName,
        a.picture      AS actorPicture,

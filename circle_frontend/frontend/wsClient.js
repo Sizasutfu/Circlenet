@@ -40,7 +40,14 @@
     leaveConversation,
     sendTyping,
     isAlive: () => _wsAlive,
+
+    // ── Live video ──────────────────────────────────────────
+    // Used by live.js to send any live:* message to the server
+    send: (payload) => _send(payload),
   };
+
+  // live.js references window.WS.send — satisfy that contract here
+  window.WS = { send: (payload) => _send(payload) };
 
   /* ── Connect ─────────────────────────────────────────────── */
   function connect() {
@@ -126,6 +133,19 @@
 
       case "pong":
         break;                               // keep-alive acknowledged
+
+      // ── Live video ───────────────────────────────────────
+      case "live:started":
+      case "live:ended":
+      case "live:viewer_joined":
+      case "live:viewer_left":
+      case "live:chat_message":
+      case "live:reaction":
+      case "live:offer":
+      case "live:answer":
+      case "live:ice_candidate":
+        if (window.Live) Live.handleWsMessage(msg);
+        break;
 
       default:
         break;

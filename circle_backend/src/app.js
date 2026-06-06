@@ -40,7 +40,7 @@ const groupRoutes          = require('./routes/groupsRoutes');
 const phoneAuthRoutes      = require('./routes/phoneAuthRoutes');
 const linkPreviewRoutes    = require('./routes/linkpreviewRoutes');
 const articleRoutes        = require('./routes/articleRoutes');
-
+const liveRoutes           = require('./routes/liveRoutes');
 
 // authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
@@ -96,27 +96,21 @@ app.use('/api/push',            pushRoutes);
 app.use('/api/groups',          groupRoutes);
 app.use('/api/link-preview',    linkPreviewRoutes);
 app.use('/api/articles',        articleRoutes);
+app.use('/api/live',            liveRoutes);
 app.use('/articles',             articlesProxy);
 app.use('/_next',                articlesProxy);
+
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 
-
-
-
-// ... after app.use('/api/...', ...) and before static file serving
-
-// /articles is served by the Next.js app on Vercel at www.circlenet.social/articles
-
 // ── SPA fallback (dev only) ───────────────────────────────
 if (!isProd) {
-  // Everything else → SPA shell
   app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(FRONTEND, 'index.html'));
   });
 }
 
-// ── Start cron ────────────────────────────────────────────
+// ── Start crons ───────────────────────────────────────────
 const { startGroupCron } = require('./models/GroupModel');
 startGroupCron();
 console.log('Group auto-creation cron started.');

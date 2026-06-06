@@ -1176,6 +1176,8 @@ function setCurrentUser(user) {
   E2E.publishMyPublicKey().catch(() => {});
   // Connect WebSocket for real-time DMs and notifications
   if (typeof CircleWS !== "undefined") CircleWS.connect();
+  // Reload live feed cards now that we're authenticated (issue #9)
+  if (typeof Live !== "undefined") Live.loadActiveSessions();
 }
 
 async function sendResetEmail() {
@@ -3919,6 +3921,7 @@ const NOTIF_ICONS = {
   repost: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>`,
   follow: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
   new_post: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/></svg>`,
+  live:     `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4"/><path d="M17.7 6.3a8 8 0 010 11.4"/><path d="M3.5 3.5a13.5 13.5 0 000 17"/><path d="M20.5 3.5a13.5 13.5 0 010 17"/></svg>`,
   profile_pic: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   mention: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 006 0v-1a10 10 0 10-3.92 7.94"/></svg>`,
   milestone: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
@@ -3932,6 +3935,7 @@ const NOTIF_COPY = {
   repost: (name) => `<strong>${escHtml(name)}</strong> echoed your post`,
   follow: (name) => `<strong>${escHtml(name)}</strong> started following you`,
   new_post: (name) => `<strong>${escHtml(name)}</strong> published a new post`,
+  live:     (name) => `<strong>${escHtml(name)}</strong> just started a live stream`,
   profile_pic: (name) =>
     `<strong>${escHtml(name)}</strong> updated their profile picture`,
   mention: (name) =>
@@ -3987,6 +3991,7 @@ async function fetchNotifications(reset = false) {
       repost: "reposts",
       follow: null,
       new_post: "new_post",
+      live:     null,        // always shown — no opt-out
       profile_pic: "profile_pic",
       mention: "mention",
       milestone: "milestone",
@@ -4155,6 +4160,13 @@ async function onNotifClick(notifId, postId, type, actorId) {
     if (actorId) {
       viewProfile(actorId);
     } else goTo("feed");
+  } else if (type === "live" && n.sessionId) {
+    // Try to open the live stream; fall back to feed if it has ended
+    if (typeof Live !== "undefined") {
+      Live.watchSession(n.sessionId).catch(() => goTo("feed"));
+    } else {
+      goTo("feed");
+    }
   } else if (type === "new_post" && postId) {
     // Open the specific post directly
     const post =

@@ -12,7 +12,10 @@
 // ============================================================
 
 const { WebSocketServer, WebSocket } = require('ws');
-// const url = require('url');  // <-- No longer needed – remove this line
+
+// Lazy-require LiveModel to avoid circular dependency at module load time.
+// By the time any live WS message arrives, all modules are initialised.
+function LiveModel() { return require('./src/models/LiveModel'); }
 
 // ── Connection registries ────────────────────────────────────
 // userId  → Set<WebSocket>   (one user can have multiple tabs)
@@ -20,6 +23,14 @@ const userSockets = new Map();
 
 // conversationId → Set<userId>  (who is currently "in" this convo)
 const activeConversations = new Map();
+
+// ── Live video rooms ─────────────────────────────────────────
+// sessionId → {
+//   hostId:   number,
+//   hostWs:   WebSocket,          ← the host's active socket
+//   viewers:  Map<userId, WebSocket>
+// }
+const liveRooms = new Map();
 
 // ── Typing state ─────────────────────────────────────────────
 // `${conversationId}:${userId}` → auto-clear timer
@@ -69,6 +80,32 @@ function attachWS(httpServer) {
       for (const [convId, members] of activeConversations.entries()) {
         members.delete(userId);
         if (members.size === 0) activeConversations.delete(convId);
+      }
+
+      // ── Live: if this socket was a host, end their session ──
+      for (const [sessionId, room] of liveRooms.entries()) {
+        if (room.hostId === userId && room.hostWs === ws) {
+          _endLiveRoom(sessionId).catch(err =>
+            console.error(`[WS] Failed to auto-end live session ${sessionId}:`, err)
+          );
+          break;
+        }
+      }
+
+      // ── Live: if this socket was a viewer, remove them ──────
+      for (const [sessionId, room] of liveRooms.entries()) {
+        if (room.viewers.has(userId)) {
+          room.viewers.delete(userId);
+          const viewerCount = room.viewers.size;
+          LiveModel().setViewerCount(sessionId, viewerCount).catch(() => {});
+          send(room.hostWs, {
+            type: 'live:viewer_left',
+            sessionId,
+            viewerId: userId,
+            viewerCount,
+          });
+          break;
+        }
       }
 
       console.log(`[WS] User ${userId} disconnected`);
@@ -131,9 +168,169 @@ function handleClientMessage(ws, userId, msg) {
       break;
     }
 
+    // ── Live video ───────────────────────────────────────────
+
+    case 'live:viewer_join':
+      _handleViewerJoin(ws, userId, msg);
+      break;
+
+    case 'live:viewer_leave':
+      _handleViewerLeave(userId, msg);
+      break;
+
+    // Chat message → relay to everyone in the room except sender
+    case 'live:chat_message': {
+      const { sessionId } = msg;
+      if (!sessionId) break;
+      // Keep hostWs current in case host reconnected or has multiple tabs (bug #8)
+      const room = liveRooms.get(sessionId);
+      if (room && room.hostId === userId) room.hostWs = ws;
+      _relayToRoom(sessionId, msg, userId);
+      break;
+    }
+
+    // Reaction → relay to everyone in the room except sender
+    case 'live:reaction': {
+      const { sessionId } = msg;
+      if (!sessionId) break;
+      const reactionRoom = liveRooms.get(sessionId);
+      if (reactionRoom && reactionRoom.hostId === userId) reactionRoom.hostWs = ws;
+      _relayToRoom(sessionId, msg, userId);
+      break;
+    }
+
+    // WebRTC signaling — point-to-point relay
+    case 'live:offer':
+    case 'live:answer':
+    case 'live:ice_candidate': {
+      const { sessionId, to } = msg;
+      if (!sessionId || !to) break;
+      // Refresh hostWs if this signal is from the host (bug #8)
+      const sigRoom = liveRooms.get(sessionId);
+      if (sigRoom && sigRoom.hostId === userId) sigRoom.hostWs = ws;
+      _relayToUser(sessionId, to, { ...msg, from: userId });
+      break;
+    }
+
     default:
       break;
   }
+}
+
+// ── Live video helpers ───────────────────────────────────────
+
+/**
+ * Viewer joins a live room.
+ * Creates the room entry if the host hasn't sent a message yet
+ * (host socket is registered when broadcastLiveStarted runs).
+ */
+async function _handleViewerJoin(ws, userId, msg) {
+  const { sessionId } = msg;
+  if (!sessionId) return;
+
+  const room = liveRooms.get(sessionId);
+  if (!room) {
+    // Session exists in DB but host socket not yet tracked — fetch and register
+    try {
+      const session = await LiveModel().getSession(sessionId);
+      if (!session || session.status !== 'active') return;
+      // Hydrate hostWs from the live registry so the offer can be sent (bug #5)
+      const hostSockets = userSockets.get(session.hostId);
+      const hostWs = hostSockets ? [...hostSockets][0] : null;
+      liveRooms.set(sessionId, {
+        hostId:  session.hostId,
+        hostWs,
+        viewers: new Map([[userId, ws]]),
+      });
+    } catch { return; }
+  } else {
+    room.viewers.set(userId, ws);
+  }
+
+  const updatedRoom    = liveRooms.get(sessionId);
+  const viewerCount    = updatedRoom.viewers.size;
+
+  await LiveModel().setViewerCount(sessionId, viewerCount).catch(() => {});
+
+  // Tell the host a new viewer joined (triggers WebRTC offer)
+  if (updatedRoom.hostWs) {
+    send(updatedRoom.hostWs, {
+      type:        'live:viewer_joined',
+      sessionId,
+      viewerId:    userId,
+      viewerName:  msg.viewerName || null,
+      viewerCount,
+    });
+  }
+}
+
+/**
+ * Viewer leaves a live room voluntarily.
+ */
+async function _handleViewerLeave(userId, msg) {
+  const { sessionId } = msg;
+  if (!sessionId) return;
+
+  const room = liveRooms.get(sessionId);
+  if (!room) return;
+
+  room.viewers.delete(userId);
+  const viewerCount = room.viewers.size;
+
+  await LiveModel().setViewerCount(sessionId, viewerCount).catch(() => {});
+
+  if (room.hostWs) {
+    send(room.hostWs, { type: 'live:viewer_left', sessionId, viewerId: userId, viewerCount });
+  }
+}
+
+/**
+ * Relay a message to every socket in the room (host + all viewers).
+ */
+function _relayToRoom(sessionId, payload, excludeUserId = null) {
+  const room = liveRooms.get(sessionId);
+  if (!room) return;
+
+  if (room.hostWs && room.hostId !== excludeUserId) {
+    send(room.hostWs, payload);
+  }
+  for (const [viewerId, vws] of room.viewers.entries()) {
+    if (viewerId !== excludeUserId) send(vws, payload);
+  }
+}
+
+/**
+ * Relay a message to ONE specific user in the room.
+ */
+function _relayToUser(sessionId, toUserId, payload) {
+  const room = liveRooms.get(sessionId);
+  if (!room) return;
+
+  if (room.hostId === toUserId && room.hostWs) {
+    send(room.hostWs, payload);
+    return;
+  }
+  const vws = room.viewers.get(toUserId);
+  if (vws) send(vws, payload);
+}
+
+/**
+ * End a live room: update DB, notify all viewers, clean up map.
+ * Called when host disconnects or by broadcastLiveEnded.
+ */
+async function _endLiveRoom(sessionId) {
+  const room = liveRooms.get(sessionId);
+  if (!room) return;
+
+  await LiveModel().endSession(sessionId).catch(() => {});
+
+  // Notify all viewers the stream ended
+  for (const vws of room.viewers.values()) {
+    send(vws, { type: 'live:ended', sessionId });
+  }
+
+  liveRooms.delete(sessionId);
+  console.log(`[WS] Live session ended: ${sessionId}`);
 }
 
 // ── Internal helpers ─────────────────────────────────────────
@@ -208,6 +405,47 @@ function isOnline(userId) {
   return (userSockets.get(userId)?.size ?? 0) > 0;
 }
 
+/**
+ * Called by liveController after a session is created in the DB.
+ * Notifies ALL connected users so their feed cards update in real time.
+ * Also registers the host socket in liveRooms.
+ *
+ * @param {object} session  - full session row from LiveModel.createSession()
+ */
+function broadcastLiveStarted(session) {
+  const { sessionId, hostId } = session;
+
+  // Register the host's current socket in the room
+  const hostSockets = userSockets.get(hostId);
+  const hostWs      = hostSockets ? [...hostSockets][0] : null;
+
+  liveRooms.set(sessionId, {
+    hostId,
+    hostWs,
+    viewers: new Map(),
+  });
+
+  // Broadcast to every connected user
+  const payload = { type: 'live:started', ...session };
+  for (const sockets of userSockets.values()) {
+    for (const ws of sockets) send(ws, payload);
+  }
+
+  console.log(`[WS] Live started: ${sessionId} by user ${hostId}`);
+}
+
+/**
+ * Called by liveController after POST /api/live/end.
+ * Tears down the room and notifies all viewers.
+ *
+ * @param {string} sessionId
+ */
+function broadcastLiveEnded(sessionId) {
+  _endLiveRoom(sessionId).catch(err =>
+    console.error(`[WS] broadcastLiveEnded error for ${sessionId}:`, err)
+  );
+}
+
 function _broadcastTyping(conversationId, typingUserId, isTyping) {
   const members = activeConversations.get(conversationId);
   if (!members) return;
@@ -218,4 +456,4 @@ function _broadcastTyping(conversationId, typingUserId, isTyping) {
   }
 }
 
-module.exports = { attachWS, notify, notifyConversation, notifyUser, isOnline };
+module.exports = { attachWS, notify, notifyConversation, notifyUser, isOnline, broadcastLiveStarted, broadcastLiveEnded };

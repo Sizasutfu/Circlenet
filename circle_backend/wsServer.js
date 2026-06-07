@@ -334,8 +334,9 @@ async function _endLiveRoom(sessionId) {
 }
 
 // ── Internal helpers ─────────────────────────────────────────
+// ── Internal helpers ─────────────────────────────────────────
 function send(ws, payload) {
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
   }
 }

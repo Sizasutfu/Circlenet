@@ -29,7 +29,7 @@ async function startSession(req, res) {
   try {
     // Prevent a host from opening multiple concurrent streams (bug #10)
    const existing = await LiveModel.getActiveSessionByHost(hostId);
-    //if (existing) return sendError(res, 409, 'You already have an active stream.');
+  if (existing) return sendError(res, 409, 'You already have an active stream.');
 
     const session = await LiveModel.createSession(hostId, title);
 

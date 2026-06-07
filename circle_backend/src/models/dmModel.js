@@ -313,7 +313,43 @@ async function getPresence(conversationId, requestingUserId) {
 
   return { online, last_seen_at: isoString };
 }
+async function editMessage(messageId, senderId, newBody) {
+  const now = new Date();
+  const [rows] = await db.query(
+    `SELECT id, sender_id, created_at FROM dm_messages WHERE id = ? LIMIT 1`,
+    [Number(messageId)]
+  );
+  if (!rows.length) throw new Error('Message not found.');
+  if (rows[0].sender_id !== Number(senderId)) throw new Error('Not your message.');
+  const ageMs = now - new Date(rows[0].created_at);
+  if (ageMs > 24 * 60 * 60 * 1000) throw new Error('Edit window expired.');
 
+  await db.query(
+    `UPDATE dm_messages SET body = ?, edited_at = NOW() WHERE id = ?`,
+    [newBody.trim(), Number(messageId)]
+  );
+
+  const [updated] = await db.query(
+    `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.is_read, m.created_at, m.edited_at
+     FROM dm_messages m WHERE m.id = ?`,
+    [Number(messageId)]
+  );
+  return updated[0];
+}
+
+async function deleteMessage(messageId, senderId) {
+  const [rows] = await db.query(
+    `SELECT id, sender_id, created_at, conversation_id FROM dm_messages WHERE id = ? LIMIT 1`,
+    [Number(messageId)]
+  );
+  if (!rows.length) throw new Error('Message not found.');
+  if (rows[0].sender_id !== Number(senderId)) throw new Error('Not your message.');
+  const ageMs = Date.now() - new Date(rows[0].created_at);
+  if (ageMs > 24 * 60 * 60 * 1000) throw new Error('Delete window expired.');
+
+  await db.query(`DELETE FROM dm_messages WHERE id = ?`, [Number(messageId)]);
+  return { messageId: rows[0].id, conversationId: rows[0].conversation_id };
+}
 /**
  * Total count of unread messages across all conversations for a user.
  * Useful for the nav badge.
@@ -391,4 +427,6 @@ module.exports = {
   getPresence,
   getReadStatus,
   getOtherParticipant,
+  editMessage,
+  deleteMessage
 };

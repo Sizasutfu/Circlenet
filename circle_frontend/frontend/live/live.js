@@ -110,31 +110,33 @@ const Live = (() => {
   }
 
   async function startLive() {
-    const titleEl = $('live-title-input');
-    const title = titleEl ? titleEl.value.trim() : '';
-    if (!title) { titleEl && titleEl.focus(); return; }
+  const titleEl = $('live-title-input');
+  const title = titleEl ? titleEl.value.trim() : '';
+  if (!title) { titleEl && titleEl.focus(); return; }
 
-    const btn = $('live-go-btn');
-    btn.disabled = true;
-    btn.textContent = 'Starting…';
+  const btn = $('live-go-btn');
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
 
-    try {
-      const data = await api('POST', '/api/live/start', { title });
-      state.sessionId        = data.sessionId;
-      state.title            = title;
-      state.role             = 'host';
-      // Populate broadcaster meta from currentUser so the overlay header is filled (same fix as viewer)
-      state.broadcasterName   = currentUser.name || currentUser.username || '';
-      state.broadcasterAvatar = currentUser.picture || '';
-      closeSetup();
-      _openOverlay('host');
-    } catch (err) {
-      console.error('[Live] start failed:', err);
-      btn.disabled = false;
-      btn.textContent = '🔴 Go Live';
-      $('live-setup-status').textContent = err.message || 'Could not start stream.';
-    }
+  try {
+    const response = await api('POST', '/api/live/start', { title });
+    const { sessionId, title: streamTitle, broadcasterName, broadcasterAvatar } = response.data;
+    
+    state.sessionId = sessionId;
+    state.title = streamTitle;
+    state.role = 'host';
+    state.broadcasterName = broadcasterName || currentUser.name || currentUser.username || '';
+    state.broadcasterAvatar = broadcasterAvatar || currentUser.picture || '';
+    
+    closeSetup();
+    _openOverlay('host');
+  } catch (err) {
+    console.error('[Live] start failed:', err);
+    btn.disabled = false;
+    btn.textContent = '🔴 Go Live';
+    $('live-setup-status').textContent = err.message || 'Could not start stream.';
   }
+}
 
   /* ══════════════════════════════════════════════
      VIEWER  —  open a session to watch
@@ -146,10 +148,11 @@ const Live = (() => {
 
     // Fetch session metadata so the overlay shows broadcaster name + title (bug #3)
     try {
-      const session = await api('GET', `/api/live/${sessionId}`);
-      state.broadcasterName  = session.broadcasterName || '';
+      const res = await api('GET', `/api/live/${sessionId}`);
+      const session = res.data || res; // unwrap sendOk envelope { status, data }
+      state.broadcasterName   = session.broadcasterName  || '';
       state.broadcasterAvatar = session.broadcasterAvatar || '';
-      state.title            = session.title || '';
+      state.title             = session.title            || '';
     } catch (_) { /* non-fatal — overlay shows blanks */ }
 
     if (!document.getElementById('live-setup-modal')) _injectHTML();
@@ -640,15 +643,38 @@ const Live = (() => {
   /* ══════════════════════════════════════════════
      LOAD ACTIVE STREAMS ON PAGE LOAD
   ══════════════════════════════════════════════ */
-  async function loadActiveSessions() {
-    try {
-      const sessions = await api('GET', '/api/live/active');
-      if (Array.isArray(sessions) && sessions.length) {
-        sessions.forEach(s => _addFeedCard(s));
-      }
-    } catch (_) { /* silently ignore if endpoint isn't up yet */ }
-  }
+ async function loadActiveSessions() {
+  try {
+    const res = await api('GET', '/api/live/active');
+    const sessions = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []); // unwrap sendOk envelope
+    const strip = _ensureFeedStrip();
+    const existingCards = new Set([...strip.querySelectorAll('.live-feed-card')].map(c => c.id));
 
+    // Remove cards that are no longer active
+    for (const cardId of existingCards) {
+      const sessionId = cardId.replace('live-card-', '');
+      if (!sessions.some(s => s.sessionId === sessionId)) {
+        const card = document.getElementById(cardId);
+        if (card) card.remove();
+      }
+    }
+
+    // Add new or update existing cards
+    sessions.forEach(s => {
+      const card = document.getElementById(`live-card-${s.sessionId}`);
+      if (card) {
+        // update viewer count
+        const viewerSpan = card.querySelector(`#live-card-viewers-${s.sessionId}`);
+        if (viewerSpan) viewerSpan.textContent = s.viewerCount || 0;
+      } else {
+        _addFeedCard(s);
+      }
+    });
+
+    // If strip becomes empty, hide it
+    if (!strip.children.length) strip.remove();
+  } catch (_) { /* silent */ }
+}
   /* ══════════════════════════════════════════════
      HTML INJECTION  (keeps index.html clean)
   ══════════════════════════════════════════════ */

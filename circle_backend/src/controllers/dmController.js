@@ -146,6 +146,52 @@ async function sendMessage(req, res) {
   }
 }
 
+async function editMessage(req, res) {
+  try {
+    const userId    = req.actorId;
+    const messageId = Number(req.params.messageId);
+    const newBody   = (req.body.body || '').trim();
+
+    if (!newBody) return sendError(res, 400, 'Body cannot be empty.');
+    if (newBody.length > 2000) return sendError(res, 400, 'Message too long.');
+
+    const updated = await dmModel.editMessage(messageId, userId, newBody);
+
+    // Notify both participants via WS
+    const recipientId = await dmModel.getOtherParticipant(updated.conversation_id, userId);
+    if (recipientId) {
+      notifyUser(recipientId, 'dm_edited', { messageId, conversationId: updated.conversation_id, body: newBody });
+      notifyUser(userId,      'dm_edited', { messageId, conversationId: updated.conversation_id, body: newBody });
+    }
+
+    return sendOk(res, 200, 'Message edited.', updated);
+  } catch (err) {
+    console.error('[DM] editMessage error:', err);
+    return sendError(res, 400, err.message || 'Failed to edit message.');
+  }
+}
+
+async function deleteMessage(req, res) {
+  try {
+    const userId    = req.actorId;
+    const messageId = Number(req.params.messageId);
+
+    const result = await dmModel.deleteMessage(messageId, userId);
+
+    // Notify both participants via WS
+    const recipientId = await dmModel.getOtherParticipant(result.conversationId, userId);
+    if (recipientId) {
+      notifyUser(recipientId, 'dm_deleted', { messageId, conversationId: result.conversationId });
+      notifyUser(userId,      'dm_deleted', { messageId, conversationId: result.conversationId });
+    }
+
+    return sendOk(res, 200, 'Message deleted.');
+  } catch (err) {
+    console.error('[DM] deleteMessage error:', err);
+    return sendError(res, 400, err.message || 'Failed to delete message.');
+  }
+}
+
 // ─── POST /api/dm/heartbeat ──────────────────────────────────
 // Still available for clients on HTTP fallback mode.
 // WebSocket-connected clients should send a `ping` frame instead.
@@ -241,4 +287,6 @@ module.exports = {
   heartbeat,
   getPresence,
   getReadStatus,
+  editMessage,
+  deleteMessage
 };

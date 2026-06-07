@@ -155,13 +155,24 @@ const Feed = (() => {
   }
 
   // ── Live strip preservation ───────────────────────────────────
-  // Saves the #live-feed-strip element before any innerHTML write and
-  // re-prepends it after, so feed reloads/renders never wipe live cards.
+  // Detaches #live-feed-strip before any innerHTML write so it isn't
+  // destroyed, then re-prepends it after. Falls back to a global
+  // getElementById lookup to handle the async race where
+  // loadActiveSessions() creates the strip after _saveLiveStrip ran.
   function _saveLiveStrip(c) {
-    return c.querySelector('#live-feed-strip') || null;
+    const strip = c.querySelector('#live-feed-strip') || null;
+    if (strip) strip.remove(); // detach safely before innerHTML wipe
+    return strip;
   }
   function _restoreLiveStrip(c, strip) {
-    if (strip && !c.contains(strip)) c.prepend(strip);
+    if (strip) {
+      if (!c.contains(strip)) c.prepend(strip);
+      return;
+    }
+    // loadActiveSessions() may have created the strip asynchronously
+    // while a render was in flight — pick it up if it exists outside c.
+    const orphan = document.getElementById('live-feed-strip');
+    if (orphan && !c.contains(orphan)) c.prepend(orphan);
   }
 
   // ── Render ────────────────────────────────────────────────────

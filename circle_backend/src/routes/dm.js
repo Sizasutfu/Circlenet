@@ -44,4 +44,7 @@ router.patch('/conversations/:conversationId/read',         dmCtrl.markRead);
 // POST /api/dm/read-status  body: { ids: [...] }  → { readIds: [...] }
 router.post('/read-status', dmCtrl.getReadStatus);
 
+router.patch('/conversations/:conversationId/messages/:messageId', dmCtrl.editMessage);
+router.delete('/conversations/:conversationId/messages/:messageId', dmCtrl.deleteMessage);
+
 module.exports = router;

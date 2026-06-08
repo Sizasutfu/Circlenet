@@ -77,6 +77,18 @@ if (!isProd) {
     res.setHeader('Content-Type', 'image/png');
     res.sendFile(path.join(FRONTEND, 'icon.png'));
   });
+
+  app.get('/about', (req, res) => {
+    res.redirect(301, 'https://blog.circlenet.social/about')
+  });
+
+  app.get('/about', (req, res) => {
+    res.redirect(301, 'https://blog.circlenet.social/privacy-policy')
+  });
+
+  app.get('/about', (req, res) => {
+    res.redirect(301, 'https://blog.circlenet.social/contact')
+  });
 }
 
 // ── Mount API routes ──────────────────────────────────────

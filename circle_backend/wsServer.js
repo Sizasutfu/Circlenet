@@ -235,8 +235,9 @@ async function _handleViewerJoin(ws, userId, msg) {
       const session = await LiveModel().getSession(sessionId);
       if (!session || session.status !== 'active') return;
       // Hydrate hostWs from the live registry so the offer can be sent (bug #5)
+      // Always pick the first OPEN socket — [0] may be stale if host reconnected
       const hostSockets = userSockets.get(session.hostId);
-      const hostWs = hostSockets ? [...hostSockets][0] : null;
+      const hostWs = hostSockets ? ([...hostSockets].find(s => s.readyState === WebSocket.OPEN) ?? null) : null;
       liveRooms.set(sessionId, {
         hostId:  session.hostId,
         hostWs,
@@ -251,6 +252,15 @@ async function _handleViewerJoin(ws, userId, msg) {
   const viewerCount    = updatedRoom.viewers.size;
 
   await LiveModel().setViewerCount(sessionId, viewerCount).catch(() => {});
+
+  // Refresh hostWs every time a viewer joins — host may have reconnected
+  // since the room was created and their socket reference is now stale
+  if (!updatedRoom.hostWs || updatedRoom.hostWs.readyState !== WebSocket.OPEN) {
+    const freshSockets = userSockets.get(updatedRoom.hostId);
+    updatedRoom.hostWs = freshSockets
+      ? ([...freshSockets].find(s => s.readyState === WebSocket.OPEN) ?? null)
+      : null;
+  }
 
   // Tell the host a new viewer joined (triggers WebRTC offer)
   if (updatedRoom.hostWs) {
@@ -334,9 +344,8 @@ async function _endLiveRoom(sessionId) {
 }
 
 // ── Internal helpers ─────────────────────────────────────────
-// ── Internal helpers ─────────────────────────────────────────
 function send(ws, payload) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
   }
 }
@@ -417,8 +426,9 @@ function broadcastLiveStarted(session) {
   const { sessionId, hostId } = session;
 
   // Register the host's current socket in the room
+  // Always pick the first OPEN socket — [0] may be stale if host reconnected
   const hostSockets = userSockets.get(hostId);
-  const hostWs      = hostSockets ? [...hostSockets][0] : null;
+  const hostWs      = hostSockets ? ([...hostSockets].find(s => s.readyState === WebSocket.OPEN) ?? null) : null;
 
   liveRooms.set(sessionId, {
     hostId,

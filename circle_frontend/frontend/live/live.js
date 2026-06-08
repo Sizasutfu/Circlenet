@@ -57,6 +57,8 @@ const Live = (() => {
     camOff: false,
     viewerCount: 0,
     chatMessages: [],
+    pendingOffer: null,
+    pendingIceCandidates: [],
   };
 
   /* ── ICE server config (add TURN for production) */
@@ -143,30 +145,34 @@ const Live = (() => {
   ══════════════════════════════════════════════ */
   async function watchSession(sessionId) {
     if (!currentUser) { alert('Please log in to watch.'); return; }
+    // Set sessionId early but NOT role — _handleOffer buffers offer until we're ready
     state.sessionId = sessionId;
-    state.role = 'viewer';
 
-    // Fetch session metadata so the overlay shows broadcaster name + title (bug #3)
     try {
       const res = await api('GET', `/api/live/${sessionId}`);
-      const session = res.data || res; // unwrap sendOk envelope { status, data }
+      const session = res.data || res;
       state.broadcasterName   = session.broadcasterName  || '';
       state.broadcasterAvatar = session.broadcasterAvatar || '';
       state.title             = session.title            || '';
-    } catch (_) { /* non-fatal — overlay shows blanks */ }
+    } catch (_) { /* non-fatal */ }
 
+    state.role = 'viewer'; // set AFTER async fetch
     if (!document.getElementById('live-setup-modal')) _injectHTML();
-
     _openOverlay('viewer');
 
-    // Tell the server we joined (it will relay to host for WebRTC offer)
-    // Include viewerName so the host's join banner shows the real name (bug #4)
     _wsSend({
       type:       'live:viewer_join',
       sessionId,
       viewerId:   currentUser.id,
       viewerName: currentUser.username || currentUser.name || null,
     });
+
+    // Drain any offer that arrived during the fetch
+    if (state.pendingOffer) {
+      const { hostId, sdp } = state.pendingOffer;
+      state.pendingOffer = null;
+      _handleOffer(hostId, sdp);
+    }
   }
 
   /* ══════════════════════════════════════════════
@@ -218,6 +224,8 @@ const Live = (() => {
     state.viewerCount = 0;
     state.peers = {};
     state.peerConn = null;
+    state.pendingOffer = null;
+    state.pendingIceCandidates = [];
     _stopLocalStream();
     _clearChat();
   }
@@ -407,7 +415,10 @@ const Live = (() => {
      Receives offer from host → sends answer
   ══════════════════════════════════════════════ */
   async function _handleOffer(hostId, sdp) {
-    if (state.role !== 'viewer') return;
+    if (state.role !== 'viewer') {
+      state.pendingOffer = { hostId, sdp };
+      return;
+    }
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
     state.peerConn = pc;
@@ -421,9 +432,12 @@ const Live = (() => {
     pc.ontrack = (event) => {
       const videoEl = $('live-video-el');
       if (!videoEl) return;
-      if (!state.remoteStream) state.remoteStream = new MediaStream();
+      if (!state.remoteStream) {
+        state.remoteStream = new MediaStream();
+        videoEl.srcObject = state.remoteStream;
+      }
       state.remoteStream.addTrack(event.track);
-      videoEl.srcObject = state.remoteStream;
+      videoEl.srcObject = state.remoteStream; // re-assign to trigger browser update
       videoEl.play().catch(() => {});
     };
 
@@ -437,11 +451,21 @@ const Live = (() => {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+
+    // Drain ICE candidates that arrived before peerConn existed
+    const buffered = state.pendingIceCandidates.splice(0);
+    for (const c of buffered) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
+    }
+
     _wsSend({ type: 'live:answer', sessionId: state.sessionId, to: hostId, sdp: pc.localDescription });
   }
 
   async function _handleViewerIce(candidate) {
-    if (!state.peerConn) return;
+    if (!state.peerConn) {
+      state.pendingIceCandidates.push(candidate);
+      return;
+    }
     try { await state.peerConn.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
   }
 
@@ -523,12 +547,10 @@ const Live = (() => {
 
   /* ──────────────────────────────────────────── */
   function _wsSend(payload) {
-    // Assumes wsClient.js exposes a global `WS` object with a .send() method.
-    // Adjust to match your actual wsClient.js API:
-    if (window.WS && window.WS.send) {
-      window.WS.send(payload);
+    if (typeof CircleWS !== 'undefined' && CircleWS.isAlive && CircleWS.isAlive()) {
+      CircleWS.send(payload);
     } else {
-      console.warn('[Live] WS not ready. Could not send:', payload);
+      console.warn('[Live] CircleWS not ready. Could not send:', payload);
     }
   }
 

@@ -234,12 +234,18 @@ async function loginUser() {
     setCurrentUser(res.data);
     showToast("Welcome back, " + (res.data?.name ?? "there").split(" ")[0] + "! 👋");
     const _postLoginRedir = sessionStorage.getItem("_redirectAfterLogin");
-    if (_postLoginRedir && _postLoginRedir.startsWith("/articles")) {
+    if (_postLoginRedir) {
       sessionStorage.removeItem("_redirectAfterLogin");
-      setTimeout(() => { location.href = "https://www.circlenet.social/articles"; }, 400);
-    } else {
-      setTimeout(() => goTo("feed"), 400);
+      if (_postLoginRedir.startsWith("/")) {
+        setTimeout(() => { location.href = _postLoginRedir; }, 400);
+        return;
+      }
+      if (_postLoginRedir.startsWith(window.location.origin)) {
+        setTimeout(() => { location.href = _postLoginRedir; }, 400);
+        return;
+      }
     }
+    setTimeout(() => goTo("feed"), 400);
   } catch (e) {
     // Unverified account — send them to the OTP screen
     if (e.unverified) {
@@ -5124,6 +5130,19 @@ function stringToColor(s) {
     localStorage.removeItem("circle_token");
   }
 
+  // If arriving via redirect from an external login flow, preserve it for post-login navigation.
+  const incomingRedirect = new URLSearchParams(window.location.search).get("redirect");
+  if (incomingRedirect) {
+    try {
+      const url = new URL(incomingRedirect, window.location.origin);
+      if (url.origin === window.location.origin) {
+        sessionStorage.setItem("_redirectAfterLogin", url.pathname + url.search + url.hash);
+      }
+    } catch (e) {
+      // ignore invalid redirect URLs
+    }
+  }
+
   // If arriving via reset link, show new-password view and skip loadPosts
   const resetToken = new URLSearchParams(window.location.search).get("token");
   if (resetToken) {
@@ -5228,14 +5247,18 @@ function stringToColor(s) {
       const redir = sessionStorage.getItem("_redirectAfterLogin");
       if (redir && currentUser) {
         sessionStorage.removeItem("_redirectAfterLogin");
-        if (redir.startsWith("/articles")) {
-          location.href = "https://www.circlenet.social/articles";
-        } else {
-          const redirState = _pathToState(redir);
-          if (redirState.view !== "feed") {
-            _historyNavigating = false;
-            goTo(redirState.view, redirState);
-          }
+        if (redir.startsWith("/")) {
+          location.href = redir;
+          return;
+        }
+        if (redir.startsWith(window.location.origin)) {
+          location.href = redir;
+          return;
+        }
+        const redirState = _pathToState(redir);
+        if (redirState.view !== "feed") {
+          _historyNavigating = false;
+          goTo(redirState.view, redirState);
         }
       }
     }, 700);

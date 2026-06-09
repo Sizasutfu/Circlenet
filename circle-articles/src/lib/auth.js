@@ -42,7 +42,11 @@ export function AuthProvider({ children }) {
 
   const login = (userData, token) => {
     localStorage.setItem('circle_user', JSON.stringify(userData));
-    localStorage.setItem('circle_token', token);
+    if (token) {
+      localStorage.setItem('circle_token', token);
+    } else {
+      localStorage.removeItem('circle_token');
+    }
     setUser(userData);
   };
 
@@ -65,19 +69,15 @@ export function useAuth() {
 
 export function isAuthenticated() {
   if (typeof window === 'undefined') return false;
-  return Boolean(
-    localStorage.getItem('circle_token') ||
-    localStorage.getItem('circle_user'),
-  );
+  return Boolean(localStorage.getItem('circle_user'));
 }
 
-const MAIN_SITE_LOGIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_LOGIN_URL || 'https://www.circlenet.social/login';
+const LOCAL_LOGIN_PATH = process.env.NEXT_PUBLIC_LOGIN_URL || '/login';
 
-// Helper to redirect to the main site login page, preserving the current URL
+// Helper to redirect to the local login page, preserving the current URL
 export function redirectToLogin() {
   if (typeof window !== 'undefined') {
-    sessionStorage.setItem('loginRedirect', window.location.href);
-    const destination = `${MAIN_SITE_LOGIN_URL}?redirect=${encodeURIComponent(window.location.href)}`;
+    const destination = `${LOCAL_LOGIN_PATH}?redirect=${encodeURIComponent(window.location.href)}`;
     window.location.href = destination;
   }
 }

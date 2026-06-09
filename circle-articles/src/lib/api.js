@@ -17,6 +17,16 @@ export async function apiClient(endpoint, options = {}) {
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('circle_token');
     if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const userString = localStorage.getItem('circle_user');
+    if (userString) {
+      try {
+        const user = JSON.parse(userString);
+        if (user?.id) headers['X-User-Id'] = String(user.id);
+      } catch (e) {
+        console.warn('Failed to parse circle_user for API auth header', e);
+      }
+    }
   } else {
     try {
       const { cookies } = await import('next/headers');

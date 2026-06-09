@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ThemeToggle from '../ThemeToggle';
+import { useAuth } from '@/lib/auth';
 
 export default function Header() {
   const router = useRouter();
@@ -11,6 +12,7 @@ export default function Header() {
   const isHomePage = pathname === '/' || pathname === '/articles';
   const [query, setQuery] = useState('');
   const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     setQuery(searchParams.get('search') || '');
@@ -133,7 +135,25 @@ export default function Header() {
               <path d="M21 21l-4.35-4.35" />
             </svg>
           </button>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            {user ? (
+              <button
+                type="button"
+                onClick={logout}
+                className="hidden md:inline-flex rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-txt2 transition hover:border-rose hover:text-rose"
+              >
+                Log out
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="hidden md:inline-flex rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-txt2 transition hover:border-accent hover:text-accent"
+              >
+                Log in
+              </Link>
+            )}
+            <ThemeToggle />
+          </div>
         </div>
       </header>
     {showMobileSearch && (

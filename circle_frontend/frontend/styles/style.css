@@ -978,8 +978,9 @@
       }
       @media (min-width: 1100px) {
         .feed-aside { display: block; }
-        /* widen content area only when feed is active */
-        .content.feed-active { max-width: 940px; }
+        /* widen content area for feed and messages views */
+        .content.feed-active,
+        .content.messages-active { max-width: 940px; }
       }
 
       /* ── Trending on Circle card ──────────────────────────── */

@@ -1,4 +1,10 @@
 {
+  "headers": [
+    {
+      "source": "/(.*).js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ],
   "rewrites": [
     {
       "source": "/post/:id",
@@ -31,17 +37,6 @@
       "destination": "https://circleappapp-production.up.railway.app/robots.txt"
     },
     {
-      "source": "/articles/:slug",
-      "has": [
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": "(.*)(googlebot|bingbot|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|pinterestbot)(.*)"
-        }
-      ],
-      "destination": "https://blog.circlenet.social/articles/:slug"
-    },
-    {
       "source": "/articles",
       "destination": "https://blog.circlenet.social/articles"
     },
@@ -53,9 +48,6 @@
       "source": "/_next/:path*",
       "destination": "https://blog.circlenet.social/_next/:path*"
     },
-    {
-      "source": "/(.*)",
-      "destination": "/"
-    }
+    { "source": "/(.*)", "destination": "/" }
   ]
 }

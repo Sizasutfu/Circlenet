@@ -7,7 +7,7 @@ const ALLOWED_ORIGINS = [
   'https://sizabeats:5000',
   'https://192.168.163.203:5000',
   'https://10.52.11.203:5000',  
-  'https://localhost:5000',
+  'http://localhost:5000',
   'https://circle-app-cm8qwkxqp-sizasutfus-projects.vercel.app',
   'https://www.circlenet.social',
   'https://admin.circlenet.social',

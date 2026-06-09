@@ -321,9 +321,12 @@ window.goTo = function goTo(view, _opts = {}) {
   viewEl.classList.add("active");
   _animateViewIn(viewEl);
 
-  // Widen content only on feed (for aside panel)
+  // Widen content for feed and messages views
   const contentEl = document.querySelector(".content");
-  if (contentEl) contentEl.classList.toggle("feed-active", view === "feed");
+  if (contentEl) {
+    contentEl.classList.toggle("feed-active", view === "feed");
+    contentEl.classList.toggle("messages-active", view === "messages");
+  }
 
   document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
   const sn = document.getElementById("snav-" + view);

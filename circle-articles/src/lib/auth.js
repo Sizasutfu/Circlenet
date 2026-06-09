@@ -63,6 +63,14 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
+export function isAuthenticated() {
+  if (typeof window === 'undefined') return false;
+  return Boolean(
+    localStorage.getItem('circle_token') ||
+    localStorage.getItem('circle_user'),
+  );
+}
+
 const MAIN_SITE_LOGIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_LOGIN_URL || 'https://www.circlenet.social/login';
 
 // Helper to redirect to the main site login page, preserving the current URL

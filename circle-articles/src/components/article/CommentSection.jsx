@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useAuth, redirectToLogin } from '@/lib/auth';
+import { useAuth, isAuthenticated, redirectToLogin } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 
 export default function CommentSection({ articleId }) {
@@ -37,7 +37,7 @@ export default function CommentSection({ articleId }) {
   }, [articleId]);
 
   const postComment = async () => {
-    if (!user) {
+    if (!user && !isAuthenticated()) {
       redirectToLogin();
       return;
     }

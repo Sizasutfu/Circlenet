@@ -1,6 +1,6 @@
 'use client';
 import { useRouter } from 'next/navigation';
-import { useAuth, redirectToLogin } from '@/lib/auth';
+import { useAuth, isAuthenticated, redirectToLogin } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useState } from 'react';
 
@@ -14,7 +14,7 @@ export default function ArticleListItem({ article, delay }) {
 
   const handleLike = async (e) => {
     e.stopPropagation();
-    if (!user) { redirectToLogin(); return; }
+    if (!user && !isAuthenticated()) { redirectToLogin(); return; }
     try {
       const res = await apiClient(`/api/articles/${article.id}/like`, { method: 'POST' });
       setLiked(res.data.liked);

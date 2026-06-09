@@ -116,9 +116,7 @@ export default async function ArticlePage({ params }) {
       <ArticleActions
         articleId={article.id}
         initialLikes={article.likes?.length ?? 0}
-        initialEchoes={article.echoes?.length ?? 0}
         userLiked={article.userLiked}
-        userEchoed={article.userEchoed}
       />
       <ShareButtons title={article.title} />
       <RelatedArticles articles={related} />

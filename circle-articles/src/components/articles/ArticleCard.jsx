@@ -12,8 +12,6 @@ export default function ArticleCard({ article, delay }) {
   const { user } = useAuth();
   const [liked, setLiked] = useState(article.userLiked);
   const [likeCount, setLikeCount] = useState(article.like_count);
-  const [echoed, setEchoed] = useState(article.userEchoed);
-  const [echoCount, setEchoCount] = useState(article.echo_count);
 
   const handleLike = async (e) => {
     e.stopPropagation();
@@ -22,16 +20,6 @@ export default function ArticleCard({ article, delay }) {
       const res = await apiClient(`/api/articles/${article.id}/like`, { method: 'POST' });
       setLiked(res.data.liked);
       setLikeCount(res.data.likes);
-    } catch (err) { alert(err.message); }
-  };
-
-  const handleEcho = async (e) => {
-    e.stopPropagation();
-    if (!user && !isAuthenticated()) { redirectToLogin(); return; }
-    try {
-      const res = await apiClient(`/api/articles/${article.id}/echo`, { method: 'POST' });
-      setEchoed(res.data.echoed);
-      setEchoCount(res.data.echoes);
     } catch (err) { alert(err.message); }
   };
 
@@ -104,17 +92,6 @@ export default function ArticleCard({ article, delay }) {
                 <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
               </svg>
               <span>{likeCount}</span>
-            </button>
-            <button
-              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold transition-all ${
-                echoed ? 'text-green' : 'text-txt2 hover:text-accent'
-              }`}
-              onClick={handleEcho}
-            >
-              <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-3.5 h-3.5">
-                <path d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M5.636 5.636a9 9 0 000 12.728M8.464 8.464a5 5 0 000 7.072M12 13a1 1 0 100-2 1 1 0 000 2z"/>
-              </svg>
-              <span>{echoCount}</span>
             </button>
             <button
               className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold text-txt2 hover:text-accent transition-all"

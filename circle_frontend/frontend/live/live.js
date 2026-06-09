@@ -61,13 +61,14 @@ const Live = (() => {
     pendingIceCandidates: [],
   };
 
-  /* ── ICE server config (add TURN for production) */
+  /* ── ICE server config (add TURN for production) ── */
   const ICE_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      // Add TURN servers here for reliable cross-NAT connections:
-      // { urls: 'turn:your.turn.server', username: '…', credential: '…' }
+      // Uncomment and fill in actual TURN credentials for production:
+      // { urls: 'turn:openrelay.metered.ca:80', username: 'your-username', credential: 'your-cred' },
+      // { urls: 'turn:openrelay.metered.ca:443', username: 'your-username', credential: 'your-cred' },
     ],
   };
 
@@ -112,33 +113,40 @@ const Live = (() => {
   }
 
   async function startLive() {
-  const titleEl = $('live-title-input');
-  const title = titleEl ? titleEl.value.trim() : '';
-  if (!title) { titleEl && titleEl.focus(); return; }
+    const titleEl = $('live-title-input');
+    const title = titleEl ? titleEl.value.trim() : '';
+    if (!title) { titleEl && titleEl.focus(); return; }
 
-  const btn = $('live-go-btn');
-  btn.disabled = true;
-  btn.textContent = 'Starting…';
+    const btn = $('live-go-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
 
-  try {
-    const response = await api('POST', '/api/live/start', { title });
-    const { sessionId, title: streamTitle, broadcasterName, broadcasterAvatar } = response.data;
-    
-    state.sessionId = sessionId;
-    state.title = streamTitle;
-    state.role = 'host';
-    state.broadcasterName = broadcasterName || currentUser.name || currentUser.username || '';
-    state.broadcasterAvatar = broadcasterAvatar || currentUser.picture || '';
-    
-    closeSetup();
-    _openOverlay('host');
-  } catch (err) {
-    console.error('[Live] start failed:', err);
-    btn.disabled = false;
-    btn.textContent = '🔴 Go Live';
-    $('live-setup-status').textContent = err.message || 'Could not start stream.';
+    try {
+      const response = await api('POST', '/api/live/start', { title });
+      const { sessionId, title: streamTitle, broadcasterName, broadcasterAvatar } = response.data;
+
+      state.sessionId = sessionId;
+      state.title = streamTitle;
+      state.role = 'host';
+      state.broadcasterName = broadcasterName || currentUser.name || currentUser.username || '';
+      state.broadcasterAvatar = broadcasterAvatar || currentUser.picture || '';
+
+      closeSetup();
+      _openOverlay('host');
+
+      // Force video track enabled
+      if (state.localStream) {
+        const videoTrack = state.localStream.getVideoTracks()[0];
+        if (videoTrack) videoTrack.enabled = true;
+        state.camOff = false;
+      }
+    } catch (err) {
+      console.error('[Live] start failed:', err);
+      btn.disabled = false;
+      btn.textContent = '🔴 Go Live';
+      $('live-setup-status').textContent = err.message || 'Could not start stream.';
+    }
   }
-}
 
   /* ══════════════════════════════════════════════
      VIEWER  —  open a session to watch
@@ -161,9 +169,9 @@ const Live = (() => {
     _openOverlay('viewer');
 
     _wsSend({
-      type:       'live:viewer_join',
+      type: 'live:viewer_join',
       sessionId,
-      viewerId:   currentUser.id,
+      viewerId: currentUser.id,
       viewerName: currentUser.username || currentUser.name || null,
     });
 
@@ -185,16 +193,19 @@ const Live = (() => {
     const videoEl = $('live-video-el');
 
     if (role === 'host') {
-      // Mirror local stream into the video element
+      // Mirror local stream for natural self-view
+      videoEl.style.transform = 'scaleX(-1)';
       videoEl.srcObject = state.localStream;
       videoEl.muted = true; // prevent echo
       videoEl.play().catch(() => {});
       $('live-host-controls').style.display = 'flex';
-      $('live-viewer-follow-btn') && ($('live-viewer-follow-btn').style.display = 'none');
+      if ($('live-viewer-follow-btn')) $('live-viewer-follow-btn').style.display = 'none';
     } else {
-      // Viewer: video will be set when remote track arrives
+      // Viewer sees the broadcaster normally
+      videoEl.style.transform = '';
       $('live-host-controls').style.display = 'none';
-      videoEl.muted = false;
+      // CRITICAL: Mute video to allow autoplay (browsers block unmuted autoplay)
+      videoEl.muted = true;
     }
 
     _updateViewerCount(state.viewerCount);
@@ -203,9 +214,8 @@ const Live = (() => {
 
   async function closeLive() {
     if (state.role === 'host') {
-      // Ask for confirmation
       if (!confirm('End your live stream?')) return;
-      await _endLiveAsHost(); // must await so sessionId is still set during the API call (bug #7)
+      await _endLiveAsHost();
     } else {
       _leaveAsViewer();
     }
@@ -215,6 +225,11 @@ const Live = (() => {
   function _teardownOverlay() {
     $('live-overlay').classList.remove('live-active');
     $('live-ended-screen').classList.remove('show');
+    
+    // Reset video element transform
+    const videoEl = $('live-video-el');
+    if (videoEl) videoEl.style.transform = '';
+    
     state.role = null;
     state.sessionId = null;
     state.title = '';
@@ -287,7 +302,6 @@ const Live = (() => {
       text,
     };
     _wsSend(msg);
-    // Optimistically render own message immediately
     _appendChatMessage(msg.senderName, text, true);
   }
 
@@ -301,7 +315,6 @@ const Live = (() => {
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 
-    // Keep last 60 messages to avoid DOM bloat
     const msgs = container.querySelectorAll('.live-chat-msg');
     if (msgs.length > 60) msgs[0].remove();
   }
@@ -329,8 +342,7 @@ const Live = (() => {
     const span = document.createElement('span');
     span.className = 'live-floating-emoji';
     span.textContent = emoji;
-    // Randomise horizontal start position
-    const x = 20 + Math.random() * 60; // percent
+    const x = 20 + Math.random() * 60;
     span.style.left = x + '%';
     span.style.bottom = '80px';
     canvas.appendChild(span);
@@ -365,27 +377,42 @@ const Live = (() => {
 
   /* ══════════════════════════════════════════════
      WEBRTC — HOST SIDE
-     Server tells host a viewer joined → host creates offer
   ══════════════════════════════════════════════ */
   async function _handleViewerJoined(viewerId) {
     if (state.role !== 'host') return;
+    if (!state.localStream || state.localStream.getTracks().length === 0) {
+      console.warn('[Live] No local stream tracks to add for viewer', viewerId);
+      return;
+    }
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
     state.peers[viewerId] = pc;
 
-    // Add local tracks to the connection
+    // Add tracks (ensure they are live)
     state.localStream.getTracks().forEach(track => {
-      pc.addTrack(track, state.localStream);
+      if (track.readyState === 'live') {
+        pc.addTrack(track, state.localStream);
+      } else {
+        console.warn('[Live] Track not live', track.kind);
+      }
     });
 
-    // Send ICE candidates to this viewer via WS
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
-        _wsSend({ type: 'live:ice_candidate', sessionId: state.sessionId, to: viewerId, candidate });
+        _wsSend({
+          type: 'live:ice_candidate',
+          sessionId: state.sessionId,
+          to: viewerId,
+          candidate,
+        });
       }
     };
 
     pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') {
+        console.log('[Live] Connection failed for', viewerId, '– restarting ICE');
+        pc.restartIce();
+      }
       if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
         pc.close();
         delete state.peers[viewerId];
@@ -395,7 +422,12 @@ const Live = (() => {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    _wsSend({ type: 'live:offer', sessionId: state.sessionId, to: viewerId, sdp: pc.localDescription });
+    _wsSend({
+      type: 'live:offer',
+      sessionId: state.sessionId,
+      to: viewerId,
+      sdp: pc.localDescription,
+    });
   }
 
   async function _handleAnswer(viewerId, sdp) {
@@ -412,7 +444,6 @@ const Live = (() => {
 
   /* ══════════════════════════════════════════════
      WEBRTC — VIEWER SIDE
-     Receives offer from host → sends answer
   ══════════════════════════════════════════════ */
   async function _handleOffer(hostId, sdp) {
     if (state.role !== 'viewer') {
@@ -425,7 +456,12 @@ const Live = (() => {
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
-        _wsSend({ type: 'live:ice_candidate', sessionId: state.sessionId, to: hostId, candidate });
+        _wsSend({
+          type: 'live:ice_candidate',
+          sessionId: state.sessionId,
+          to: hostId,
+          candidate,
+        });
       }
     };
 
@@ -437,13 +473,13 @@ const Live = (() => {
         videoEl.srcObject = state.remoteStream;
       }
       state.remoteStream.addTrack(event.track);
-      videoEl.srcObject = state.remoteStream; // re-assign to trigger browser update
-      videoEl.play().catch(() => {});
+      videoEl.srcObject = state.remoteStream;
+      videoEl.load();
+      videoEl.play().catch(e => console.warn('[Live] autoplay blocked', e));
     };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed') {
-        // Show reconnect hint
         _showJoinBanner('Connection lost. Try rejoining.');
       }
     };
@@ -452,13 +488,17 @@ const Live = (() => {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    // Drain ICE candidates that arrived before peerConn existed
     const buffered = state.pendingIceCandidates.splice(0);
     for (const c of buffered) {
       try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
     }
 
-    _wsSend({ type: 'live:answer', sessionId: state.sessionId, to: hostId, sdp: pc.localDescription });
+    _wsSend({
+      type: 'live:answer',
+      sessionId: state.sessionId,
+      to: hostId,
+      sdp: pc.localDescription,
+    });
   }
 
   async function _handleViewerIce(candidate) {
@@ -471,19 +511,12 @@ const Live = (() => {
 
   /* ══════════════════════════════════════════════
      WEBSOCKET INTEGRATION
-     Attach to the existing WS client in wsClient.js.
-     wsClient.js should call Live.handleWsMessage(msg)
-     from within its onmessage handler.
   ══════════════════════════════════════════════ */
   function handleWsMessage(msg) {
-    // Ensure the overlay HTML is in the DOM so any event can reference it
     if (!document.getElementById('live-setup-modal')) _injectHTML();
 
     switch (msg.type) {
-
-      /* ── Broadcast notifications ── */
       case 'live:started':
-        // Don't show a toast or card for the host's own stream
         if (currentUser && msg.hostId === currentUser.id) break;
         _showLiveToast(msg);
         _addFeedCard(msg);
@@ -496,7 +529,6 @@ const Live = (() => {
         }
         break;
 
-      /* ── Viewer count ── */
       case 'live:viewer_joined':
         _updateViewerCount(msg.viewerCount);
         if (state.role === 'host') {
@@ -509,24 +541,18 @@ const Live = (() => {
         _updateViewerCount(msg.viewerCount);
         break;
 
-      /* ── Chat ── */
       case 'live:chat_message':
-        if (state.sessionId === msg.sessionId) {
-          // Avoid duplicating own optimistic message
-          if (msg.senderId !== currentUser?.id) {
-            _appendChatMessage(msg.senderName, msg.text);
-          }
+        if (state.sessionId === msg.sessionId && msg.senderId !== currentUser?.id) {
+          _appendChatMessage(msg.senderName, msg.text);
         }
         break;
 
-      /* ── Reactions ── */
       case 'live:reaction':
         if (state.sessionId === msg.sessionId) {
           _floatEmoji(msg.emoji);
         }
         break;
 
-      /* ── WebRTC signaling ── */
       case 'live:offer':
         _handleOffer(msg.from, msg.sdp);
         break;
@@ -545,7 +571,6 @@ const Live = (() => {
     }
   }
 
-  /* ──────────────────────────────────────────── */
   function _wsSend(payload) {
     if (typeof CircleWS !== 'undefined' && CircleWS.isAlive && CircleWS.isAlive()) {
       CircleWS.send(payload);
@@ -563,7 +588,6 @@ const Live = (() => {
       strip = document.createElement('div');
       strip.id = 'live-feed-strip';
       strip.className = 'live-feed-strip';
-      // Insert above the posts feed — matches the actual #feed-list container in index.html
       const feed = document.getElementById('feed-list')
                 || document.getElementById('posts-feed')
                 || document.querySelector('.feed-col');
@@ -604,7 +628,6 @@ const Live = (() => {
   function _removeFeedCard(sessionId) {
     const card = document.getElementById(`live-card-${sessionId}`);
     if (card) card.remove();
-    // Remove strip if empty
     const strip = document.getElementById('live-feed-strip');
     if (strip && !strip.children.length) strip.remove();
   }
@@ -626,14 +649,11 @@ const Live = (() => {
       document.body.appendChild(toast);
     }
 
-    // Update content
     const avatarEl = document.getElementById('live-toast-avatar');
     const textEl   = document.getElementById('live-toast-text');
     if (avatarEl) avatarEl.src = session.broadcasterAvatar || '';
     if (textEl)   textEl.innerHTML = `<strong>${_esc(session.broadcasterName || 'Someone')}</strong> just went live`;
 
-    // Re-bind onclick every time so it always opens the current session,
-    // not the one that was live when the toast element was first created (stale closure fix)
     toast.onclick = () => {
       toast.classList.remove('show');
       Live.watchSession(session.sessionId);
@@ -665,43 +685,40 @@ const Live = (() => {
   /* ══════════════════════════════════════════════
      LOAD ACTIVE STREAMS ON PAGE LOAD
   ══════════════════════════════════════════════ */
- async function loadActiveSessions() {
-  try {
-    const res = await api('GET', '/api/live/active');
-    const sessions = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []); // unwrap sendOk envelope
-    const strip = _ensureFeedStrip();
-    const existingCards = new Set([...strip.querySelectorAll('.live-feed-card')].map(c => c.id));
+  async function loadActiveSessions() {
+    try {
+      const res = await api('GET', '/api/live/active');
+      const sessions = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
+      const strip = _ensureFeedStrip();
+      const existingCards = new Set([...strip.querySelectorAll('.live-feed-card')].map(c => c.id));
 
-    // Remove cards that are no longer active
-    for (const cardId of existingCards) {
-      const sessionId = cardId.replace('live-card-', '');
-      if (!sessions.some(s => s.sessionId === sessionId)) {
-        const card = document.getElementById(cardId);
-        if (card) card.remove();
+      for (const cardId of existingCards) {
+        const sessionId = cardId.replace('live-card-', '');
+        if (!sessions.some(s => s.sessionId === sessionId)) {
+          const card = document.getElementById(cardId);
+          if (card) card.remove();
+        }
       }
-    }
 
-    // Add new or update existing cards
-    sessions.forEach(s => {
-      const card = document.getElementById(`live-card-${s.sessionId}`);
-      if (card) {
-        // update viewer count
-        const viewerSpan = card.querySelector(`#live-card-viewers-${s.sessionId}`);
-        if (viewerSpan) viewerSpan.textContent = s.viewerCount || 0;
-      } else {
-        _addFeedCard(s);
-      }
-    });
+      sessions.forEach(s => {
+        const card = document.getElementById(`live-card-${s.sessionId}`);
+        if (card) {
+          const viewerSpan = card.querySelector(`#live-card-viewers-${s.sessionId}`);
+          if (viewerSpan) viewerSpan.textContent = s.viewerCount || 0;
+        } else {
+          _addFeedCard(s);
+        }
+      });
 
-    // If strip becomes empty, hide it
-    if (!strip.children.length) strip.remove();
-  } catch (_) { /* silent */ }
-}
+      if (!strip.children.length) strip.remove();
+    } catch (_) { /* silent */ }
+  }
+
   /* ══════════════════════════════════════════════
-     HTML INJECTION  (keeps index.html clean)
+     HTML INJECTION
   ══════════════════════════════════════════════ */
   function _injectHTML() {
-    // ── Setup modal ──
+    // Setup modal
     const setupModal = document.createElement('div');
     setupModal.id = 'live-setup-modal';
     setupModal.innerHTML = `
@@ -728,17 +745,14 @@ const Live = (() => {
     `;
     document.body.appendChild(setupModal);
 
-    // ── Full-screen overlay ──
+    // Full-screen overlay
     const overlay = document.createElement('div');
     overlay.id = 'live-overlay';
     overlay.innerHTML = `
       <video id="live-video-el" autoplay playsinline></video>
-
       <div id="live-reaction-canvas"></div>
       <div class="live-veil-top"></div>
       <div class="live-veil-bottom"></div>
-
-      <!-- Top bar -->
       <div class="live-top-bar">
         <div class="live-top-left">
           <img class="live-broadcaster-avatar" id="live-broadcaster-avatar-el" src="" alt="">
@@ -758,11 +772,7 @@ const Live = (() => {
           </button>
         </div>
       </div>
-
-      <!-- Bottom area -->
       <div class="live-bottom-bar">
-
-        <!-- Host-only controls -->
         <div id="live-host-controls" class="live-host-controls" style="display:none;">
           <button id="live-mic-btn" class="live-ctrl-btn" onclick="Live.toggleMic()" title="Mute microphone">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="18" height="18">
@@ -780,13 +790,9 @@ const Live = (() => {
           </button>
           <button class="live-end-btn" onclick="Live.closeLive()">End Stream</button>
         </div>
-
-        <!-- Reactions -->
         <div class="live-reactions-row">
           ${REACTIONS.map(e => `<button class="live-reaction-btn" onclick="Live.sendReaction('${e}')">${e}</button>`).join('')}
         </div>
-
-        <!-- Chat -->
         <div id="live-chat-messages" class="live-chat-messages"></div>
         <div class="live-chat-row">
           <input
@@ -802,8 +808,6 @@ const Live = (() => {
           </button>
         </div>
       </div>
-
-      <!-- Stream ended screen (viewer only) -->
       <div id="live-ended-screen" class="live-ended-screen">
         <div class="live-ended-icon">📴</div>
         <h3>Stream Ended</h3>
@@ -847,11 +851,7 @@ const Live = (() => {
     sendReaction,
     handleWsMessage,
     loadActiveSessions,
-
-    // Exposed for the "ended screen" close button
     _teardownOverlay,
-
-    // Exposed so the startup block can inject HTML eagerly
     _injectIfNeeded: () => { if (!document.getElementById('live-setup-modal')) _injectHTML(); },
   };
 })();

@@ -497,7 +497,11 @@ const Feed = (() => {
       fresh.forEach((fp) => {
         const existing = _state.posts.find((p) => p.id === fp.id);
         if (existing) {
-          existing.likes    = fp.likes;
+          // Only overwrite likes if the API returned a real array of user IDs.
+          // The feed API returns likes as a plain count (number), which would
+          // destroy the in-memory array that toggleLike built — losing liked state.
+          // Trending works because its API returns an array; mirror that behaviour here.
+          if (Array.isArray(fp.likes)) existing.likes = fp.likes;
           existing.comments = fp.comments;
           existing.reposts  = fp.reposts;
           PostCache.putPost(existing);

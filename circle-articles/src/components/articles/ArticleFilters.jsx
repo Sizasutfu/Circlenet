@@ -3,7 +3,7 @@
 
 export default function ArticleFilters({ activeTag, setActiveTag, allTags }) {
   return (
-    <div className="mb-6">
+    <div className="mt-4 mb-6">
       <div className="flex gap-2 flex-wrap">
         {allTags.slice(0, 6).map(tag => (
           <button

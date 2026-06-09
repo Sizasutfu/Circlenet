@@ -14,7 +14,7 @@ const nextConfig = {
   // ──────────────────────────────────────────────────────────
   //  Development only – allow LAN access (optional)
   // ──────────────────────────────────────────────────────────
-  allowedDevOrigins: ['10.99.112.203'],
+  allowedDevOrigins: ['10.38.154.203'],
 
   // ──────────────────────────────────────────────────────────
   //  Rewrites – proxy API uploads to your Circle backend

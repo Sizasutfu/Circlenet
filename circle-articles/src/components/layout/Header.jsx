@@ -10,6 +10,7 @@ export default function Header() {
   const searchParams = useSearchParams();
   const isHomePage = pathname === '/' || pathname === '/articles';
   const [query, setQuery] = useState('');
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
 
   useEffect(() => {
     setQuery(searchParams.get('search') || '');
@@ -23,87 +24,165 @@ export default function Header() {
     }
   };
 
-  const handleSearchSubmit = (event) => {
+  const handleSearchSubmit = async (event) => {
     event.preventDefault();
     const trimmed = query.trim();
     const destination = trimmed ? `/articles?search=${encodeURIComponent(trimmed)}` : '/articles';
-    router.push(destination);
+    await router.push(destination);
+    setShowMobileSearch(false);
+  };
+
+  const toggleMobileSearch = () => {
+    setShowMobileSearch((current) => !current);
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-surface/85 backdrop-blur-lg border-b border-border px-4 sm:px-6 h-14 flex items-center gap-4">
-      {!isHomePage && (
-        <button
-          onClick={goBack}
-          className="inline-flex items-center justify-center text-txt2 text-sm font-semibold p-2 rounded-radius-sm border border-border bg-transparent hover:text-accent hover:border-accent hover:bg-accent-bg transition-all"
-          aria-label="Go back"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            className="w-4 h-4"
+    <>
+      <header className="sticky top-0 left-0 right-0 z-50 bg-surface/85 backdrop-blur-lg border-b border-border w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          {!isHomePage && (
+            <button
+              onClick={goBack}
+              className="inline-flex items-center justify-center text-txt2 text-sm font-semibold p-2 rounded-radius-sm border border-border bg-transparent hover:text-accent hover:border-accent hover:bg-accent-bg transition-all"
+              aria-label="Go back"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="w-4 h-4"
+              >
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+          )}
+          <Link
+            href="/articles"
+            className="flex items-center gap-2 font-head text-lg font-extrabold text-txt tracking-tight min-w-0"
           >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-      )}
-      <Link
-        href="/articles"
-        className="flex items-center gap-2 font-head text-lg font-extrabold text-txt tracking-tight"
-      >
-        <div className="w-7 h-7 bg-accent rounded-lg grid place-items-center shadow-accent-glow">
-          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-white">
-            <circle cx="12" cy="12" r="9" />
-          </svg>
+            <div className="w-7 h-7 bg-accent rounded-lg grid place-items-center shadow-accent-glow">
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-white">
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+            </div>
+            Circle
+          </Link>
         </div>
-        Circle
-      </Link>
-      <form
-        onSubmit={handleSearchSubmit}
-        className="flex flex-1 min-w-0 w-full max-w-full md:max-w-xl items-center rounded-radius-sm border border-border bg-card px-3 py-1.5"
-      >
-        <div className="relative flex-1 min-w-0">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-txt2"
+
+        <div className="flex items-center gap-2 min-w-0">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="hidden md:flex flex-1 min-w-0 items-center rounded-radius-sm border border-border bg-card px-3 py-1.5"
           >
-            <circle cx="11" cy="11" r="7" />
-            <path d="M21 21l-4.35-4.35" />
-          </svg>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search articles"
-            className="w-full bg-transparent pl-10 pr-3 text-sm text-txt placeholder:text-txt2 outline-none"
-          />
+            <div className="relative flex-1 min-w-0">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-txt2"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search articles"
+                className="w-full bg-transparent pl-10 pr-3 text-sm text-txt placeholder:text-txt2 outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-white transition hover:bg-accent-h"
+              aria-label="Search articles"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="h-5 w-5"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </button>
+          </form>
+          <button
+            type="button"
+            onClick={toggleMobileSearch}
+            className="inline-flex md:hidden h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-txt2 transition hover:border-accent hover:text-accent"
+            aria-label={showMobileSearch ? 'Close search' : 'Open search'}
+            aria-expanded={showMobileSearch}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="h-5 w-5"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          </button>
+          <ThemeToggle />
         </div>
-        <button
-          type="submit"
-          className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-white transition hover:bg-accent-h"
-          aria-label="Search articles"
+      </header>
+    {showMobileSearch && (
+      <div className="md:hidden bg-surface/95 border-b border-border px-4 sm:px-6 pb-3">
+        <form
+          onSubmit={handleSearchSubmit}
+          className="flex items-center rounded-radius-sm border border-border bg-card px-3 py-1.5"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            className="h-5 w-5"
+          <div className="relative flex-1 min-w-0">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-txt2"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search articles"
+              className="w-full bg-transparent pl-10 pr-3 text-sm text-txt placeholder:text-txt2 outline-none"
+              autoFocus
+            />
+          </div>
+          <button
+            type="submit"
+            className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-white transition hover:bg-accent-h"
+            aria-label="Search articles"
           >
-            <circle cx="11" cy="11" r="7" />
-            <path d="M21 21l-4.35-4.35" />
-          </svg>
-        </button>
-      </form>
-      <ThemeToggle />
-    </header>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="h-5 w-5"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          </button>
+        </form>
+      </div>
+    )}
+    </>
   );
 }

@@ -106,7 +106,7 @@ export default async function ArticlePage({ params }) {
   }
 
   return (
-    <main className="page-wrap">
+    <main className="page-wrap mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

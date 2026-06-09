@@ -5,6 +5,17 @@ import { useState, useEffect } from 'react';
 const PLACEHOLDER_COVER = 'https://placehold.co/800x420/111116/7c6bff?text=Article';
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
+function getReadTime(content) {
+  if (!content) return '1 min read';
+  const text = content
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = text ? text.split(' ').filter(Boolean).length : 0;
+  const minutes = Math.max(1, Math.ceil(words / 200));
+  return `${minutes} min read`;
+}
+
 export default function ArticleHeader({ article }) {
   const [coverSrc, setCoverSrc] = useState(PLACEHOLDER_COVER);
 
@@ -27,6 +38,7 @@ export default function ArticleHeader({ article }) {
         day: 'numeric',
       })
     : '';
+  const readTime = getReadTime(article.content || article.body || article.excerpt || '');
   const authorName = article.author || 'Anonymous';
   const authorAvatarRaw = article.authorPicture || article.author_picture;
   const authorAvatar = authorAvatarRaw
@@ -63,7 +75,11 @@ export default function ArticleHeader({ article }) {
         />
         <div className="flex-1">
           <div className="font-bold text-sm text-txt">{authorName}</div>
-          <div className="text-xs text-txt3">{dateStr}</div>
+          <div className="text-xs text-txt3">
+            {dateStr}
+            {dateStr && readTime ? ' · ' : ''}
+            {readTime}
+          </div>
         </div>
         <div className="art-reactions" id="article-reactions" />
       </div>

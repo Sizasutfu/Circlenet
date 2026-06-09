@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { useAuth } from '@/lib/auth';
+import { useAuth, redirectToLogin } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 
 export default function ArticleActions({ articleId, initialLikes, initialEchoes, userLiked, userEchoed }) {
@@ -11,7 +11,7 @@ export default function ArticleActions({ articleId, initialLikes, initialEchoes,
   const [echoCount, setEchoCount] = useState(initialEchoes);
 
   const handleLike = async () => {
-    if (!user) { window.location.href = 'https://www.circlenet.social/login'; return; }
+    if (!user) { redirectToLogin(); return; }
     try {
       const res = await apiClient(`/api/articles/${articleId}/like`, { method: 'POST' });
       setLiked(res.data.liked);
@@ -20,7 +20,7 @@ export default function ArticleActions({ articleId, initialLikes, initialEchoes,
   };
 
   const handleEcho = async () => {
-    if (!user) { window.location.href = 'https://www.circlenet.social/login'; return; }
+    if (!user) { redirectToLogin(); return; }
     try {
       const res = await apiClient(`/api/articles/${articleId}/echo`, { method: 'POST' });
       setEchoed(res.data.echoed);

@@ -8,8 +8,36 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem('circle_user');
-    if (stored) setUser(JSON.parse(stored));
+    const loadUser = () => {
+      try {
+        const stored = localStorage.getItem('circle_user');
+        if (stored) setUser(JSON.parse(stored));
+        else setUser(null);
+      } catch (err) {
+        console.error('Failed to load auth user', err);
+        setUser(null);
+      }
+    };
+
+    loadUser();
+
+    const handleStorage = (event) => {
+      if (event.key === 'circle_user') {
+        loadUser();
+      }
+    };
+
+    const handleFocus = () => {
+      loadUser();
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const login = (userData, token) => {

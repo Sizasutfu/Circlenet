@@ -82,11 +82,11 @@ if (!isProd) {
     res.redirect(301, 'https://blog.circlenet.social/about')
   });
 
-  app.get('/about', (req, res) => {
+  app.get('/privacy-policy', (req, res) => {
     res.redirect(301, 'https://blog.circlenet.social/privacy-policy')
   });
 
-  app.get('/about', (req, res) => {
+  app.get('/contact', (req, res) => {
     res.redirect(301, 'https://blog.circlenet.social/contact')
   });
 }
@@ -115,12 +115,7 @@ app.use('/_next',                articlesProxy);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 
-// ── SPA fallback (dev only) ───────────────────────────────
-if (!isProd) {
-  app.get('/{*path}', (req, res) => {
-    res.sendFile(path.join(FRONTEND, 'index.html'));
-  });
-}
+
 
 // ── Start crons ───────────────────────────────────────────
 const { startGroupCron } = require('./models/GroupModel');

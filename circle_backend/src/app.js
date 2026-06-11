@@ -124,11 +124,8 @@ const { startGroupCron } = require('./models/GroupModel');
 startGroupCron();
 console.log('Group auto-creation cron started.');
 
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API endpoint not found' });
-  }
-  res.sendFile(path.join(FRONTEND));
+app.get(/^\/(?!api).*/, (req, res) => {
+  res.sendFile(path.join(FRONTEND, 'index01.html'));
 });
 
 

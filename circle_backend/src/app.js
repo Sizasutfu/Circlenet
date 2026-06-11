@@ -41,6 +41,7 @@ const phoneAuthRoutes      = require('./routes/phoneAuthRoutes');
 const linkPreviewRoutes    = require('./routes/linkpreviewRoutes');
 const articleRoutes        = require('./routes/articleRoutes');
 const liveRoutes           = require('./routes/liveRoutes');
+const whisperRoutes        = require('./routes/whisperRoutes');
 
 // authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
@@ -111,6 +112,7 @@ app.use('/api/articles',        articleRoutes);
 app.use('/api/live',            liveRoutes);
 app.use('/articles',             articlesProxy);
 app.use('/_next',                articlesProxy);
+app.use('/api/whisper',         whisperRoutes);
 
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
@@ -121,5 +123,13 @@ seoMiddleware(app);
 const { startGroupCron } = require('./models/GroupModel');
 startGroupCron();
 console.log('Group auto-creation cron started.');
+
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  res.sendFile(path.join(FRONTEND));
+});
+
 
 module.exports = app;

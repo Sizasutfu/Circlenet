@@ -61,6 +61,18 @@ const _routes = [
     auth: true,
   },
   {
+    path: "/whisper-inbox",
+    view: "whisper-inbox",
+    title: "Whisper Inbox · Circle",
+    auth: true,
+  },
+
+  {
+    path: "/whisper/send/:username",
+    view: "whisper-send",
+    title: "Send a Whisper · Circle",
+  },
+  {
     path: "/settings",
     view: "settings",
     title: "Settings · Circle",
@@ -83,7 +95,7 @@ const _routes = [
     title: "Sign up · Circle",
     noAuth: true,
   },
-   {
+  {
     path: "/register",
     view: "register",
     title: "Sign up · Circle",
@@ -184,7 +196,9 @@ function _show404() {
       </div>`;
     document.querySelector(".content")?.appendChild(el);
   }
-  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  document
+    .querySelectorAll(".view")
+    .forEach((v) => v.classList.remove("active"));
   el.classList.add("active");
   document.title = "Not Found · Circle";
   history.replaceState({ view: "404" }, "", window.location.pathname);
@@ -243,9 +257,12 @@ window.copyCurrentLink = copyCurrentLink;
 function sharePostLink(postId) {
   const url = `${location.origin}/post/${postId}`;
   if (navigator.share) {
-    navigator.share({ url, title: "Check out this post on Circle" }).catch(() => {});
+    navigator
+      .share({ url, title: "Check out this post on Circle" })
+      .catch(() => {});
   } else {
-    navigator.clipboard?.writeText(url)
+    navigator.clipboard
+      ?.writeText(url)
       .then(() => showToast("Link copied!"))
       .catch(() => {
         const ta = document.createElement("textarea");
@@ -253,8 +270,12 @@ function sharePostLink(postId) {
         ta.style.cssText = "position:fixed;opacity:0";
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand("copy"); showToast("Link copied!"); }
-        catch (_) { showToast(url); }
+        try {
+          document.execCommand("copy");
+          showToast("Link copied!");
+        } catch (_) {
+          showToast(url);
+        }
         document.body.removeChild(ta);
       });
   }
@@ -312,7 +333,9 @@ window.goTo = function goTo(view, _opts = {}) {
     }
   }
 
-  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  document
+    .querySelectorAll(".view")
+    .forEach((v) => v.classList.remove("active"));
   const viewEl = document.getElementById("view-" + view);
   if (!viewEl) {
     _show404();
@@ -328,11 +351,15 @@ window.goTo = function goTo(view, _opts = {}) {
     contentEl.classList.toggle("messages-active", view === "messages");
   }
 
-  document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
+  document
+    .querySelectorAll(".nav-item")
+    .forEach((n) => n.classList.remove("active"));
   const sn = document.getElementById("snav-" + view);
   if (sn) sn.classList.add("active");
 
-  document.querySelectorAll(".mnav-item").forEach((n) => n.classList.remove("active"));
+  document
+    .querySelectorAll(".mnav-item")
+    .forEach((n) => n.classList.remove("active"));
   const mn = document.getElementById("mnav-" + view);
   if (mn) mn.classList.add("active");
 
@@ -396,7 +423,10 @@ window.goTo = function goTo(view, _opts = {}) {
   if (view === "settings") populateSettings();
   if (view === "explore") loadExplore();
   if (view === "groups") loadGroups();
-  if (view === "articles") { window.location.href = "https://www.circlenet.social/articles"; return; }
+  if (view === "articles") {
+    window.location.href = "https://www.circlenet.social/articles";
+    return;
+  }
   if (view === "search") {
     searchTab = "posts";
     document.getElementById("search-input").value = "";

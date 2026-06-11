@@ -260,6 +260,20 @@
             <span class="nav-label">Messages</span>
             <span class="nav-badge" id="snav-dm-badge">0</span>
           </div>
+
+          <div class="nav-item" onclick="WhisperInbox.open()" id="snav-whisper-inbox">
+            <svg
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              <line x1="9" y1="10" x2="15" y2="10"/>
+              <line x1="9" y1="14" x2="13" y2="14"/>
+            </svg>
+            <span class="nav-label">Whisper</span>
+          </div>
           <div class="nav-item" onclick="goTo('settings')" id="snav-settings">
             <svg
               fill="none"
@@ -1279,6 +1293,8 @@
               </div>
             </div>
           </div>
+
+          <div class="view" id="view-whisper-inbox"></div>
 
           <!-- LOGIN -->
           <div class="view" id="view-login">
@@ -5072,6 +5088,10 @@
   <script src="post detail/postDetail.js"></script>
   <script src="router/router.js"></script>
   <script src="dail codes/dailcodes.js"></script>
+  <script src="whisper/whisper-composer.js"></script>
+  <script src="whisper/whisper-inbox.js"></script>
+  <script src="whisper/whisper-send.js"></script>
+  <script src="whisper/whisper-settings.js"></script>
   <script src="main.js"></script>
   <script src="wsClient.js"></script>
   <script src="/live/live.js"></script>

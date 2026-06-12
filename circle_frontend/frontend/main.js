@@ -773,11 +773,20 @@ async function setNewPassword() {
 }
 
 /* SETTINGS */
-function populateSettings() {
+async function populateSettings() {
   if (!currentUser) {
     goTo("login");
     return;
   }
+  // Fetch fresh full profile data before populating
+  try {
+    const res = await api("GET", `/api/users/${currentUser.id}/profile`);
+    if (res.data) {
+      // Merge full profile fields into currentUser and persist
+      currentUser = { ...currentUser, ...res.data };
+      localStorage.setItem("circle_user", JSON.stringify(currentUser));
+    }
+  } catch (_) { /* fall through with cached data */ }
   document.getElementById("settings-name").value = currentUser.name || "";
   document.getElementById("settings-username").value = currentUser.username || "";
   document.getElementById("settings-email").value = currentUser.email || "";
@@ -852,42 +861,49 @@ function populateSettings() {
 
 async function saveProfile() {
   if (!currentUser) return;
+
   const name = document.getElementById("settings-name").value.trim();
   const email = document.getElementById("settings-email").value.trim();
   const bio = document.getElementById("settings-bio").value.trim();
   const password = document.getElementById("settings-password").value;
   const username = document.getElementById("settings-username").value.trim().toLowerCase();
+  const dialCode = document.getElementById("settings-dial-code").value;
+  const phoneRaw = document.getElementById("settings-phone").value.trim().replace(/\D/g, "");
+  const phone = phoneRaw ? `${dialCode}|${phoneRaw}` : null;
+  const location = document.getElementById("settings-location").value.trim() || null;
+  const school = document.getElementById("settings-school").value.trim() || null;
+  const occupation = document.getElementById("settings-occupation").value.trim() || null;
+  const website = document.getElementById("settings-website").value.trim() || null;
+  const dob = document.getElementById("settings-dob").value || null;
+  const gender = document.getElementById("settings-gender").value || null;
 
-  // Validate username if changed
-  if (username && username !== (currentUser.username || "")) {
-    if (!/^[a-z0-9_]{3,25}$/.test(username)) {
+  if (!name) { showToast("Name is required."); return; }
+  if (!email) { showToast("Email is required."); return; }
+
+  // Validate username only if changed
+  if (username !== (currentUser.username || "")) {
+    if (username && !/^[a-z0-9_]{3,25}$/.test(username)) {
       showToast("Username must be 3–25 characters: letters, numbers, underscores only.");
       return;
     }
   }
 
-  // Extra fields
-  const dialCode = document.getElementById("settings-dial-code").value;
-  const phoneRaw = document
-    .getElementById("settings-phone")
-    .value.trim()
-    .replace(/\D/g, "");
-  const phone = phoneRaw ? `${dialCode}|${phoneRaw}` : null;
-  const location =
-    document.getElementById("settings-location").value.trim() || null;
-  const school =
-    document.getElementById("settings-school").value.trim() || null;
-  const occupation =
-    document.getElementById("settings-occupation").value.trim() || null;
-  const website =
-    document.getElementById("settings-website").value.trim() || null;
-  const dob = document.getElementById("settings-dob").value || null;
-  const gender = document.getElementById("settings-gender").value || null;
+  // Build patch — only include fields that actually changed
+  // name and email are always sent because the server requires them on PUT
+  const patch = { name, email };
+  if (bio !== (currentUser.bio || "")) patch.bio = bio;
+  if (bio !== (currentUser.bio || "")) patch.bio = bio;
+  if (password) patch.password = password;
+  if (phone !== (currentUser.phone || null)) patch.phone = phone;
+  if (location !== (currentUser.location || null)) patch.location = location;
+  if (school !== (currentUser.school || null)) patch.school = school;
+  if (occupation !== (currentUser.occupation || null)) patch.occupation = occupation;
+  if (website !== (currentUser.website || null)) patch.website = website;
+  const currentDob = currentUser.dateOfBirth ? currentUser.dateOfBirth.split("T")[0] : null;
+  if (dob !== currentDob) patch.dateOfBirth = dob;
+  if (gender !== (currentUser.gender || null)) patch.gender = gender;
 
-  if (!name || !email) {
-    showToast("Name and email are required.");
-    return;
-  }
+  // Save notif prefs regardless
   const prefs = {
     likes: document.getElementById("notif-likes").checked,
     comments: document.getElementById("notif-comments").checked,
@@ -901,54 +917,42 @@ async function saveProfile() {
     activity: document.getElementById("priv-activity").checked,
   };
   localStorage.setItem("circle_notif_prefs", JSON.stringify(prefs));
+
   try {
-    const res = await api("PUT", `/api/users/${currentUser.id}`, {
-      name,
-      email,
-      bio: bio || undefined,
-      password: password || undefined,
-      phone: phone || undefined,
-      location: location || undefined,
-      school: school || undefined,
-      occupation: occupation || undefined,
-      website: website || undefined,
-      dateOfBirth: dob || undefined,
-      gender: gender || undefined,
-    });
-    const updatedUser = {
-      ...res.data,
-      username: username || res.data.username || currentUser.username || null,
-      bio: bio || res.data.bio || "",
-      picture: resolveMediaUrl(res.data.picture || currentUser.picture) || null,
-      phone: phone ?? res.data.phone ?? currentUser.phone ?? null,
-      location: location ?? res.data.location ?? currentUser.location ?? null,
-      school: school ?? res.data.school ?? currentUser.school ?? null,
-      occupation:
-        occupation ?? res.data.occupation ?? currentUser.occupation ?? null,
-      website: website ?? res.data.website ?? currentUser.website ?? null,
-      dateOfBirth:
-        dob ?? res.data.dateOfBirth ?? currentUser.dateOfBirth ?? null,
-      gender: gender ?? res.data.gender ?? currentUser.gender ?? null,
-    };
-    localStorage.setItem("circle_user", JSON.stringify(updatedUser));
-    setCurrentUser(updatedUser);
+    // Start from currentUser so no fields are ever lost
+    let updatedUser = { ...currentUser };
+
+    if (Object.keys(patch).length > 0) {
+      const res = await api("PUT", `/api/users/${currentUser.id}`, patch);
+      // Merge: currentUser base → patch → server response (server wins on conflicts)
+      updatedUser = {
+        ...updatedUser,
+        ...patch,
+        ...res.data,
+        picture: resolveMediaUrl(res.data.picture || currentUser.picture) || null,
+      };
+    }
 
     // Save username separately if it changed
     if (username && username !== (currentUser.username || "")) {
       try {
         await api("PUT", `/api/users/${currentUser.id}/username`, { username });
+        updatedUser.username = username;
       } catch (e) {
         showToast("Profile saved but username error: " + e.message);
         return;
       }
     }
 
+    localStorage.setItem("circle_user", JSON.stringify(updatedUser));
+    setCurrentUser(updatedUser);
     showToast("Profile updated! ✅");
+
     // Post a profile_update activity to the feed
     try {
       await api("POST", "/api/posts", {
         type: "profile_update",
-        text: bio || "",
+        text: updatedUser.bio || "",
       });
       PostCache.invalidateFeed("global");
       PostCache.invalidateFeed("following");
@@ -2190,6 +2194,11 @@ async function renderProfile(viewedUserId = null) {
   );
   const initial = name.charAt(0).toUpperCase();
   const color = stringToColor(name);
+
+  if (isOwnProfile && profileData) {
+  currentUser = { ...currentUser, ...profileData };
+  localStorage.setItem("circle_user", JSON.stringify(currentUser));
+}
 
   // ── Update page title + og meta with real name ──────────
   _setPageTitle(isOwnProfile ? "Your Profile" : name);
@@ -5202,6 +5211,9 @@ function stringToColor(s) {
           if (_initState.tab && ["feed", "about"].includes(_initState.tab)) {
             switchGroupTab(_initState.tab);
           }
+        } else if (_initState.view === "whisper-send" && _initState.username) {
+          goTo("whisper-send");
+          WhisperSend.init(_initState.username);
         } else if (_initState.view === "search") {
           goTo("search");
           // Restore search query from ?q= param
@@ -5420,6 +5432,12 @@ function stringToColor(s) {
   const _origGoTo = window.goTo;
   window.goTo = function (view) {
     _origGoTo(view);
+    // Hide mobile nav & FAB when on messages
+    const _mnav = document.querySelector('.mobile-nav');
+    const _fab  = document.getElementById('fab-create-btn');
+    const _onMsg = view === 'messages';
+    if (_mnav) _mnav.style.display = _onMsg ? 'none' : '';
+    if (_fab)  _fab.style.display  = _onMsg ? 'none' : '';
     // Let the view become visible in the next frame before scanning
     requestAnimationFrame(() => {
       const el = document.getElementById("view-" + view);

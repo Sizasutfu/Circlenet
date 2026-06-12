@@ -61,9 +61,13 @@ async function sendMessage(req, res) {
 
 // ─── GET /api/whisper/settings ──────────────────────────────────
 async function getSettings(req, res) {
+  console.log('[Whisper] actorId:', req.actorId);
+ 
   try {
     const userId = req.actorId;
     let settings = await WhisperModel.getUserSettings(userId);
+   
+    console.log('[Whisper] raw settings:', settings);
 
     if (!settings) {
       await WhisperModel.upsertSettings(userId, false);
@@ -80,11 +84,13 @@ async function getSettings(req, res) {
   }
 }
 
+
 // ─── PATCH /api/whisper/settings ────────────────────────────────
 async function updateSettings(req, res) {
   try {
+    console.log('[Whisper] body.enabled:', req.body.enabled, typeof req.body.enabled);
     const userId = req.actorId;
-    const enabled = req.body.enabled === true;
+    const enabled = Boolean(req.body.enabled);
     await WhisperModel.upsertSettings(userId, enabled);
     return sendOk(res, 200, 'Settings updated.', { enabled });
   } catch (err) {

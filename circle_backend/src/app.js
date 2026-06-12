@@ -125,7 +125,7 @@ startGroupCron();
 console.log('Group auto-creation cron started.');
 
 app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(path.join(FRONTEND, 'index01.html'));
+  res.sendFile(path.join(FRONTEND, 'index.html'));
 });
 
 

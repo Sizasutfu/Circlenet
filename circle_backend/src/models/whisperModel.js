@@ -30,7 +30,7 @@ function _hashIp(ip) {
  */
 async function getRecipientByUsername(username) {
   const [rows] = await db.query(
-    `SELECT u.id, u.username, u.name, u.profile_picture AS avatar,
+    `SELECT u.id, u.username, u.name, u.picture AS avatar,
             COALESCE(ws.enabled, 0) AS whisperEnabled
      FROM users u
      LEFT JOIN user_whisper_settings ws ON ws.user_id = u.id
@@ -219,7 +219,7 @@ async function getPostById(connection, postId) {
     `SELECT
        p.id, p.text, p.image, p.post_type, p.created_at,
        u.id AS author_id, u.name AS author, u.username,
-       u.profile_picture AS authorPicture,
+       u.picture AS authorPicture,
        0 AS likes_count, 0 AS comments_count
      FROM posts p
      JOIN users u ON u.id = p.user_id

@@ -137,6 +137,9 @@ function _viewToPath(view, opts = {}) {
   if (view === "search" && opts.q)
     return `/search?q=${encodeURIComponent(opts.q)}&type=${opts.type || "posts"}`;
   return `/${view}`;
+
+  if (view === "whisper-send")
+    return opts.username ? `/whisper/send/${opts.username}` : "/whisper/send";
 }
 
 // ── Parse pathname → router state ───────────────────────────

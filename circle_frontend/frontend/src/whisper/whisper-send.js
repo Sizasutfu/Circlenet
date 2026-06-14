@@ -5,7 +5,7 @@ const WhisperSend = (() => {
      Prevents the same browser session spamming one recipient.
      The real limit lives on the backend (IP-based).               */
   const _SEND_KEY  = "whisper_sends"; // localStorage key
-  const _MAX_SENDS = 3;               // per recipient per hour
+  const _MAX_SENDS = 30;               // per recipient per hour
   const _WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
   function _canSend(username) {
@@ -52,12 +52,13 @@ const WhisperSend = (() => {
   }
 
   /* ── Fetch recipient's public whisper profile ────────────────── */
-  async function _fetchProfile(username) {
+ async function _fetchProfile(username) {
     const res = await fetch(`${API}/api/whisper/profile/${encodeURIComponent(username)}`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || "User not found.");
-    return data; // { username, name, avatar, whisperEnabled }
-  }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.message || "User not found.");
+    // If the response has a 'data' property, use it; otherwise assume flat structure
+    return json.data || json;
+}
 
   /* ── Render states ───────────────────────────────────────────── */
   function _renderSkeleton(container) {

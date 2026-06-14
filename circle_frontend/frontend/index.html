@@ -118,10 +118,12 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles/style.css" />
-    <link rel="stylesheet" href="/styles/typingIndicator.css" />
-    <link rel="stylesheet" href="/live/live.css" />
-    <link rel="stylesheet" href="/dm/dm.css" />
+    <link rel="stylesheet" href="/src/styles/style.css" />
+    <link rel="stylesheet" href="/src/styles/typingIndicator.css" />
+    <link rel="stylesheet" href="/src/live/live.css" />
+    <link rel="stylesheet" href="/src/dm/dm.css" />
+    <link rel="stylesheet" href="/src/search/search.css" />
+    <link rel="stylesheet" href="/src/groups/groups.css" />
     <style></style>
   </head>
   <body>
@@ -229,7 +231,7 @@
             <span class="nav-label">Notifications</span>
             <span class="nav-badge" id="snav-notif-badge">0</span>
           </div>
-         <div class="nav-item" onclick="Live.openSetup()" id="snav-live">
+          <div class="nav-item" onclick="Live.openSetup()" id="snav-live">
             <svg
               fill="none"
               stroke="currentColor"
@@ -261,16 +263,22 @@
             <span class="nav-badge" id="snav-dm-badge">0</span>
           </div>
 
-          <div class="nav-item" onclick="WhisperInbox.open()" id="snav-whisper-inbox">
+          <div
+            class="nav-item"
+            onclick="WhisperInbox.open()"
+            id="snav-whisper-inbox"
+          >
             <svg
               fill="none"
               stroke="currentColor"
               stroke-width="2"
               viewBox="0 0 24 24"
             >
-              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-              <line x1="9" y1="10" x2="15" y2="10"/>
-              <line x1="9" y1="14" x2="13" y2="14"/>
+              <path
+                d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+              />
+              <line x1="9" y1="10" x2="15" y2="10" />
+              <line x1="9" y1="14" x2="13" y2="14" />
             </svg>
             <span class="nav-label">Whisper</span>
           </div>
@@ -1216,7 +1224,7 @@
               <h1><em>Search</em></h1>
               <p>Find posts and people</p>
             </div>
-            <div class="search-bar-wrap">
+            <div class="search-bar-wrap search-history-wrap">
               <svg
                 class="search-icon"
                 fill="none"
@@ -1233,8 +1241,11 @@
                 type="text"
                 placeholder="Search posts, people…"
                 oninput="onSearchInput()"
+                onfocus="onSearchFocus()"
+                onblur="onSearchBlur()"
                 autocomplete="off"
               />
+              <div id="search-history-dropdown"></div>
             </div>
             <div class="search-tabs">
               <button
@@ -1293,7 +1304,6 @@
               </div>
             </div>
           </div>
-
           <div class="view" id="view-whisper-inbox"></div>
 
           <div class="view" id="view-whisper-send"></div>
@@ -3513,7 +3523,10 @@
               <button
                 class="compose-tab-tool compose-tab-tool--live"
                 title="Go Live"
-                onclick="closeComposeTab(); Live.openSetup();"
+                onclick="
+                  closeComposeTab();
+                  Live.openSetup();
+                "
                 type="button"
               >
                 <svg
@@ -3522,7 +3535,13 @@
                   stroke-width="2"
                   viewBox="0 0 24 24"
                 >
-                  <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    fill="currentColor"
+                    stroke="none"
+                  />
                   <path d="M6.3 6.3a8 8 0 0 0 0 11.4" />
                   <path d="M17.7 6.3a8 8 0 0 1 0 11.4" />
                   <path d="M3.5 3.5a13.5 13.5 0 0 0 0 17" />
@@ -3535,7 +3554,6 @@
                 class="compose-tab-char-count"
                 id="compose-tab-char-count"
               ></span>
-              
             </div>
           </div>
           <!-- /.compose-tab-inner -->
@@ -5081,20 +5099,30 @@
       </button>
     </div>
   </body>
-  <script src="/config/api.js"></script>
-<script src="/lightbox/lightbox_v2.js"></script>
-<script src="/feed/feed_v2.js"></script>
-<script src="/groups/groups.js"></script>
-<script src="/pushNotifications/pushNotifications.js"></script>
-<script src="/dm/dm.js"></script>
-<script src="/post-detail/postDetail.js"></script>
-<script src="/router/router.js"></script>
-<script src="/dail-codes/dailcodes.js"></script>
-<script src="/whisper/whisper-composer.js"></script>
-<script src="/whisper/whisper-inbox.js"></script>
-<script src="/whisper/whisper-send.js"></script>
-<script src="/whisper/whisper-settings.js"></script>
-<script src="/main.js"></script>
-<script src="/wsClient.js"></script>
-<script src="/live/live.js"></script>
+  <script src="/src/config/api.js"></script>
+  <script src="/src/auth/auth.js"></script>
+  <script src="/src/lightbox/lightbox_v2.js"></script>
+  <script src="/src/feed/feed_v2.js"></script>
+  <script src="/src/groups/groups.js"></script>
+  <script src="/src/profile/profile.js"></script>
+  <script src="/src/comments/comments.js"></script>
+  <script src="/src/reposts/reposts.js"></script>
+  <script src="/src/explore/explore.js"></script>
+  <script src="/src/search/search.js"></script>
+  <script src="/src/settings/settings.js"></script>
+  <script src="/src/notifications/notifications.js"></script>
+  <script src="/src/pushNotifications/pushNotifications.js"></script>
+  <script src="/src/dm/dm.js"></script>
+  <script src="/src/media/media.js"></script>
+  <script src="/src/post-detail/postDetail.js"></script>
+  <script src="/src/suggested-users/suggested-users.js"></script>
+  <script src="/src/router/router.js"></script>
+  <script src="/src/dail-codes/dailcodes.js"></script>
+  <script src="/src/whisper/whisper-composer.js"></script>
+  <script src="/src/whisper/whisper-inbox.js"></script>
+  <script src="/src/whisper/whisper-send.js"></script>
+  <script src="/src/whisper/whisper-settings.js"></script>
+  <script src="/main.js"></script>
+  <script src="/wsClient.js"></script>
+  <script src="/src/live/live.js"></script>
 </html>

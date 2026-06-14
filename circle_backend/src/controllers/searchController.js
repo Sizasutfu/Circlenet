@@ -27,7 +27,7 @@ async function search(req, res) {
 
   try {
     if (type === 'people') {
-      const viewerId = req.user?.id ?? null;
+      const viewerId = req.actorId ?? null;
 
       // ── Try Elasticsearch first ──────────────────────────────────────────
       let users;
@@ -82,4 +82,89 @@ async function search(req, res) {
   }
 }
 
-module.exports = { search };
+// ── Search History ────────────────────────────────────────────
+
+// GET /api/search/history
+async function getHistory(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Unauthorised.');
+  try {
+    // Delete expired entries for this user first
+    await db.query(
+      `DELETE FROM search_history
+       WHERE user_id = ? AND searched_at < NOW() - INTERVAL 7 DAY`,
+      [userId]
+    );
+    const [rows] = await db.query(
+      `SELECT id, query, tab, searched_at
+       FROM search_history
+       WHERE user_id = ?
+       ORDER BY searched_at DESC
+       LIMIT 20`,
+      [userId]
+    );
+    return sendOk(res, 200, 'History fetched.', rows);
+  } catch (err) {
+    console.error('getHistory error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// POST /api/search/history
+async function saveHistory(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Unauthorised.');
+
+  const query = (req.body.query || '').trim();
+  const tab   = req.body.tab === 'people' ? 'people' : 'posts';
+
+  if (query.length < 2)
+    return sendError(res, 400, 'Query must be at least 2 characters.');
+
+  try {
+    await db.query(
+      `INSERT INTO search_history (user_id, query, tab, searched_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE searched_at = NOW()`,
+      [userId, query, tab]
+    );
+    return sendOk(res, 200, 'Saved.');
+  } catch (err) {
+    console.error('saveHistory error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// DELETE /api/search/history/:id  — remove one entry
+async function deleteHistoryEntry(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Unauthorised.');
+  try {
+    await db.query(
+      `DELETE FROM search_history WHERE id = ? AND user_id = ?`,
+      [req.params.id, userId]
+    );
+    return sendOk(res, 200, 'Deleted.');
+  } catch (err) {
+    console.error('deleteHistoryEntry error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// DELETE /api/search/history  — clear all for user
+async function clearHistory(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Unauthorised.');
+  try {
+    await db.query(
+      `DELETE FROM search_history WHERE user_id = ?`,
+      [userId]
+    );
+    return sendOk(res, 200, 'History cleared.');
+  } catch (err) {
+    console.error('clearHistory error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+module.exports = { search, getHistory, saveHistory, deleteHistoryEntry, clearHistory };

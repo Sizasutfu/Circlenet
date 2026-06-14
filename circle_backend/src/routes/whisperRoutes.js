@@ -1,7 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const rateLimit = require('express-rate-limit');
-const { keyGenerator } = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
@@ -22,7 +21,7 @@ const upload = multer({
 const sendLimiter = rateLimit({
   windowMs: config.SEND_RATE_WINDOW_MS,
   max: config.SEND_RATE_LIMIT,
-  keyGenerator: (req) => `${keyGenerator(req)}:${req.params.username}`,
+  keyGenerator: (req) => `${ipKeyGenerator(req)}:${req.params.username}`,
   handler: (req, res) => res.status(429).json({
     message: `Too many messages sent. Try again in ${config.SEND_RATE_WINDOW_MS / 3600000} hour(s).`,
   }),
@@ -31,7 +30,7 @@ const sendLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: config.AUTH_RATE_LIMIT,
-  keyGenerator: (req) => req.actorId || req.ip,
+  keyGenerator: (req) => req.actorId || ipKeyGenerator(req),
 });
 
 // Public routes

@@ -1,0 +1,98 @@
+          <div class="view" id="view-search">
+            <div class="page-header">
+              <button class="back-btn" onclick="goBack()" id="back-btn-search">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+              <h1><em>Search</em></h1>
+              <p>Find posts and people</p>
+            </div>
+            <div class="search-bar-wrap search-history-wrap">
+              <svg
+                class="search-icon"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                class="search-bar"
+                id="search-input"
+                type="text"
+                placeholder="Search posts, people…"
+                oninput="onSearchInput()"
+                onfocus="onSearchFocus()"
+                onblur="onSearchBlur()"
+                autocomplete="off"
+              />
+              <div id="search-history-dropdown"></div>
+            </div>
+            <div class="search-tabs">
+              <button
+                class="search-tab active"
+                id="stab-posts"
+                onclick="switchSearchTab('posts')"
+              >
+                Posts
+              </button>
+              <button
+                class="search-tab"
+                id="stab-people"
+                onclick="switchSearchTab('people')"
+              >
+                People
+              </button>
+            </div>
+            <!-- MOBILE TRENDING (shown when search input is empty) -->
+            <div id="search-trending-section" style="margin-bottom: 4px">
+              <div class="trending-card">
+                <div class="trending-title">
+                  <span>🔥</span> Trending on Circle
+                  <button
+                    class="trending-refresh"
+                    onclick="loadTrending(true)"
+                    title="Refresh"
+                  >
+                    ↻ Refresh
+                  </button>
+                </div>
+                <div id="search-trending-body">
+                  <div class="trending-skeleton">
+                    <div class="trending-skel-row"></div>
+                    <div class="trending-skel-row"></div>
+                    <div class="trending-skel-row"></div>
+                    <div class="trending-skel-row"></div>
+                    <div class="trending-skel-row"></div>
+                  </div>
+                </div>
+                <div class="trending-footer" id="search-trending-footer"></div>
+              </div>
+            </div>
+
+            <div class="search-results" id="search-results">
+              <div class="search-hint">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <p>Type something to search</p>
+              </div>
+            </div>
+          </div>
+          <div class="view" id="view-whisper-inbox"></div>
+
+          <div class="view" id="view-whisper-send"></div>

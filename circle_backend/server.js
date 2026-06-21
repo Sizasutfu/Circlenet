@@ -23,7 +23,7 @@ async function start() {
     const fs   = require('fs');
     const path = require('path');
 
-    const certKey  = path.join(__dirname, 'src/sizabeats+2-key.pem');
+    const certKey  = path.join(__dirname, 'src/sizabeats+v-key.pem');
     const certFile = path.join(__dirname, 'src/sizabeats+2.pem');
 
     if (!fs.existsSync(certKey) || !fs.existsSync(certFile)) {

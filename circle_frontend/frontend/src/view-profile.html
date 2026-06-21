@@ -1,0 +1,941 @@
+          <!-- PROFILE -->
+
+          <div class="view" id="view-profile">
+            <div class="page-header">
+              <button class="back-btn" onclick="goBack()" id="back-btn-profile">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+              <h1><em>Profile</em></h1>
+            </div>
+
+            <!-- 1. Banner with avatar anchored bottom-left -->
+            <div class="profile-banner" id="profile-banner">
+              <img
+                id="profile-cover-img"
+                class="profile-cover-img"
+                src=""
+                alt=""
+                style="display: none"
+              />
+              <div
+                class="profile-banner-gradient"
+                id="profile-banner-gradient"
+              ></div>
+              <button
+                class="profile-cover-edit-btn"
+                id="profile-cover-edit-btn"
+                style="display: none"
+                title="Change cover image"
+                onclick="document.getElementById('profile-cover-input').click()"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                >
+                  <path
+                    d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                  />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+                Edit cover
+              </button>
+              <input
+                type="file"
+                id="profile-cover-input"
+                accept="image/*"
+                onchange="handleCoverImageUpload(event)"
+                style="display: none"
+              />
+              <div class="profile-av-anchor">
+                <div
+                  class="av-upload-wrap"
+                  id="profile-av-wrap"
+                  title="Change profile picture"
+                >
+                  <div class="av profile-lg" id="profile-av">?</div>
+                  <div class="av-upload-overlay" id="profile-av-overlay">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                      />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
+                  </div>
+                  <div class="av-upload-badge">
+                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+                  </div>
+                  <input
+                    type="file"
+                    id="profile-pic-input"
+                    accept="image/*"
+                    onchange="handleProfilePicUpload(event)"
+                    style="display: none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Meta row: name, handle/email, bio + action buttons -->
+            <div class="profile-meta">
+              <div class="profile-info">
+                <div class="profile-name" id="profile-name">—</div>
+                <div class="profile-handle" id="profile-email">—</div>
+                <div
+                  class="profile-bio"
+                  id="profile-bio"
+                  style="display: none"
+                ></div>
+              </div>
+              <div class="profile-actions" id="profile-actions"></div>
+            </div>
+
+            <!-- 3. Stats row as icon+number pills -->
+            <div class="profile-stats" id="profile-stats-row">
+              <span>
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 20h9" />
+                  <path
+                    d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 16.5-9.5z"
+                  />
+                </svg>
+                <strong id="stat-posts">0</strong> Posts
+              </span>
+              <span>
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 00-3-3.87" />
+                  <path d="M16 3.13a4 4 0 010 7.75" />
+                </svg>
+                <strong id="stat-followers">0</strong> Followers
+              </span>
+              <span>
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <line x1="19" y1="8" x2="23" y2="8" />
+                  <line x1="21" y1="6" x2="21" y2="10" />
+                </svg>
+                <strong id="stat-following">0</strong> Following
+              </span>
+              <span>
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
+                  />
+                </svg>
+                <strong id="stat-likes">0</strong> Likes
+              </span>
+            </div>
+
+            <!-- 4. Tabs: Posts / About -->
+            <div class="group-detail-tabs">
+              <button
+                class="group-detail-tab active"
+                id="ptab-posts"
+                onclick="switchProfileTab('posts')"
+              >
+                Posts
+              </button>
+              <button
+                class="group-detail-tab"
+                id="ptab-about"
+                onclick="switchProfileTab('about')"
+              >
+                About
+              </button>
+            </div>
+
+            <!-- Posts panel -->
+            <div id="profile-posts-panel">
+              <div class="feed" id="profile-feed"></div>
+            </div>
+
+            <!-- About panel -->
+            <div id="profile-about-panel" style="display: none">
+              <div
+                class="group-detail-about"
+                id="profile-about-content"
+                style="
+                  color: var(--txt2);
+                  font-size: 14px;
+                  line-height: 1.65;
+                  padding: 4px 0;
+                "
+              ></div>
+            </div>
+          </div>
+
+          <!-- SETTINGS -->
+          <div class="view" id="view-settings">
+            <div class="page-header">
+              <button
+                class="back-btn"
+                onclick="goBack()"
+                id="back-btn-settings"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+              <h1><em>Settings</em></h1>
+              <p>Manage your account and preferences</p>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">Edit Profile</div>
+              <div class="settings-av-preview">
+                <label
+                  class="av-upload-wrap"
+                  for="settings-pic-input"
+                  title="Change profile picture"
+                >
+                  <div class="av lg" id="settings-av">?</div>
+                  <div class="av-upload-overlay">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                      />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
+                  </div>
+                  <div class="av-upload-badge">
+                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+                  </div>
+                  <input
+                    type="file"
+                    id="settings-pic-input"
+                    accept="image/*"
+                    onchange="handleProfilePicUpload(event)"
+                    style="display: none"
+                  />
+                </label>
+                <div class="settings-av-info">
+                  <strong style="font-size: 14px; font-weight: 700"
+                    >Profile Photo</strong
+                  >
+                  <p>
+                    Tap to upload a new photo.<br />JPG, PNG or GIF · Max 5 MB
+                  </p>
+                </div>
+              </div>
+              <div class="settings-edit-form">
+                <div class="field">
+                  <label>Full Name</label
+                  ><input
+                    type="text"
+                    id="settings-name"
+                    placeholder="Your name"
+                  />
+                </div>
+                <div class="field">
+                  <label>Username</label>
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span style="color: var(--txt3); font-size: 15px">@</span>
+                    <input
+                      type="text"
+                      id="settings-username"
+                      placeholder="your_username"
+                      style="flex: 1"
+                      maxlength="25"
+                    />
+                  </div>
+                  <div
+                    id="username-hint"
+                    style="font-size: 12px; color: var(--txt3); margin-top: 4px"
+                  >
+                    3–25 characters. Letters, numbers, underscores only.
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Bio</label>
+                  <textarea
+                    id="settings-bio"
+                    placeholder="Tell people a little about yourself…"
+                    rows="3"
+                    style="resize: vertical"
+                  ></textarea>
+                </div>
+                <div class="field">
+                  <label>Email</label
+                  ><input
+                    type="email"
+                    id="settings-email"
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <div class="field">
+                  <label
+                    >New Password
+                    <span
+                      style="
+                        color: var(--txt3);
+                        font-weight: 400;
+                        text-transform: none;
+                        font-size: 11px;
+                      "
+                      >(leave blank to keep current)</span
+                    ></label
+                  >
+                  <div class="pw-wrap">
+                    <input
+                      type="password"
+                      id="settings-password"
+                      placeholder="New password"
+                    /><button
+                      type="button"
+                      class="pw-toggle"
+                      onclick="togglePw('settings-password', this)"
+                      tabindex="-1"
+                      aria-label="Show password"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                        />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- ── Extra profile fields ────────────────────── -->
+                <div class="field">
+                  <label>Phone Number</label>
+                  <div style="display: flex; gap: 8px">
+                    <select
+                      class="phone-dial-select"
+                      id="settings-dial-code"
+                    ></select>
+                    <input
+                      class="phone-number-input"
+                      type="tel"
+                      id="settings-phone"
+                      placeholder="712 345 678"
+                      inputmode="numeric"
+                    />
+                  </div>
+                </div>
+                <div class="field">
+                  <label
+                    >Location
+                    <span
+                      style="
+                        color: var(--txt3);
+                        font-weight: 400;
+                        text-transform: none;
+                        font-size: 11px;
+                      "
+                      >(city, country)</span
+                    ></label
+                  >
+                  <input
+                    type="text"
+                    id="settings-location"
+                    placeholder="e.g. Manzini, Eswatini"
+                  />
+                </div>
+                <div class="field">
+                  <label>School / University</label>
+                  <input
+                    type="text"
+                    id="settings-school"
+                    placeholder="e.g. University of Eswatini"
+                  />
+                </div>
+                <div class="field">
+                  <label>Occupation</label>
+                  <input
+                    type="text"
+                    id="settings-occupation"
+                    placeholder="e.g. Software Engineer"
+                  />
+                </div>
+                <div class="field">
+                  <label>Website</label>
+                  <input
+                    type="url"
+                    id="settings-website"
+                    placeholder="https://yoursite.com"
+                  />
+                </div>
+                <div style="display: flex; gap: 12px">
+                  <div class="field" style="flex: 1">
+                    <label>Date of Birth</label>
+                    <input
+                      type="date"
+                      id="settings-dob"
+                      style="color-scheme: dark"
+                    />
+                  </div>
+                  <div class="field" style="flex: 1">
+                    <label>Gender</label>
+                    <select
+                      id="settings-gender"
+                      style="
+                        width: 100%;
+                        background: var(--bg);
+                        border: 1.5px solid var(--border);
+                        border-radius: var(--radius-sm);
+                        padding: 11px 14px;
+                        font-size: 14px;
+                        color: var(--txt);
+                        outline: none;
+                        transition: border-color var(--tr);
+                        appearance: none;
+                        -webkit-appearance: none;
+                        background-image: url(&quot;data:image/svg+xml,%3Csvg fill=%22none%22 stroke=%22%239090aa%22 stroke-width=%222%22 viewBox=%220 0 24 24%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cpolyline points=%226 9 12 15 18 9%22/%3E%3C/svg%3E&quot;);
+                        background-repeat: no-repeat;
+                        background-position: right 10px center;
+                        background-size: 14px;
+                      "
+                    >
+                      <option value="">Prefer not to say</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="non-binary">Non-binary</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- ── End extra fields ──────────────────────── -->
+
+                <div class="settings-save-row">
+                  <button
+                    class="btn btn-outline"
+                    onclick="goTo('profile')"
+                    style="font-size: 13px; padding: 9px 18px"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    onclick="saveProfile()"
+                    style="font-size: 13px; padding: 9px 18px"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">Appearance</div>
+              <div class="settings-row">
+                <div class="settings-row-icon amber">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="5" />
+                    <line x1="12" y1="1" x2="12" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="23" />
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                    <line x1="1" y1="12" x2="3" y2="12" />
+                    <line x1="21" y1="12" x2="23" y2="12" />
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Light Mode</div>
+                  <div class="settings-row-sub">
+                    Switch between dark and light theme
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input
+                      type="checkbox"
+                      id="theme-toggle"
+                      onchange="toggleTheme()" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">Media</div>
+              <div
+                class="settings-row"
+                style="align-items: flex-start; padding-bottom: 6px"
+              >
+                <div class="settings-row-icon purple">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M9 3v18" />
+                    <path d="M15 3v18" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Lightbox Navigation</div>
+                  <div class="settings-row-sub">
+                    Swipe &amp; scroll direction to browse images and videos
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 10px; padding: 4px 16px 14px">
+                <button
+                  id="lb-nav-lr-btn"
+                  onclick="lbSetNavAxis('lr')"
+                  style="
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 14px 10px;
+                    border-radius: 12px;
+                    border: 2px solid var(--border2);
+                    background: var(--card);
+                    color: var(--txt2);
+                    font-family: var(--font-body);
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.18s;
+                  "
+                >
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M5 12h14" />
+                    <path d="M15 7l5 5-5 5" />
+                    <path d="M9 7L4 12l5 5" />
+                  </svg>
+                  Left / Right
+                </button>
+                <button
+                  id="lb-nav-ud-btn"
+                  onclick="lbSetNavAxis('ud')"
+                  style="
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 14px 10px;
+                    border-radius: 12px;
+                    border: 2px solid var(--border2);
+                    background: var(--card);
+                    color: var(--txt2);
+                    font-family: var(--font-body);
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.18s;
+                  "
+                >
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 5v14" />
+                    <path d="M7 15l5 5 5-5" />
+                    <path d="M7 9l5-5 5 5" />
+                  </svg>
+                  Up / Down
+                </button>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">Notifications</div>
+              <div class="settings-row">
+                <div class="settings-row-icon purple">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
+                    />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Likes</div>
+                  <div class="settings-row-sub">
+                    When someone likes your post
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-likes" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon green">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                    />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Comments</div>
+                  <div class="settings-row-sub">
+                    When someone comments on your post
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-comments" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon amber">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="17 1 21 5 17 9" />
+                    <path d="M3 11V9a4 4 0 014-4h14" />
+                    <polyline points="7 23 3 19 7 15" />
+                    <path d="M21 13v2a4 4 0 01-4 4H3" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Reposts</div>
+                  <div class="settings-row-sub">
+                    When someone reposts your content
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-reposts" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row" id="push-notif-row">
+                <div class="settings-row-icon purple">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 01-3.46 0" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Push Notifications</div>
+                  <div class="settings-row-sub" id="push-notif-sub">
+                    Receive browser push notifications
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle" id="push-notif-toggle-label">
+                    <input
+                      type="checkbox"
+                      id="notif-push"
+                      onchange="handlePushToggle(this.checked)"
+                    />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                  <span
+                    id="push-notif-denied-badge"
+                    style="
+                      display: none;
+                      font-size: 11px;
+                      font-weight: 700;
+                      color: var(--rose);
+                      background: var(--rose-bg);
+                      padding: 3px 8px;
+                      border-radius: 6px;
+                      white-space: nowrap;
+                    "
+                    >Blocked</span
+                  >
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon purple">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M12 20h9" />
+                    <path
+                      d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"
+                    />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">
+                    New Posts from Followed Users
+                  </div>
+                  <div class="settings-row-sub">
+                    When someone you follow publishes a post
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-new_post" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon green">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Profile Picture Updates</div>
+                  <div class="settings-row-sub">
+                    When someone you follow changes their profile photo
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-profile_pic" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon amber">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                    />
+                    <line x1="9" y1="10" x2="9" y2="10" />
+                    <line x1="12" y1="10" x2="12" y2="10" />
+                    <line x1="15" y1="10" x2="15" y2="10" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Mentions</div>
+                  <div class="settings-row-sub">
+                    When someone @mentions you in a post or reply
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-mention" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon amber">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polygon
+                      points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                    />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Milestones</div>
+                  <div class="settings-row-sub">
+                    Follower count milestones and post engagement badges
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="notif-milestone" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">Privacy</div>
+              <div class="settings-row">
+                <div class="settings-row-icon green">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Private Account</div>
+                  <div class="settings-row-sub">
+                    Only approved followers see your posts
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="priv-account" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-icon purple">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </div>
+                <div class="settings-row-body">
+                  <div class="settings-row-title">Show Activity Status</div>
+                  <div class="settings-row-sub">
+                    Let others see when you're online
+                  </div>
+                </div>
+                <div class="settings-row-end">
+                  <label class="toggle"
+                    ><input type="checkbox" id="priv-activity" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div
+                  ></label>
+                </div>
+              </div>
+            </div>
+            <div class="danger-zone">
+              <h3>
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                >
+                  <path
+                    d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                  />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" /></svg
+                >Danger Zone
+              </h3>
+              <p>These actions are permanent and cannot be undone.</p>
+              <button
+                class="btn btn-danger"
+                onclick="logout()"
+                style="font-size: 13px; padding: 9px 18px"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                >
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" /></svg
+                >Log Out
+              </button>
+            </div>
+          </div>

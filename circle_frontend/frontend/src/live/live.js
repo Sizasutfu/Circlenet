@@ -44,15 +44,15 @@
 const Live = (() => {
   /* ── Internal state ─────────────────────────── */
   const state = {
-    role: null,            // 'host' | 'viewer' | null
+    role: null, // 'host' | 'viewer' | null
     sessionId: null,
-    title: '',
-    broadcasterName: '',   // populated for viewer in watchSession()
-    broadcasterAvatar: '', // populated for viewer in watchSession()
-    localStream: null,     // host's MediaStream
-    remoteStream: null,    // viewer's received MediaStream
-    peers: {},             // host side: { viewerId: RTCPeerConnection }
-    peerConn: null,        // viewer side: single RTCPeerConnection
+    title: "",
+    broadcasterName: "", // populated for viewer in watchSession()
+    broadcasterAvatar: "", // populated for viewer in watchSession()
+    localStream: null, // host's MediaStream
+    remoteStream: null, // viewer's received MediaStream
+    peers: {}, // host side: { viewerId: RTCPeerConnection }
+    peerConn: null, // viewer side: single RTCPeerConnection
     micMuted: false,
     camOff: false,
     viewerCount: 0,
@@ -64,8 +64,8 @@ const Live = (() => {
   /* ── ICE server config (add TURN for production) ── */
   const ICE_CONFIG = {
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
       // Uncomment and fill in actual TURN credentials for production:
       // { urls: 'turn:openrelay.metered.ca:80', username: 'your-username', credential: 'your-cred' },
       // { urls: 'turn:openrelay.metered.ca:443', username: 'your-username', credential: 'your-cred' },
@@ -83,56 +83,75 @@ const Live = (() => {
      SETUP MODAL  (host flow)
   ══════════════════════════════════════════════ */
   async function openSetup() {
-    if (!currentUser) { alert('Please log in to go live.'); return; }
+    if (!currentUser) {
+      alert("Please log in to go live.");
+      return;
+    }
 
     // Inject modal HTML on first call
-    if (!document.getElementById('live-setup-modal')) _injectHTML();
+    if (!document.getElementById("live-setup-modal")) _injectHTML();
 
-    const modal = $('live-setup-modal');
-    modal.classList.add('open');
+    const modal = $("live-setup-modal");
+    modal.classList.add("open");
 
     // Start preview stream
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
       state.localStream = stream;
-      const preview = $('live-setup-preview-video');
-      if (preview) { preview.srcObject = stream; preview.play().catch(() => {}); }
-      $('live-go-btn').disabled = false;
+      const preview = $("live-setup-preview-video");
+      if (preview) {
+        preview.srcObject = stream;
+        preview.play().catch(() => {});
+      }
+      $("live-go-btn").disabled = false;
     } catch (err) {
-      console.error('[Live] Camera/mic access denied:', err);
-      $('live-go-btn').disabled = true;
-      $('live-setup-status').textContent = 'Camera or microphone access was denied.';
+      console.error("[Live] Camera/mic access denied:", err);
+      $("live-go-btn").disabled = true;
+      $("live-setup-status").textContent =
+        "Camera or microphone access was denied.";
     }
   }
 
   function closeSetup() {
-    const modal = $('live-setup-modal');
-    if (modal) modal.classList.remove('open');
+    const modal = $("live-setup-modal");
+    if (modal) modal.classList.remove("open");
     // Stop preview if not yet gone live
-    if (state.role !== 'host') _stopLocalStream();
+    if (state.role !== "host") _stopLocalStream();
   }
 
   async function startLive() {
-    const titleEl = $('live-title-input');
-    const title = titleEl ? titleEl.value.trim() : '';
-    if (!title) { titleEl && titleEl.focus(); return; }
+    const titleEl = $("live-title-input");
+    const title = titleEl ? titleEl.value.trim() : "";
+    if (!title) {
+      titleEl && titleEl.focus();
+      return;
+    }
 
-    const btn = $('live-go-btn');
+    const btn = $("live-go-btn");
     btn.disabled = true;
-    btn.textContent = 'Starting…';
+    btn.textContent = "Starting…";
 
     try {
-      const response = await api('POST', '/api/live/start', { title });
-      const { sessionId, title: streamTitle, broadcasterName, broadcasterAvatar } = response.data;
+      const response = await api("POST", "/api/live/start", { title });
+      const {
+        sessionId,
+        title: streamTitle,
+        broadcasterName,
+        broadcasterAvatar,
+      } = response.data;
 
       state.sessionId = sessionId;
       state.title = streamTitle;
-      state.role = 'host';
-      state.broadcasterName = broadcasterName || currentUser.name || currentUser.username || '';
-      state.broadcasterAvatar = broadcasterAvatar || currentUser.picture || '';
+      state.role = "host";
+      state.broadcasterName =
+        broadcasterName || currentUser.name || currentUser.username || "";
+      state.broadcasterAvatar = broadcasterAvatar || currentUser.picture || "";
 
       closeSetup();
-      _openOverlay('host');
+      _openOverlay("host");
 
       // Force video track enabled
       if (state.localStream) {
@@ -141,10 +160,11 @@ const Live = (() => {
         state.camOff = false;
       }
     } catch (err) {
-      console.error('[Live] start failed:', err);
+      console.error("[Live] start failed:", err);
       btn.disabled = false;
-      btn.textContent = '🔴 Go Live';
-      $('live-setup-status').textContent = err.message || 'Could not start stream.';
+      btn.textContent = "🔴 Go Live";
+      $("live-setup-status").textContent =
+        err.message || "Could not start stream.";
     }
   }
 
@@ -152,24 +172,29 @@ const Live = (() => {
      VIEWER  —  open a session to watch
   ══════════════════════════════════════════════ */
   async function watchSession(sessionId) {
-    if (!currentUser) { alert('Please log in to watch.'); return; }
+    if (!currentUser) {
+      alert("Please log in to watch.");
+      return;
+    }
     // Set sessionId early but NOT role — _handleOffer buffers offer until we're ready
     state.sessionId = sessionId;
 
     try {
-      const res = await api('GET', `/api/live/${sessionId}`);
+      const res = await api("GET", `/api/live/${sessionId}`);
       const session = res.data || res;
-      state.broadcasterName   = session.broadcasterName  || '';
-      state.broadcasterAvatar = session.broadcasterAvatar || '';
-      state.title             = session.title            || '';
-    } catch (_) { /* non-fatal */ }
+      state.broadcasterName = session.broadcasterName || "";
+      state.broadcasterAvatar = session.broadcasterAvatar || "";
+      state.title = session.title || "";
+    } catch (_) {
+      /* non-fatal */
+    }
 
-    state.role = 'viewer'; // set AFTER async fetch
-    if (!document.getElementById('live-setup-modal')) _injectHTML();
-    _openOverlay('viewer');
+    state.role = "viewer"; // set AFTER async fetch
+    if (!document.getElementById("live-setup-modal")) _injectHTML();
+    _openOverlay("viewer");
 
     _wsSend({
-      type: 'live:viewer_join',
+      type: "live:viewer_join",
       sessionId,
       viewerId: currentUser.id,
       viewerName: currentUser.username || currentUser.name || null,
@@ -187,23 +212,24 @@ const Live = (() => {
      OVERLAY  (fullscreen live UI)
   ══════════════════════════════════════════════ */
   function _openOverlay(role) {
-    const overlay = $('live-overlay');
-    overlay.classList.add('live-active');
+    const overlay = $("live-overlay");
+    overlay.classList.add("live-active");
 
-    const videoEl = $('live-video-el');
+    const videoEl = $("live-video-el");
 
-    if (role === 'host') {
+    if (role === "host") {
       // Mirror local stream for natural self-view
-      videoEl.style.transform = 'scaleX(-1)';
+      videoEl.style.transform = "scaleX(-1)";
       videoEl.srcObject = state.localStream;
       videoEl.muted = true; // prevent echo
       videoEl.play().catch(() => {});
-      $('live-host-controls').style.display = 'flex';
-      if ($('live-viewer-follow-btn')) $('live-viewer-follow-btn').style.display = 'none';
+      $("live-host-controls").style.display = "flex";
+      if ($("live-viewer-follow-btn"))
+        $("live-viewer-follow-btn").style.display = "none";
     } else {
       // Viewer sees the broadcaster normally
-      videoEl.style.transform = '';
-      $('live-host-controls').style.display = 'none';
+      videoEl.style.transform = "";
+      $("live-host-controls").style.display = "none";
       // CRITICAL: Mute video to allow autoplay (browsers block unmuted autoplay)
       videoEl.muted = true;
     }
@@ -213,8 +239,8 @@ const Live = (() => {
   }
 
   async function closeLive() {
-    if (state.role === 'host') {
-      if (!confirm('End your live stream?')) return;
+    if (state.role === "host") {
+      if (!confirm("End your live stream?")) return;
       await _endLiveAsHost();
     } else {
       _leaveAsViewer();
@@ -223,18 +249,18 @@ const Live = (() => {
   }
 
   function _teardownOverlay() {
-    $('live-overlay').classList.remove('live-active');
-    $('live-ended-screen').classList.remove('show');
-    
+    $("live-overlay").classList.remove("live-active");
+    $("live-ended-screen").classList.remove("show");
+
     // Reset video element transform
-    const videoEl = $('live-video-el');
-    if (videoEl) videoEl.style.transform = '';
-    
+    const videoEl = $("live-video-el");
+    if (videoEl) videoEl.style.transform = "";
+
     state.role = null;
     state.sessionId = null;
-    state.title = '';
-    state.broadcasterName = '';
-    state.broadcasterAvatar = '';
+    state.title = "";
+    state.broadcasterName = "";
+    state.broadcasterAvatar = "";
     state.chatMessages = [];
     state.viewerCount = 0;
     state.peers = {};
@@ -247,17 +273,26 @@ const Live = (() => {
 
   async function _endLiveAsHost() {
     // Close all peer connections
-    Object.values(state.peers).forEach(pc => pc.close());
+    Object.values(state.peers).forEach((pc) => pc.close());
     state.peers = {};
     try {
-      await api('POST', '/api/live/end', { sessionId: state.sessionId });
-    } catch (_) { /* best-effort */ }
-    _wsSend({ type: 'live:ended', sessionId: state.sessionId });
+      await api("POST", "/api/live/end", { sessionId: state.sessionId });
+    } catch (_) {
+      /* best-effort */
+    }
+    _wsSend({ type: "live:ended", sessionId: state.sessionId });
   }
 
   function _leaveAsViewer() {
-    if (state.peerConn) { state.peerConn.close(); state.peerConn = null; }
-    _wsSend({ type: 'live:viewer_leave', sessionId: state.sessionId, viewerId: currentUser.id });
+    if (state.peerConn) {
+      state.peerConn.close();
+      state.peerConn = null;
+    }
+    _wsSend({
+      type: "live:viewer_leave",
+      sessionId: state.sessionId,
+      viewerId: currentUser.id,
+    });
   }
 
   /* ══════════════════════════════════════════════
@@ -266,11 +301,13 @@ const Live = (() => {
   function toggleMic() {
     if (!state.localStream) return;
     state.micMuted = !state.micMuted;
-    state.localStream.getAudioTracks().forEach(t => { t.enabled = !state.micMuted; });
-    const btn = $('live-mic-btn');
-    btn.classList.toggle('muted', state.micMuted);
-    btn.title = state.micMuted ? 'Unmute microphone' : 'Mute microphone';
-    btn.querySelector('svg').innerHTML = state.micMuted
+    state.localStream.getAudioTracks().forEach((t) => {
+      t.enabled = !state.micMuted;
+    });
+    const btn = $("live-mic-btn");
+    btn.classList.toggle("muted", state.micMuted);
+    btn.title = state.micMuted ? "Unmute microphone" : "Mute microphone";
+    btn.querySelector("svg").innerHTML = state.micMuted
       ? '<line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>'
       : '<path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>';
   }
@@ -278,27 +315,29 @@ const Live = (() => {
   function toggleCam() {
     if (!state.localStream) return;
     state.camOff = !state.camOff;
-    state.localStream.getVideoTracks().forEach(t => { t.enabled = !state.camOff; });
-    const btn = $('live-cam-btn');
-    btn.classList.toggle('cam-off', state.camOff);
-    btn.title = state.camOff ? 'Turn camera on' : 'Turn camera off';
+    state.localStream.getVideoTracks().forEach((t) => {
+      t.enabled = !state.camOff;
+    });
+    const btn = $("live-cam-btn");
+    btn.classList.toggle("cam-off", state.camOff);
+    btn.title = state.camOff ? "Turn camera on" : "Turn camera off";
   }
 
   /* ══════════════════════════════════════════════
      CHAT
   ══════════════════════════════════════════════ */
   function sendChat() {
-    const input = $('live-chat-input');
+    const input = $("live-chat-input");
     if (!input) return;
     const text = input.value.trim();
     if (!text || !state.sessionId) return;
-    input.value = '';
+    input.value = "";
 
     const msg = {
-      type: 'live:chat_message',
+      type: "live:chat_message",
       sessionId: state.sessionId,
       senderId: currentUser.id,
-      senderName: currentUser.username || currentUser.name || 'You',
+      senderName: currentUser.username || currentUser.name || "You",
       text,
     };
     _wsSend(msg);
@@ -306,47 +345,47 @@ const Live = (() => {
   }
 
   function _appendChatMessage(name, text, isSelf = false) {
-    const container = $('live-chat-messages');
+    const container = $("live-chat-messages");
     if (!container) return;
 
-    const div = document.createElement('div');
-    div.className = 'live-chat-msg';
-    div.innerHTML = `<span class="live-chat-msg__name" style="${isSelf ? 'color:var(--green)' : ''}">${_esc(name)}</span><span class="live-chat-msg__text">${_esc(text)}</span>`;
+    const div = document.createElement("div");
+    div.className = "live-chat-msg";
+    div.innerHTML = `<span class="live-chat-msg__name" style="${isSelf ? "color:var(--green)" : ""}">${_esc(name)}</span><span class="live-chat-msg__text">${_esc(text)}</span>`;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 
-    const msgs = container.querySelectorAll('.live-chat-msg');
+    const msgs = container.querySelectorAll(".live-chat-msg");
     if (msgs.length > 60) msgs[0].remove();
   }
 
   function _clearChat() {
-    const container = $('live-chat-messages');
-    if (container) container.innerHTML = '';
+    const container = $("live-chat-messages");
+    if (container) container.innerHTML = "";
   }
 
   /* ══════════════════════════════════════════════
      REACTIONS
   ══════════════════════════════════════════════ */
-  const REACTIONS = ['❤️', '🔥', '👏', '😂'];
+  const REACTIONS = ["❤️", "🔥", "👏", "😂"];
 
   function sendReaction(emoji) {
     _floatEmoji(emoji);
     if (state.sessionId) {
-      _wsSend({ type: 'live:reaction', sessionId: state.sessionId, emoji });
+      _wsSend({ type: "live:reaction", sessionId: state.sessionId, emoji });
     }
   }
 
   function _floatEmoji(emoji) {
-    const canvas = $('live-reaction-canvas');
+    const canvas = $("live-reaction-canvas");
     if (!canvas) return;
-    const span = document.createElement('span');
-    span.className = 'live-floating-emoji';
+    const span = document.createElement("span");
+    span.className = "live-floating-emoji";
     span.textContent = emoji;
     const x = 20 + Math.random() * 60;
-    span.style.left = x + '%';
-    span.style.bottom = '80px';
+    span.style.left = x + "%";
+    span.style.bottom = "80px";
     canvas.appendChild(span);
-    span.addEventListener('animationend', () => span.remove());
+    span.addEventListener("animationend", () => span.remove());
   }
 
   /* ══════════════════════════════════════════════
@@ -354,23 +393,28 @@ const Live = (() => {
   ══════════════════════════════════════════════ */
   function _updateViewerCount(n) {
     state.viewerCount = n;
-    const el = $('live-viewer-count-num');
+    const el = $("live-viewer-count-num");
     if (el) el.textContent = n;
   }
 
   function _updateSessionMeta() {
-    const nameEl   = $('live-broadcaster-name-el');
-    const titleEl  = $('live-stream-title-el');
-    const avatarEl = $('live-broadcaster-avatar-el');
-    if (nameEl)   nameEl.textContent  = state.broadcasterName  || currentUser?.name || currentUser?.username || '';
-    if (titleEl)  titleEl.textContent = state.title            || '';
+    const nameEl = $("live-broadcaster-name-el");
+    const titleEl = $("live-stream-title-el");
+    const avatarEl = $("live-broadcaster-avatar-el");
+    if (nameEl)
+      nameEl.textContent =
+        state.broadcasterName ||
+        currentUser?.name ||
+        currentUser?.username ||
+        "";
+    if (titleEl) titleEl.textContent = state.title || "";
     if (avatarEl) {
       if (state.broadcasterAvatar) {
-        avatarEl.src   = state.broadcasterAvatar;
-        avatarEl.style.display = '';
+        avatarEl.src = state.broadcasterAvatar;
+        avatarEl.style.display = "";
       } else {
-        avatarEl.src   = '';
-        avatarEl.style.display = 'none';
+        avatarEl.src = "";
+        avatarEl.style.display = "none";
       }
     }
   }
@@ -379,9 +423,9 @@ const Live = (() => {
      WEBRTC — HOST SIDE
   ══════════════════════════════════════════════ */
   async function _handleViewerJoined(viewerId) {
-    if (state.role !== 'host') return;
+    if (state.role !== "host") return;
     if (!state.localStream || state.localStream.getTracks().length === 0) {
-      console.warn('[Live] No local stream tracks to add for viewer', viewerId);
+      console.warn("[Live] No local stream tracks to add for viewer", viewerId);
       return;
     }
 
@@ -389,18 +433,18 @@ const Live = (() => {
     state.peers[viewerId] = pc;
 
     // Add tracks (ensure they are live)
-    state.localStream.getTracks().forEach(track => {
-      if (track.readyState === 'live') {
+    state.localStream.getTracks().forEach((track) => {
+      if (track.readyState === "live") {
         pc.addTrack(track, state.localStream);
       } else {
-        console.warn('[Live] Track not live', track.kind);
+        console.warn("[Live] Track not live", track.kind);
       }
     });
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
         _wsSend({
-          type: 'live:ice_candidate',
+          type: "live:ice_candidate",
           sessionId: state.sessionId,
           to: viewerId,
           candidate,
@@ -409,11 +453,15 @@ const Live = (() => {
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') {
-        console.log('[Live] Connection failed for', viewerId, '– restarting ICE');
+      if (pc.connectionState === "failed") {
+        console.log(
+          "[Live] Connection failed for",
+          viewerId,
+          "– restarting ICE",
+        );
         pc.restartIce();
       }
-      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+      if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
         pc.close();
         delete state.peers[viewerId];
       }
@@ -423,7 +471,7 @@ const Live = (() => {
     await pc.setLocalDescription(offer);
 
     _wsSend({
-      type: 'live:offer',
+      type: "live:offer",
       sessionId: state.sessionId,
       to: viewerId,
       sdp: pc.localDescription,
@@ -439,130 +487,156 @@ const Live = (() => {
   async function _handleHostIce(viewerId, candidate) {
     const pc = state.peers[viewerId];
     if (!pc) return;
-    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (_) {}
   }
 
   /* ══════════════════════════════════════════════
      WEBRTC — VIEWER SIDE
   ══════════════════════════════════════════════ */
-  async function _handleOffer(hostId, sdp) {
-    if (state.role !== 'viewer') {
-      state.pendingOffer = { hostId, sdp };
-      return;
-    }
+async function _handleOffer(hostId, sdp) {
+  if (state.role !== 'viewer') {
+    state.pendingOffer = { hostId, sdp };
+    return;
+  }
 
-    const pc = new RTCPeerConnection(ICE_CONFIG);
-    state.peerConn = pc;
+  console.log('[Live] Received offer from', hostId);
 
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        _wsSend({
-          type: 'live:ice_candidate',
-          sessionId: state.sessionId,
-          to: hostId,
-          candidate,
-        });
-      }
-    };
+  const pc = new RTCPeerConnection(ICE_CONFIG);
+  state.peerConn = pc;
 
-    pc.ontrack = (event) => {
-      const videoEl = $('live-video-el');
-      if (!videoEl) return;
-      if (!state.remoteStream) {
-        state.remoteStream = new MediaStream();
-        videoEl.srcObject = state.remoteStream;
-      }
-      state.remoteStream.addTrack(event.track);
-      videoEl.srcObject = state.remoteStream;
-      videoEl.load();
-      videoEl.play().catch(e => console.warn('[Live] autoplay blocked', e));
-    };
+  pc.onconnectionstatechange = () => {
+    console.log('[Live] Viewer Connection:', pc.connectionState);
+  };
 
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') {
-        _showJoinBanner('Connection lost. Try rejoining.');
-      }
-    };
+  pc.oniceconnectionstatechange = () => {
+    console.log('[Live] Viewer ICE:', pc.iceConnectionState);
+  };
 
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    const buffered = state.pendingIceCandidates.splice(0);
-    for (const c of buffered) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
-    }
+  pc.onicecandidate = ({ candidate }) => {
+    if (!candidate) return;
 
     _wsSend({
-      type: 'live:answer',
+      type: 'live:ice_candidate',
       sessionId: state.sessionId,
       to: hostId,
-      sdp: pc.localDescription,
+      candidate
     });
-  }
+  };
 
-  async function _handleViewerIce(candidate) {
-    if (!state.peerConn) {
-      state.pendingIceCandidates.push(candidate);
+  pc.ontrack = (event) => {
+    console.log('[Live] TRACK RECEIVED');
+    console.log('[Live] Track kind:', event.track.kind);
+    console.log('[Live] Streams:', event.streams);
+
+    const videoEl = $('live-video-el');
+
+    if (!videoEl) {
+      console.error('[Live] Video element not found');
       return;
     }
-    try { await state.peerConn.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+
+    if (event.streams && event.streams[0]) {
+      videoEl.srcObject = event.streams[0];
+    } else {
+      const stream = new MediaStream([event.track]);
+      videoEl.srcObject = stream;
+    }
+
+    videoEl.muted = true;
+    videoEl.autoplay = true;
+    videoEl.playsInline = true;
+
+    videoEl.play()
+      .then(() => console.log('[Live] Video playing'))
+      .catch(err => console.error('[Live] Play failed', err));
+  };
+
+  await pc.setRemoteDescription(
+    new RTCSessionDescription(sdp)
+  );
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  const buffered = state.pendingIceCandidates.splice(0);
+
+  for (const candidate of buffered) {
+    try {
+      await pc.addIceCandidate(
+        new RTCIceCandidate(candidate)
+      );
+    } catch (err) {
+      console.error('[Live] Failed to add ICE', err);
+    }
   }
+
+  _wsSend({
+    type: 'live:answer',
+    sessionId: state.sessionId,
+    to: hostId,
+    sdp: pc.localDescription
+  });
+}
 
   /* ══════════════════════════════════════════════
      WEBSOCKET INTEGRATION
   ══════════════════════════════════════════════ */
   function handleWsMessage(msg) {
-    if (!document.getElementById('live-setup-modal')) _injectHTML();
+    if (!document.getElementById("live-setup-modal")) _injectHTML();
 
     switch (msg.type) {
-      case 'live:started':
+      case "live:started":
         if (currentUser && msg.hostId === currentUser.id) break;
         _showLiveToast(msg);
         _addFeedCard(msg);
         break;
 
-      case 'live:ended':
+      case "live:ended":
         _removeFeedCard(msg.sessionId);
-        if (state.role === 'viewer' && state.sessionId === msg.sessionId) {
+        if (state.role === "viewer" && state.sessionId === msg.sessionId) {
           _showEndedScreen();
         }
         break;
 
-      case 'live:viewer_joined':
+      case "live:viewer_joined":
         _updateViewerCount(msg.viewerCount);
-        if (state.role === 'host') {
+        if (state.role === "host") {
           _handleViewerJoined(msg.viewerId);
-          _showJoinBanner(`${msg.viewerName || 'Someone'} joined`);
+          _showJoinBanner(`${msg.viewerName || "Someone"} joined`);
         }
         break;
 
-      case 'live:viewer_left':
+      case "live:viewer_left":
         _updateViewerCount(msg.viewerCount);
         break;
 
-      case 'live:chat_message':
-        if (state.sessionId === msg.sessionId && msg.senderId !== currentUser?.id) {
+      case "live:chat_message":
+        if (
+          state.sessionId === msg.sessionId &&
+          msg.senderId !== currentUser?.id
+        ) {
           _appendChatMessage(msg.senderName, msg.text);
         }
         break;
 
-      case 'live:reaction':
+      case "live:reaction":
         if (state.sessionId === msg.sessionId) {
           _floatEmoji(msg.emoji);
         }
         break;
 
-      case 'live:offer':
+      case "live:offer":
         _handleOffer(msg.from, msg.sdp);
         break;
 
-      case 'live:answer':
+      case "live:answer":
         _handleAnswer(msg.from, msg.sdp);
         break;
 
-      case 'live:ice_candidate':
-        if (state.role === 'host') {
+      case "live:ice_candidate":
+        if (state.role === "host") {
           _handleHostIce(msg.from, msg.candidate);
         } else {
           _handleViewerIce(msg.candidate);
@@ -572,10 +646,14 @@ const Live = (() => {
   }
 
   function _wsSend(payload) {
-    if (typeof CircleWS !== 'undefined' && CircleWS.isAlive && CircleWS.isAlive()) {
+    if (
+      typeof CircleWS !== "undefined" &&
+      CircleWS.isAlive &&
+      CircleWS.isAlive()
+    ) {
       CircleWS.send(payload);
     } else {
-      console.warn('[Live] CircleWS not ready. Could not send:', payload);
+      console.warn("[Live] CircleWS not ready. Could not send:", payload);
     }
   }
 
@@ -583,14 +661,15 @@ const Live = (() => {
      FEED CARDS
   ══════════════════════════════════════════════ */
   function _ensureFeedStrip() {
-    let strip = document.getElementById('live-feed-strip');
+    let strip = document.getElementById("live-feed-strip");
     if (!strip) {
-      strip = document.createElement('div');
-      strip.id = 'live-feed-strip';
-      strip.className = 'live-feed-strip';
-      const feed = document.getElementById('feed-list')
-                || document.getElementById('posts-feed')
-                || document.querySelector('.feed-col');
+      strip = document.createElement("div");
+      strip.id = "live-feed-strip";
+      strip.className = "live-feed-strip";
+      const feed =
+        document.getElementById("feed-list") ||
+        document.getElementById("posts-feed") ||
+        document.querySelector(".feed-col");
       if (feed) feed.prepend(strip);
     }
     return strip;
@@ -600,9 +679,9 @@ const Live = (() => {
     const strip = _ensureFeedStrip();
     if (document.getElementById(`live-card-${session.sessionId}`)) return;
 
-    const card = document.createElement('div');
+    const card = document.createElement("div");
     card.id = `live-card-${session.sessionId}`;
-    card.className = 'live-feed-card';
+    card.className = "live-feed-card";
     card.onclick = () => Live.watchSession(session.sessionId);
     card.innerHTML = `
       <div class="live-feed-card__thumb">
@@ -618,8 +697,8 @@ const Live = (() => {
         </div>
       </div>
       <div class="live-feed-card__meta">
-        <div class="live-feed-card__name">${_esc(session.broadcasterName || '')}</div>
-        <div class="live-feed-card__title">${_esc(session.title || 'Live stream')}</div>
+        <div class="live-feed-card__name">${_esc(session.broadcasterName || "")}</div>
+        <div class="live-feed-card__title">${_esc(session.title || "Live stream")}</div>
       </div>
     `;
     strip.prepend(card);
@@ -628,7 +707,7 @@ const Live = (() => {
   function _removeFeedCard(sessionId) {
     const card = document.getElementById(`live-card-${sessionId}`);
     if (card) card.remove();
-    const strip = document.getElementById('live-feed-strip');
+    const strip = document.getElementById("live-feed-strip");
     if (strip && !strip.children.length) strip.remove();
   }
 
@@ -636,11 +715,11 @@ const Live = (() => {
      TOASTS + BANNERS
   ══════════════════════════════════════════════ */
   function _showLiveToast(session) {
-    let toast = document.getElementById('live-global-toast');
+    let toast = document.getElementById("live-global-toast");
     if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'live-global-toast';
-      toast.className = 'live-toast';
+      toast = document.createElement("div");
+      toast.id = "live-global-toast";
+      toast.className = "live-toast";
       toast.innerHTML = `
         <img class="live-toast__avatar" id="live-toast-avatar" src="" alt="">
         <div class="live-toast__text" id="live-toast-text"></div>
@@ -649,37 +728,38 @@ const Live = (() => {
       document.body.appendChild(toast);
     }
 
-    const avatarEl = document.getElementById('live-toast-avatar');
-    const textEl   = document.getElementById('live-toast-text');
-    if (avatarEl) avatarEl.src = session.broadcasterAvatar || '';
-    if (textEl)   textEl.innerHTML = `<strong>${_esc(session.broadcasterName || 'Someone')}</strong> just went live`;
+    const avatarEl = document.getElementById("live-toast-avatar");
+    const textEl = document.getElementById("live-toast-text");
+    if (avatarEl) avatarEl.src = session.broadcasterAvatar || "";
+    if (textEl)
+      textEl.innerHTML = `<strong>${_esc(session.broadcasterName || "Someone")}</strong> just went live`;
 
     toast.onclick = () => {
-      toast.classList.remove('show');
+      toast.classList.remove("show");
       Live.watchSession(session.sessionId);
     };
 
-    toast.classList.add('show');
+    toast.classList.add("show");
     clearTimeout(toast._hideTimer);
-    toast._hideTimer = setTimeout(() => toast.classList.remove('show'), 5000);
+    toast._hideTimer = setTimeout(() => toast.classList.remove("show"), 5000);
   }
 
   function _showJoinBanner(text) {
-    const existing = document.querySelector('.live-join-banner');
+    const existing = document.querySelector(".live-join-banner");
     if (existing) existing.remove();
-    const banner = document.createElement('div');
-    banner.className = 'live-join-banner';
+    const banner = document.createElement("div");
+    banner.className = "live-join-banner";
     banner.textContent = text;
-    const overlay = $('live-overlay');
+    const overlay = $("live-overlay");
     if (overlay) overlay.appendChild(banner);
-    banner.addEventListener('animationend', (e) => {
-      if (e.animationName === 'bannerOut') banner.remove();
+    banner.addEventListener("animationend", (e) => {
+      if (e.animationName === "bannerOut") banner.remove();
     });
   }
 
   function _showEndedScreen() {
-    const screen = $('live-ended-screen');
-    if (screen) screen.classList.add('show');
+    const screen = $("live-ended-screen");
+    if (screen) screen.classList.add("show");
   }
 
   /* ══════════════════════════════════════════════
@@ -687,23 +767,31 @@ const Live = (() => {
   ══════════════════════════════════════════════ */
   async function loadActiveSessions() {
     try {
-      const res = await api('GET', '/api/live/active');
-      const sessions = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
+      const res = await api("GET", "/api/live/active");
+      const sessions = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res)
+          ? res
+          : [];
       const strip = _ensureFeedStrip();
-      const existingCards = new Set([...strip.querySelectorAll('.live-feed-card')].map(c => c.id));
+      const existingCards = new Set(
+        [...strip.querySelectorAll(".live-feed-card")].map((c) => c.id),
+      );
 
       for (const cardId of existingCards) {
-        const sessionId = cardId.replace('live-card-', '');
-        if (!sessions.some(s => s.sessionId === sessionId)) {
+        const sessionId = cardId.replace("live-card-", "");
+        if (!sessions.some((s) => s.sessionId === sessionId)) {
           const card = document.getElementById(cardId);
           if (card) card.remove();
         }
       }
 
-      sessions.forEach(s => {
+      sessions.forEach((s) => {
         const card = document.getElementById(`live-card-${s.sessionId}`);
         if (card) {
-          const viewerSpan = card.querySelector(`#live-card-viewers-${s.sessionId}`);
+          const viewerSpan = card.querySelector(
+            `#live-card-viewers-${s.sessionId}`,
+          );
           if (viewerSpan) viewerSpan.textContent = s.viewerCount || 0;
         } else {
           _addFeedCard(s);
@@ -711,7 +799,9 @@ const Live = (() => {
       });
 
       if (!strip.children.length) strip.remove();
-    } catch (_) { /* silent */ }
+    } catch (_) {
+      /* silent */
+    }
   }
 
   /* ══════════════════════════════════════════════
@@ -719,8 +809,8 @@ const Live = (() => {
   ══════════════════════════════════════════════ */
   function _injectHTML() {
     // Setup modal
-    const setupModal = document.createElement('div');
-    setupModal.id = 'live-setup-modal';
+    const setupModal = document.createElement("div");
+    setupModal.id = "live-setup-modal";
     setupModal.innerHTML = `
       <div class="live-setup-card">
         <h2>Go Live</h2>
@@ -746,8 +836,8 @@ const Live = (() => {
     document.body.appendChild(setupModal);
 
     // Full-screen overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'live-overlay';
+    const overlay = document.createElement("div");
+    overlay.id = "live-overlay";
     overlay.innerHTML = `
       <video id="live-video-el" autoplay playsinline></video>
       <div id="live-reaction-canvas"></div>
@@ -791,7 +881,7 @@ const Live = (() => {
           <button class="live-end-btn" onclick="Live.closeLive()">End Stream</button>
         </div>
         <div class="live-reactions-row">
-          ${REACTIONS.map(e => `<button class="live-reaction-btn" onclick="Live.sendReaction('${e}')">${e}</button>`).join('')}
+          ${REACTIONS.map((e) => `<button class="live-reaction-btn" onclick="Live.sendReaction('${e}')">${e}</button>`).join("")}
         </div>
         <div id="live-chat-messages" class="live-chat-messages"></div>
         <div class="live-chat-row">
@@ -823,17 +913,17 @@ const Live = (() => {
   ══════════════════════════════════════════════ */
   function _stopLocalStream() {
     if (state.localStream) {
-      state.localStream.getTracks().forEach(t => t.stop());
+      state.localStream.getTracks().forEach((t) => t.stop());
       state.localStream = null;
     }
   }
 
   function _esc(str) {
     return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   /* ══════════════════════════════════════════════
@@ -852,7 +942,9 @@ const Live = (() => {
     handleWsMessage,
     loadActiveSessions,
     _teardownOverlay,
-    _injectIfNeeded: () => { if (!document.getElementById('live-setup-modal')) _injectHTML(); },
+    _injectIfNeeded: () => {
+      if (!document.getElementById("live-setup-modal")) _injectHTML();
+    },
   };
 })();
 
@@ -880,8 +972,8 @@ const Live = (() => {
 /* Auto-load active sessions once the user is authenticated.
    Also inject the overlay HTML immediately so WS events can reference
    DOM elements before the user has clicked anything. */
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
     Live._injectIfNeeded();
     Live.loadActiveSessions();
   });

@@ -1,0 +1,128 @@
+          <div class="view active" id="view-feed">
+            <div class="page-header">
+              <h1>Your <em>Feed</em></h1>
+              <p>What's happening in your circle</p>
+            </div>
+            <div class="feed-layout">
+              <div class="feed-main">
+                <!-- Feed tabs: Global | Following -->
+                <div class="feed-tabs" id="feed-tabs" style="display: none">
+                  <button
+                    class="feed-tab active"
+                    id="ftab-global"
+                    onclick="switchFeedTab('global')"
+                  >
+                    🌐 Global
+                  </button>
+                  <button
+                    class="feed-tab"
+                    id="ftab-following"
+                    onclick="switchFeedTab('following')"
+                  >
+                    👥 Following
+                  </button>
+                </div>
+                <p class="feed-personalised-hint" id="feed-personalised-hint">
+                  ✨ Ranked for you based on your interests
+                </p>
+                <!-- inline compose removed; use sidebar "Create a post" button or mobile + button -->
+                <div class="login-nudge" id="login-nudge">
+                  <div class="login-nudge-icon">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 00-3-3.87" />
+                      <path d="M16 3.13a4 4 0 010 7.75" />
+                    </svg>
+                  </div>
+                  <div class="login-nudge-body">
+                    <div class="login-nudge-title">
+                      Join the conversation 👋
+                    </div>
+                    <div class="login-nudge-sub">
+                      Create an account to post, like, comment and follow
+                      people.
+                    </div>
+                    <div class="login-nudge-actions">
+                      <button
+                        class="login-nudge-btn-primary"
+                        onclick="goTo('register')"
+                      >
+                        Create account
+                      </button>
+                      <button
+                        class="login-nudge-btn-secondary"
+                        onclick="goTo('login')"
+                      >
+                        Log in
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <!-- SUGGESTED USERS (now rendered inline in feed) -->
+                <div id="suggestions-section" style="display: none">
+                  <div id="suggestions-list"></div>
+                </div>
+
+                <div class="feed" id="feed-list"></div>
+              </div>
+              <!-- /.feed-main -->
+
+              <!-- TRENDING ASIDE -->
+              <aside class="feed-aside">
+                <div class="trending-card" id="trending-card">
+                  <div class="trending-title">
+                    <span>🔥</span> Trending on Circle
+                    <button
+                      class="trending-refresh"
+                      onclick="loadTrending(true)"
+                      title="Refresh"
+                    >
+                      ↻ Refresh
+                    </button>
+                  </div>
+                  <div
+                    id="trending-filter-bar"
+                    style="display: none"
+                    class="trending-filter-active"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <span id="trending-filter-label">Filtering: </span>
+                    <button
+                      class="trending-filter-clear"
+                      onclick="clearTrendingFilter()"
+                      title="Clear filter"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div id="trending-body">
+                    <div class="trending-skeleton">
+                      <div class="trending-skel-row"></div>
+                      <div class="trending-skel-row"></div>
+                      <div class="trending-skel-row"></div>
+                      <div class="trending-skel-row"></div>
+                      <div class="trending-skel-row"></div>
+                    </div>
+                  </div>
+                  <div class="trending-footer" id="trending-footer"></div>
+                </div>
+              </aside>
+            </div>
+            <!-- /.feed-layout -->
+          </div>

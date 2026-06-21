@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <meta name="google-adsense-account" content="ca-pub-1816934530564614" />
+
+    <!-- Primary SEO -->
+    <title>Circle — Where Real Connections Happen</title>
+    <meta
+      name="description"
+      content="Circle is a social platform where you can share moments, join conversations, and grow your community. Sign up free today."
+    />
+    <meta
+      name="keywords"
+      content="social network, social media, connect with friends, community, share moments, circlenet"
+    />
+    <meta name="author" content="Circlenet" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://www.circlenet.social/" />
+
+    <!-- Theme / PWA -->
+    <meta name="theme-color" content="#0f0f13" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Circle" />
+
+    <!-- Open Graph (Facebook, WhatsApp, LinkedIn) -->
+    <meta
+      property="og:title"
+      content="Circle — Where Real Connections Happen"
+    />
+    <meta
+      property="og:description"
+      content="Circle is a social platform where you can share moments, join conversations, and grow your community. Sign up free today."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.circlenet.social/" />
+    <meta
+      property="og:image"
+      content="https://www.circlenet.social/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Circle — Where Real Connections Happen"
+    />
+    <meta property="og:site_name" content="Circle" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@circlenet" />
+    <meta
+      name="twitter:title"
+      content="Circle — Where Real Connections Happen"
+    />
+    <meta
+      name="twitter:description"
+      content="Circle is a social platform where you can share moments, join conversations, and grow your community. Sign up free today."
+    />
+    <meta
+      name="twitter:image"
+      content="https://www.circlenet.social/og-image.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="Circle — Where Real Connections Happen"
+    />
+
+    <!-- Pinterest domain verify -->
+    <meta name="p:domain_verify" content="9746eace80e331c238843561c7072a2e" />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Circle",
+        "alternateName": "Circlenet",
+        "url": "https://www.circlenet.social/",
+        "description": "Circle is a social platform where you can share moments, join conversations, and grow your community.",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://www.circlenet.social/?q={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Circlenet",
+        "url": "https://www.circlenet.social/",
+        "logo": "https://www.circlenet.social/icon.png",
+        "sameAs": []
+      }
+    </script>
+    <script
+      async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1816934530564614"
+      crossorigin="anonymous"
+    ></script>
+    <link rel="icon" href="/icon.png" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="manifest" href="manifest.json" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles/style.css" />
+    <link rel="stylesheet" href="/src/styles/typingIndicator.css" />
+    <link rel="stylesheet" href="/src/live/live.css" />
+    <link rel="stylesheet" href="/src/dm/dm.css" />
+    <link rel="stylesheet" href="/src/search/search.css" />
+    <link rel="stylesheet" href="/src/groups/groups.css" />
+    <style></style>
+  </head>
+  <body>
+    <div class="shell">
+
+      <!-- ① Sidebar + topbar -->
+      <div id="shell-sidebar"></div>
+
+      <!-- ② Main content area — all views live here -->
+      <main class="content" id="content">
+        <div id="shell-feed"></div>
+        <div id="shell-explore"></div>
+        <div id="shell-groups"></div>
+        <div id="shell-search"></div>
+        <div id="shell-auth"></div>
+        <div id="shell-profile"></div>
+        <div id="shell-messages"></div>
+        <div id="shell-post-detail"></div>
+      </main>
+
+      <!-- ③ Mobile bottom nav + FAB -->
+      <div id="shell-mobile-nav"></div>
+
+    </div><!-- /.shell -->
+
+    <!-- ④ Overlays: modals, lightbox, toast, notification panel -->
+    <div id="shell-overlays"></div>
+
+    <!-- ─── Scripts ──────────────────────────────────────────────── -->
+    <!--
+      partials.js loads all HTML partials, then fires "partials:ready".
+      All other scripts are deferred so they run after the DOM is parsed,
+      but they must wait for "partials:ready" before touching partial DOM.
+      main.js is always last.
+    -->
+    <script src="/src/partials.js" defer></script>
+    <script src="/src/config/api.js" defer></script>
+    <script src="/src/auth/auth.js" defer></script>
+    <script src="/src/lightbox/lightbox_v2.js" defer></script>
+    <script src="/src/feed/feed_v2.js" defer></script>
+    <script src="/src/groups/groups.js" defer></script>
+    <script src="/src/profile/profile.js" defer></script>
+    <script src="/src/comments/comments.js" defer></script>
+    <script src="/src/reposts/reposts.js" defer></script>
+    <script src="/src/explore/explore.js" defer></script>
+    <script src="/src/search/search.js" defer></script>
+    <script src="/src/settings/settings.js" defer></script>
+    <script src="/src/notifications/notifications.js" defer></script>
+    <script src="/src/pushNotifications/pushNotifications.js" defer></script>
+    <script src="/src/dm/dm.js" defer></script>
+    <script src="/src/media/media.js" defer></script>
+    <script src="/src/post-detail/postDetail.js" defer></script>
+    <script src="/src/suggested-users/suggested-users.js" defer></script>
+    <script src="/src/router/router.js" defer></script>
+    <script src="/src/dail-codes/dailcodes.js" defer></script>
+    <script src="/src/whisper/whisper-composer.js" defer></script>
+    <script src="/src/whisper/whisper-inbox.js" defer></script>
+    <script src="/src/whisper/whisper-send.js" defer></script>
+    <script src="/src/whisper/whisper-settings.js" defer></script>
+    <script src="/main.js" defer></script>
+    <script src="/wsClient.js" defer></script>
+    <script src="/src/live/live.js" defer></script>
+  </body>
+</html>

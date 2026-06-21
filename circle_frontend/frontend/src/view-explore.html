@@ -1,0 +1,363 @@
+          <!-- EXPLORE -->
+          <div class="view" id="view-explore">
+            <div class="page-header">
+              <button class="back-btn" onclick="goBack()" id="back-btn-explore">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+              <h1><em>Explore</em></h1>
+              <p>Trending now on Circle</p>
+            </div>
+
+            <!-- People to Follow -->
+            <div class="explore-section" id="explore-people-section">
+              <div class="explore-section-title">
+                <span>👥</span> People to Follow
+                <button
+                  class="explore-refresh-btn"
+                  id="explore-people-refresh"
+                  onclick="loadExplorePeople(true)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                    width="12"
+                    height="12"
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <div id="explore-people-list">
+                <div class="explore-skeleton-row">
+                  <div class="explore-skel-card"></div>
+                  <div class="explore-skel-card"></div>
+                  <div class="explore-skel-card"></div>
+                  <div class="explore-skel-card"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Topics -->
+            <div class="explore-section" id="explore-topics-section">
+              <div class="explore-section-title">
+                <span>🏷️</span> Topics
+                <button
+                  class="explore-refresh-btn"
+                  id="explore-topics-refresh"
+                  onclick="loadExploreTopics(true)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                    width="12"
+                    height="12"
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <p
+                style="font-size: 12px; color: var(--txt2); margin: -6px 0 12px"
+              >
+                Tap a topic to see all posts · your feed learns from what you
+                open
+              </p>
+              <div id="explore-topics-list">
+                <div class="explore-skeleton-row">
+                  <div
+                    class="explore-skel-card"
+                    style="height: 44px; min-width: 80px"
+                  ></div>
+                  <div
+                    class="explore-skel-card"
+                    style="height: 44px; min-width: 80px"
+                  ></div>
+                  <div
+                    class="explore-skel-card"
+                    style="height: 44px; min-width: 80px"
+                  ></div>
+                  <div
+                    class="explore-skel-card"
+                    style="height: 44px; min-width: 80px"
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- New Members -->
+            <div
+              class="explore-section explore-new-card"
+              id="explore-new-section"
+              style="display: none"
+            >
+              <div class="explore-section-title" style="color: var(--green)">
+                <span>🆕</span> New to Circle
+                <button
+                  class="explore-refresh-btn"
+                  id="explore-new-refresh"
+                  onclick="loadExploreNewMembers(true)"
+                  style="border-color: var(--green); color: var(--green)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                    width="12"
+                    height="12"
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <p
+                style="font-size: 12px; color: var(--txt2); margin: -6px 0 12px"
+              >
+                Say hello to people who just joined!
+              </p>
+              <div id="explore-new-list">
+                <div class="explore-skeleton-row">
+                  <div class="explore-skel-card"></div>
+                  <div class="explore-skel-card"></div>
+                  <div class="explore-skel-card"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Trending Posts -->
+            <div class="explore-section">
+              <div class="explore-section-title">
+                <span>🔥</span> Trending in the last 24h
+                <button
+                  class="explore-refresh-btn"
+                  id="explore-trending-refresh"
+                  onclick="loadExploreTrending(true)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                    width="12"
+                    height="12"
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+
+              <!-- Router: category tabs -->
+              <div class="trending-router" id="trending-router">
+                <button
+                  class="trending-route-btn active"
+                  data-category="all"
+                  onclick="setTrendingCategory('all', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="13"
+                    height="13"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path
+                      d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"
+                    />
+                  </svg>
+                  All
+                </button>
+                <button
+                  class="trending-route-btn"
+                  data-category="popular"
+                  onclick="setTrendingCategory('popular', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="13"
+                    height="13"
+                  >
+                    <path
+                      d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
+                    />
+                  </svg>
+                  Most Liked
+                </button>
+                <button
+                  class="trending-route-btn"
+                  data-category="discussed"
+                  onclick="setTrendingCategory('discussed', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="13"
+                    height="13"
+                  >
+                    <path
+                      d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                    />
+                  </svg>
+                  Most Discussed
+                </button>
+                <button
+                  class="trending-route-btn"
+                  data-category="shared"
+                  onclick="setTrendingCategory('shared', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="13"
+                    height="13"
+                  >
+                    <polyline points="17 1 21 5 17 9" />
+                    <path d="M3 11V9a4 4 0 014-4h14" />
+                    <polyline points="7 23 3 19 7 15" />
+                    <path d="M21 13v2a4 4 0 01-4 4H3" />
+                  </svg>
+                  Most Shared
+                </button>
+                <button
+                  class="trending-route-btn"
+                  data-category="media"
+                  onclick="setTrendingCategory('media', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="13"
+                    height="13"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  With Media
+                </button>
+              </div>
+
+              <!-- Controller: sort + result count -->
+              <div class="trending-controller" id="trending-controller">
+                <span class="trending-sort-label">Sort:</span>
+                <button
+                  class="trending-sort-btn active"
+                  data-sort="hot"
+                  onclick="setTrendingSort('hot', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"
+                    />
+                    <path
+                      d="M12 8c0 2-1 3-2 4s-2 2-2 4h8c0-2-1-3-2-4s-2-2-2-4z"
+                      stroke-linejoin="round"
+                    />
+                    <path d="M10 20h4" stroke-linecap="round" />
+                  </svg>
+                  Hot
+                </button>
+                <button
+                  class="trending-sort-btn"
+                  data-sort="newest"
+                  onclick="setTrendingSort('newest', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  Newest
+                </button>
+                <button
+                  class="trending-sort-btn"
+                  data-sort="top"
+                  onclick="setTrendingSort('top', this)"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="18 15 12 9 6 15" />
+                  </svg>
+                  Top
+                </button>
+                <div class="trending-controller-spacer"></div>
+                <span class="trending-count-badge" id="trending-count-badge"
+                  >— posts</span
+                >
+              </div>
+
+              <div id="explore-trending-list">
+                <div class="explore-post-skeleton"></div>
+                <div class="explore-post-skeleton"></div>
+                <div class="explore-post-skeleton"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="view" id="view-topic">
+            <div class="page-header">
+              <button class="back-btn" onclick="goBack()">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+              <h1 id="topic-view-title">#topic</h1>
+              <p id="topic-view-subtitle">Posts tagged with this topic</p>
+            </div>
+            <div id="topic-feed-list"></div>
+            <div
+              id="topic-feed-loader"
+              style="text-align: center; padding: 20px; display: none"
+            >
+              <div class="explore-post-skeleton"></div>
+              <div class="explore-post-skeleton"></div>
+            </div>
+          </div>

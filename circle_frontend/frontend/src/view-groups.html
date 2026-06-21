@@ -1,0 +1,305 @@
+          <!-- GROUPS EXPLORE -->
+          <div class="view" id="view-groups">
+            <div
+              class="page-header"
+              style="
+                margin-bottom: 20px;
+                padding-bottom: 18px;
+                border-bottom: 1px solid var(--border);
+              "
+            >
+              <button class="back-btn" onclick="goBack()" id="back-btn-groups">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+              <h1
+                style="
+                  font-size: 22px;
+                  font-weight: 700;
+                  letter-spacing: -0.3px;
+                "
+              >
+                Groups
+              </h1>
+              <p
+                style="
+                  font-size: 12.5px;
+                  margin-top: 3px;
+                  letter-spacing: 0.01em;
+                "
+              >
+                Communities built around topics you care about
+              </p>
+            </div>
+
+            <!-- My Groups strip -->
+            <div id="my-groups-wrap" style="display: none">
+              <div class="my-groups-strip-label">Your Groups</div>
+              <div class="my-groups-strip" id="my-groups-strip"></div>
+            </div>
+
+            <!-- Trending groups -->
+            <div class="groups-section-label">Trending Groups</div>
+            <div class="groups-grid" id="groups-grid">
+              <!-- skeleton -->
+              <div class="group-skel-card">
+                <div class="group-skel-cover"></div>
+                <div class="group-skel-body">
+                  <div class="group-skel-line w-60"></div>
+                  <div class="group-skel-line w-80"></div>
+                  <div class="group-skel-btn"></div>
+                </div>
+              </div>
+              <div class="group-skel-card">
+                <div class="group-skel-cover"></div>
+                <div class="group-skel-body">
+                  <div class="group-skel-line w-60"></div>
+                  <div class="group-skel-line w-80"></div>
+                  <div class="group-skel-btn"></div>
+                </div>
+              </div>
+              <div class="group-skel-card">
+                <div class="group-skel-cover"></div>
+                <div class="group-skel-body">
+                  <div class="group-skel-line w-60"></div>
+                  <div class="group-skel-line w-80"></div>
+                  <div class="group-skel-btn"></div>
+                </div>
+              </div>
+              <div class="group-skel-card">
+                <div class="group-skel-cover"></div>
+                <div class="group-skel-body">
+                  <div class="group-skel-line w-60"></div>
+                  <div class="group-skel-line w-80"></div>
+                  <div class="group-skel-btn"></div>
+                </div>
+              </div>
+            </div>
+            <button
+              class="groups-load-more"
+              id="groups-load-more"
+              style="display: none"
+              onclick="loadMoreGroups()"
+            >
+              Load more groups
+            </button>
+          </div>
+
+          <!-- GROUP DETAIL -->
+          <div class="view" id="view-group-detail">
+            <div class="page-header" style="margin-bottom: 0">
+              <button
+                class="back-btn"
+                onclick="goBack()"
+                id="back-btn-group-detail"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+            </div>
+            <div id="group-detail-banner" class="group-detail-banner"></div>
+            <div class="group-detail-meta">
+              <div class="group-detail-info">
+                <div class="group-detail-name" id="group-detail-name">—</div>
+                <div class="group-detail-desc" id="group-detail-desc"></div>
+                <div class="group-detail-stats" id="group-detail-stats"></div>
+              </div>
+              <button
+                class="group-join-btn join"
+                id="group-detail-join-btn"
+                onclick="toggleGroupMembership()"
+              >
+                Join
+              </button>
+            </div>
+            <div class="group-detail-tabs">
+              <button
+                class="group-detail-tab active"
+                id="gdtab-feed"
+                onclick="switchGroupTab('feed')"
+              >
+                Feed
+              </button>
+              <button
+                class="group-detail-tab"
+                id="gdtab-about"
+                onclick="switchGroupTab('about')"
+              >
+                About
+              </button>
+            </div>
+
+            <!-- Feed tab -->
+            <div id="group-detail-feed-panel">
+              <div id="group-join-nudge-wrap"></div>
+              <!-- Member compose box — shown only to members -->
+              <div
+                class="group-compose"
+                id="group-compose-box"
+                style="display: none"
+              >
+                <div class="group-compose-row">
+                  <div
+                    class="av"
+                    id="group-compose-av"
+                    style="background: var(--accent); flex-shrink: 0"
+                  ></div>
+                  <textarea
+                    class="group-compose-field"
+                    id="group-compose-text"
+                    placeholder="Post something to this group…"
+                    rows="1"
+                    oninput="groupComposeInput(this)"
+                  ></textarea>
+                </div>
+                <div
+                  class="group-compose-media-preview"
+                  id="group-compose-media-preview"
+                >
+                  <button
+                    class="group-compose-remove-media"
+                    onclick="groupComposeRemoveMedia()"
+                    title="Remove"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                  <img
+                    id="group-compose-img-preview"
+                    style="display: none"
+                    alt="preview"
+                  />
+                  <video
+                    id="group-compose-vid-preview"
+                    style="display: none"
+                    preload="metadata"
+                    playsinline
+                    muted
+                  ></video>
+                </div>
+                <div class="group-compose-bar">
+                  <div class="group-compose-tools">
+                    <button
+                      class="group-compose-tool"
+                      onclick="
+                        document
+                          .getElementById('group-compose-img-input')
+                          .click()
+                      "
+                      title="Photo"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                    </button>
+                    <button
+                      class="group-compose-tool"
+                      onclick="
+                        document
+                          .getElementById('group-compose-vid-input')
+                          .click()
+                      "
+                      title="Video"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <polygon points="23 7 16 12 23 17 23 7" />
+                        <rect x="1" y="5" width="15" height="14" rx="2" />
+                      </svg>
+                    </button>
+                  </div>
+                  <button
+                    class="group-compose-submit"
+                    id="group-compose-submit"
+                    onclick="groupComposeSubmit()"
+                    disabled
+                  >
+                    Post
+                  </button>
+                </div>
+                <input
+                  type="file"
+                  id="group-compose-img-input"
+                  class="hidden"
+                  accept="image/*"
+                  onchange="groupComposePickImage(event)"
+                />
+                <input
+                  type="file"
+                  id="group-compose-vid-input"
+                  class="hidden"
+                  accept="video/*"
+                  onchange="groupComposePickVideo(event)"
+                />
+              </div>
+              <div class="feed" id="group-detail-feed-list"></div>
+              <div
+                id="group-feed-loader"
+                style="text-align: center; padding: 20px; display: none"
+              >
+                <div
+                  class="group-skel-card"
+                  style="height: 120px; margin-bottom: 10px"
+                ></div>
+                <div class="group-skel-card" style="height: 120px"></div>
+              </div>
+            </div>
+
+            <!-- About tab -->
+            <div id="group-detail-about-panel" style="display: none">
+              <div class="trending-card" style="margin-bottom: 12px">
+                <div class="trending-title">
+                  <span>ℹ️</span> About this group
+                </div>
+                <p
+                  id="group-about-desc"
+                  style="
+                    font-size: 13.5px;
+                    color: var(--txt2);
+                    line-height: 1.6;
+                  "
+                ></p>
+                <div
+                  style="
+                    margin-top: 14px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                  "
+                  id="group-about-stats"
+                ></div>
+              </div>
+            </div>
+          </div>

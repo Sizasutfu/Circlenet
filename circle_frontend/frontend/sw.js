@@ -11,9 +11,9 @@
 //                                           + deep-link on click
 // ============================================================
 
-const CACHE_NAME    = 'circle-v6';
-const API_CACHE     = 'circle-api-v4';
-const MEDIA_CACHE   = 'circle-media-v4';
+const CACHE_NAME    = 'circle-v7';
+const API_CACHE     = 'circle-api-v5';
+const MEDIA_CACHE   = 'circle-media-v5';
 const OFFLINE_URL   = './index.html';
 
 // Max age for cached API responses (5 minutes)

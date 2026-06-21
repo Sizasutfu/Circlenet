@@ -1,0 +1,826 @@
+          <!-- LOGIN -->
+          <div class="view" id="view-login">
+            <div class="auth-wrap">
+              <div class="auth-card">
+                <div class="auth-brand">
+                  <div class="auth-brand-icon">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="9" />
+                    </svg>
+                  </div>
+                  <span>Circle</span>
+                </div>
+                <p class="auth-slogan">
+                  Circle is where real connections happen — share moments, join
+                  conversations, and grow your community.
+                </p>
+                <h2>Welcome back</h2>
+                <p class="sub">Sign in to your account</p>
+
+                <!-- Method tabs -->
+                <div class="auth-method-tabs">
+                  <button
+                    class="auth-method-tab active"
+                    id="login-tab-email"
+                    onclick="switchLoginMethod('email')"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+                      />
+                      <polyline points="22,6 12,13 2,6" />
+                    </svg>
+                    Email
+                  </button>
+                  <button
+                    class="auth-method-tab"
+                    id="login-tab-phone"
+                    onclick="switchLoginMethod('phone')"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.0 1.18 2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"
+                      />
+                    </svg>
+                    Phone
+                  </button>
+                </div>
+
+                <div class="alert" id="login-alert"></div>
+
+                <!-- Email method -->
+                <div id="login-email-method">
+                  <div class="field">
+                    <label>Email</label>
+                    <input
+                      type="email"
+                      id="login-email"
+                      placeholder="you@example.com"
+                      autocomplete="email"
+                      onkeydown="
+                        if (event.key === 'Enter')
+                          document.getElementById('login-password').focus();
+                      "
+                    />
+                  </div>
+                  <div class="field">
+                    <label>Password</label>
+                    <div class="pw-wrap">
+                      <input
+                        type="password"
+                        id="login-password"
+                        placeholder="••••••••"
+                        autocomplete="current-password"
+                        onkeydown="if (event.key === 'Enter') loginUser();"
+                      /><button
+                        type="button"
+                        class="pw-toggle"
+                        onclick="togglePw('login-password', this)"
+                        tabindex="-1"
+                        aria-label="Show password"
+                      >
+                        <svg
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                          />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="btn btn-primary btn-full"
+                    onclick="loginUser()"
+                  >
+                    Sign In
+                  </button>
+                  <div class="auth-switch">
+                    <button onclick="goTo('reset-password')">
+                      Forgot Password?
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Phone method -->
+                <div id="login-phone-method" style="display: none">
+                  <!-- Step 1: enter number -->
+                  <div class="phone-step active" id="login-phone-step1">
+                    <div class="field">
+                      <label>Phone Number</label>
+                      <div class="phone-input-wrap">
+                        <select
+                          class="phone-dial-select"
+                          id="login-dial-code"
+                        ></select>
+                        <input
+                          class="phone-number-input"
+                          type="tel"
+                          id="login-phone-number"
+                          placeholder="712 345 678"
+                          inputmode="numeric"
+                          onkeydown="
+                            if (event.key === 'Enter') phoneLoginSendOtp();
+                          "
+                        />
+                      </div>
+                    </div>
+                    <button
+                      class="btn btn-primary btn-full"
+                      onclick="phoneLoginSendOtp()"
+                      id="login-send-otp-btn"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                      >
+                        <line x1="22" y1="2" x2="11" y2="13" />
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                      </svg>
+                      Send Code
+                    </button>
+                  </div>
+                  <!-- Step 2: enter OTP -->
+                  <div class="phone-step" id="login-phone-step2">
+                    <div class="otp-sent-info">
+                      Code sent to <strong id="login-otp-phone-display"></strong
+                      ><br />
+                      Enter the 6-digit code below
+                    </div>
+                    <div class="otp-group" id="login-otp-group">
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'login')"
+                        onkeydown="otpKeydown(event, this, 'login')"
+                        onpaste="otpPaste(event, 'login')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'login')"
+                        onkeydown="otpKeydown(event, this, 'login')"
+                        onpaste="otpPaste(event, 'login')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'login')"
+                        onkeydown="otpKeydown(event, this, 'login')"
+                        onpaste="otpPaste(event, 'login')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'login')"
+                        onkeydown="otpKeydown(event, this, 'login')"
+                        onpaste="otpPaste(event, 'login')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'login')"
+                        onkeydown="otpKeydown(event, this, 'login')"
+                        onpaste="otpPaste(event, 'login')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'login')"
+                        onkeydown="otpKeydown(event, this, 'login')"
+                        onpaste="otpPaste(event, 'login')"
+                      />
+                    </div>
+                    <button
+                      class="btn btn-primary btn-full"
+                      onclick="phoneLoginVerifyOtp()"
+                      id="login-verify-otp-btn"
+                    >
+                      Verify &amp; Sign In
+                    </button>
+                    <div class="otp-resend-row">
+                      <button
+                        onclick="phoneLoginSendOtp(true)"
+                        id="login-resend-btn"
+                        disabled
+                      >
+                        Resend code
+                        <span class="otp-timer" id="login-otp-timer"
+                          >(30s)</span
+                        >
+                      </button>
+                    </div>
+                    <div class="auth-switch" style="margin-top: 10px">
+                      <button onclick="phoneLoginBack()">
+                        ← Change number
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="auth-switch">
+                  No account?
+                  <button onclick="goTo('register')">Create one</button>
+                </div>
+                <div class="auth-footer">
+                  <a href="legal/about.html">About</a>
+                  <a href="legal/privacy-policy.html">Privacy Policy</a>
+                  <a href="legal/terms.html">Terms</a>
+                  <a href="legal/contact.html">Contact</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RESET PASSWORD -->
+          <div class="view" id="view-reset-password">
+            <div class="auth-wrap">
+              <div class="auth-card">
+                <div class="auth-brand">
+                  <div class="auth-brand-icon">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="9" />
+                    </svg>
+                  </div>
+                  <span>Circle</span>
+                </div>
+                <h2>Reset Password</h2>
+                <p class="sub">Enter your email to receive a reset link</p>
+                <div class="alert" id="reset-alert"></div>
+                <div class="field">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    id="reset-email"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <button
+                  class="btn btn-primary btn-full"
+                  onclick="sendResetEmail()"
+                >
+                  Send Reset Link
+                </button>
+                <div class="auth-switch">
+                  Remembered? <button onclick="goTo('login')">Sign in</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NEW PASSWORD -->
+          <div class="view" id="view-new-password">
+            <div class="auth-wrap">
+              <div class="auth-card">
+                <div class="auth-brand">
+                  <div class="auth-brand-icon">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="9" />
+                    </svg>
+                  </div>
+                  <span>Circle</span>
+                </div>
+                <h2>New Password</h2>
+                <p class="sub">Choose a strong new password</p>
+                <div class="alert" id="newpw-alert"></div>
+                <div class="field">
+                  <label>New Password</label>
+                  <div class="pw-wrap">
+                    <input
+                      type="password"
+                      id="newpw-password"
+                      placeholder="Min. 6 characters"
+                    /><button
+                      type="button"
+                      class="pw-toggle"
+                      onclick="togglePw('newpw-password', this)"
+                      tabindex="-1"
+                      aria-label="Show password"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                        />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Confirm Password</label>
+                  <div class="pw-wrap">
+                    <input
+                      type="password"
+                      id="newpw-confirm"
+                      placeholder="Repeat your password"
+                    /><button
+                      type="button"
+                      class="pw-toggle"
+                      onclick="togglePw('newpw-confirm', this)"
+                      tabindex="-1"
+                      aria-label="Show password"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                        />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="btn btn-primary btn-full"
+                  onclick="setNewPassword()"
+                >
+                  Update Password
+                </button>
+                <div class="auth-switch">
+                  Remembered? <button onclick="goTo('login')">Sign in</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- REGISTER -->
+          <div class="view" id="view-register">
+            <div class="auth-wrap">
+              <div class="auth-card">
+                <div class="auth-brand">
+                  <div class="auth-brand-icon">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="9" />
+                    </svg>
+                  </div>
+                  <span>Circle</span>
+                </div>
+                <h2>Join Circle</h2>
+                <p class="sub">Connect with the people who matter</p>
+
+                <!-- Method tabs -->
+                <div class="auth-method-tabs">
+                  <button
+                    class="auth-method-tab active"
+                    id="reg-tab-email"
+                    onclick="switchRegisterMethod('email')"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+                      />
+                      <polyline points="22,6 12,13 2,6" />
+                    </svg>
+                    Email
+                  </button>
+                  <button
+                    class="auth-method-tab"
+                    id="reg-tab-phone"
+                    onclick="switchRegisterMethod('phone')"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.0 1.18 2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"
+                      />
+                    </svg>
+                    Phone
+                  </button>
+                </div>
+
+                <div class="alert" id="register-alert"></div>
+
+                <!-- Email registration method -->
+                <div id="reg-email-method">
+                  <!-- Step 1: registration form -->
+                  <div class="phone-step active" id="reg-email-step1">
+                    <div class="field">
+                      <label>Full Name</label>
+                      <input
+                        type="text"
+                        id="reg-name"
+                        placeholder="Jane Doe"
+                        autocomplete="name"
+                        onkeydown="
+                          if (event.key === 'Enter')
+                            document.getElementById('reg-email').focus();
+                        "
+                      />
+                    </div>
+                    <div class="field">
+                      <label>Email</label>
+                      <input
+                        type="email"
+                        id="reg-email"
+                        placeholder="jane@example.com"
+                      />
+                    </div>
+                    <div class="field">
+                      <label
+                        >Phone
+                        <span
+                          style="
+                            color: var(--txt3);
+                            font-weight: 400;
+                            text-transform: none;
+                            font-size: 11px;
+                          "
+                          >(optional — for SMS login later)</span
+                        ></label
+                      >
+                      <div class="phone-input-wrap">
+                        <select
+                          class="phone-dial-select"
+                          id="reg-dial-code"
+                        ></select>
+                        <input
+                          class="phone-number-input"
+                          type="tel"
+                          id="reg-phone"
+                          placeholder="712 345 678"
+                          inputmode="numeric"
+                        />
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label>Password</label>
+                      <div class="pw-wrap">
+                        <input
+                          type="password"
+                          id="reg-password"
+                          placeholder="Min. 6 characters"
+                          autocomplete="new-password"
+                          onkeydown="
+                            if (event.key === 'Enter')
+                              document
+                                .getElementById('reg-confirm-password')
+                                .focus();
+                          "
+                        /><button
+                          type="button"
+                          class="pw-toggle"
+                          onclick="togglePw('reg-password', this)"
+                          tabindex="-1"
+                          aria-label="Show password"
+                        >
+                          <svg
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                            />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label>Confirm Password</label>
+                      <div class="pw-wrap">
+                        <input
+                          type="password"
+                          id="reg-confirm-password"
+                          placeholder="Repeat your password"
+                          autocomplete="new-password"
+                          onkeydown="if (event.key === 'Enter') registerUser();"
+                        /><button
+                          type="button"
+                          class="pw-toggle"
+                          onclick="togglePw('reg-confirm-password', this)"
+                          tabindex="-1"
+                          aria-label="Show password"
+                        >
+                          <svg
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                            />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      class="btn btn-primary btn-full"
+                      id="reg-email-submit-btn"
+                      onclick="registerUser()"
+                    >
+                      Create Account
+                    </button>
+                  </div>
+
+                  <!-- Step 2: email OTP verification -->
+                  <div class="phone-step" id="reg-email-step2">
+                    <div class="otp-sent-info">
+                      We sent a 6-digit code to<br />
+                      <strong id="reg-email-display"></strong><br />
+                      <span style="color: var(--txt3); font-size: 12px"
+                        >Check your inbox (and spam folder)</span
+                      >
+                    </div>
+                    <div class="otp-group" id="email-verify-otp-group">
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'email-verify')"
+                        onkeydown="otpKeydown(event, this, 'email-verify')"
+                        onpaste="otpPaste(event, 'email-verify')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'email-verify')"
+                        onkeydown="otpKeydown(event, this, 'email-verify')"
+                        onpaste="otpPaste(event, 'email-verify')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'email-verify')"
+                        onkeydown="otpKeydown(event, this, 'email-verify')"
+                        onpaste="otpPaste(event, 'email-verify')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'email-verify')"
+                        onkeydown="otpKeydown(event, this, 'email-verify')"
+                        onpaste="otpPaste(event, 'email-verify')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'email-verify')"
+                        onkeydown="otpKeydown(event, this, 'email-verify')"
+                        onpaste="otpPaste(event, 'email-verify')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'email-verify')"
+                        onkeydown="otpKeydown(event, this, 'email-verify')"
+                        onpaste="otpPaste(event, 'email-verify')"
+                      />
+                    </div>
+                    <button
+                      class="btn btn-primary btn-full"
+                      onclick="emailVerifyOtp()"
+                      id="email-verify-btn"
+                    >
+                      Verify Email
+                    </button>
+                    <div class="otp-resend-row">
+                      <button
+                        onclick="emailResendCode()"
+                        id="email-verify-resend-btn"
+                        disabled
+                      >
+                        Resend code
+                        <span class="otp-timer" id="email-verify-otp-timer"
+                          >(60s)</span
+                        >
+                      </button>
+                    </div>
+                    <div class="auth-switch" style="margin-top: 10px">
+                      <button onclick="emailVerifyBack()">
+                        ← Use a different email
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Phone registration method -->
+                <div id="reg-phone-method" style="display: none">
+                  <!-- Step 1: name + phone -->
+                  <div class="phone-step active" id="reg-phone-step1">
+                    <div class="field">
+                      <label>Full Name</label>
+                      <input
+                        type="text"
+                        id="reg-phone-name"
+                        placeholder="Jane Doe"
+                        autocomplete="name"
+                        onkeydown="
+                          if (event.key === 'Enter')
+                            document.getElementById('reg-phone-number').focus();
+                        "
+                      />
+                    </div>
+                    <div class="field">
+                      <label>Phone Number</label>
+                      <div class="phone-input-wrap">
+                        <select
+                          class="phone-dial-select"
+                          id="reg-phone-dial-code"
+                        ></select>
+                        <input
+                          class="phone-number-input"
+                          type="tel"
+                          id="reg-phone-number"
+                          placeholder="712 345 678"
+                          inputmode="numeric"
+                          onkeydown="
+                            if (event.key === 'Enter') phoneRegisterSendOtp();
+                          "
+                        />
+                      </div>
+                    </div>
+                    <button
+                      class="btn btn-primary btn-full"
+                      onclick="phoneRegisterSendOtp()"
+                      id="reg-send-otp-btn"
+                    >
+                      <svg
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                      >
+                        <line x1="22" y1="2" x2="11" y2="13" />
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                      </svg>
+                      Send Code
+                    </button>
+                  </div>
+                  <!-- Step 2: enter OTP -->
+                  <div class="phone-step" id="reg-phone-step2">
+                    <div class="otp-sent-info">
+                      Code sent to <strong id="reg-otp-phone-display"></strong
+                      ><br />
+                      Enter the 6-digit code below
+                    </div>
+                    <div class="otp-group" id="reg-otp-group">
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'reg')"
+                        onkeydown="otpKeydown(event, this, 'reg')"
+                        onpaste="otpPaste(event, 'reg')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'reg')"
+                        onkeydown="otpKeydown(event, this, 'reg')"
+                        onpaste="otpPaste(event, 'reg')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'reg')"
+                        onkeydown="otpKeydown(event, this, 'reg')"
+                        onpaste="otpPaste(event, 'reg')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'reg')"
+                        onkeydown="otpKeydown(event, this, 'reg')"
+                        onpaste="otpPaste(event, 'reg')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'reg')"
+                        onkeydown="otpKeydown(event, this, 'reg')"
+                        onpaste="otpPaste(event, 'reg')"
+                      />
+                      <input
+                        class="otp-digit"
+                        type="text"
+                        maxlength="1"
+                        inputmode="numeric"
+                        pattern="[0-9]"
+                        oninput="otpInput(this, 'reg')"
+                        onkeydown="otpKeydown(event, this, 'reg')"
+                        onpaste="otpPaste(event, 'reg')"
+                      />
+                    </div>
+                    <button
+                      class="btn btn-primary btn-full"
+                      onclick="phoneRegisterVerifyOtp()"
+                      id="reg-verify-otp-btn"
+                    >
+                      Verify &amp; Create Account
+                    </button>
+                    <div class="otp-resend-row">
+                      <button
+                        onclick="phoneRegisterSendOtp(true)"
+                        id="reg-resend-btn"
+                        disabled
+                      >
+                        Resend code
+                        <span class="otp-timer" id="reg-otp-timer">(30s)</span>
+                      </button>
+                    </div>
+                    <div class="auth-switch" style="margin-top: 10px">
+                      <button onclick="phoneRegisterBack()">
+                        ← Change number
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="auth-switch">
+                  Already have an account?
+                  <button onclick="goTo('login')">Sign in</button>
+                </div>
+              </div>
+            </div>
+          </div>

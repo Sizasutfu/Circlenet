@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0a0d;
+  --color-surface: #111116;
+  --color-card: #16161c;
+  --color-border: #222230;
+  --color-border2: #2c2c3a;
+  --color-accent: #7c6bff;
+  --color-accent-h: #9585ff;
+  --color-accent-bg: rgba(124,107,255,0.12);
+  --color-accent-glow: rgba(124,107,255,0.25);
+  --color-green: #22d48f;
+  --color-green-bg: rgba(34,212,143,0.08);
+  --color-rose: #ff5f7a;
+  --color-rose-bg: rgba(255,95,122,0.1);
+  --color-txt: #eeeef5;
+  --color-txt2: #9090aa;
+  --color-txt3: #55556a;
+  --color-shadow: 0 4px 24px rgba(0,0,0,0.4);
+
+  --font-family-body: "Plus Jakarta Sans", sans-serif;
+  --font-family-head: "Bricolage Grotesque", sans-serif;
+
+  --radius-radius: 16px;
+  --radius-radius-sm: 10px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: #ffffff;
+  --color-surface: #f8fafc;
+  --color-card: #ffffff;
+  --color-border: #e5e7eb;
+  --color-border2: #cbd5e1;
+  --color-accent: #7c6bff;
+  --color-accent-h: #9585ff;
+  --color-accent-bg: rgba(124,107,255,0.12);
+  --color-accent-glow: rgba(124,107,255,0.16);
+  --color-green: #16a34a;
+  --color-green-bg: rgba(22,163,74,0.08);
+  --color-rose: #db2777;
+  --color-rose-bg: rgba(219,39,119,0.1);
+  --color-txt: #111827;
+  --color-txt2: #475569;
+  --color-txt3: #64748b;
+  --color-shadow: 0 10px 30px rgba(15,23,42,0.08);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-txt);
+  font-family: var(--font-family-body);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.7;
+  margin: 20px;
+}
+
+/* Keep this keyframe for any remaining animations (e.g., comments) */
+@keyframes artCardIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-card-in {
+  animation: artCardIn 0.2s ease both;
+}
+
+/* Utility for line‑clamp (if not provided by Tailwind plugin) */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

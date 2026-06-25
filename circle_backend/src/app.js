@@ -53,8 +53,26 @@ try { authRoutes = require('./routes/authRoutes'); } catch (_) {
 const app = express();
 
 app.use(cors);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// ── Conditional body parsers ─────────────────────────────
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.startsWith('application/json')) {
+    return express.json({ limit: '10mb' })(req, res, next);
+  }
+  if (contentType.startsWith('application/x-www-form-urlencoded')) {
+    return express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
+  }
+  next();
+});
+
+// ── JSON parse error handler ─────────────────────────────
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
+  }
+  next(err);
+});
 
 // Serve uploaded images and videos
 app.use('/uploads', express.static('uploads'));
@@ -117,16 +135,14 @@ app.use('/api/whisper',         whisperRoutes);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 
-
-
 // ── Start crons ───────────────────────────────────────────
 const { startGroupCron } = require('./models/GroupModel');
 startGroupCron();
 console.log('Group auto-creation cron started.');
 
+// ── Catch-all for frontend routing ───────────────────────
 app.get(/^\/(?!api).*/, (req, res) => {
   res.sendFile(path.join(FRONTEND, 'index.html'));
 });
-
 
 module.exports = app;

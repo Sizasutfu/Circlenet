@@ -1,0 +1,185 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import ThemeToggle from '../ThemeToggle';
+import { useAuth } from '@/lib/auth';
+
+export default function Header() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const isHomePage = pathname === '/' || pathname === '/articles';
+  const [query, setQuery] = useState('');
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const { user, logout } = useAuth();
+
+  useEffect(() => {
+    setQuery(searchParams.get('search') || '');
+  }, [searchParams]);
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      router.back();
+    } else {
+      router.push('/articles');
+    }
+  };
+
+  const handleSearchSubmit = async (event) => {
+    event.preventDefault();
+    const trimmed = query.trim();
+    const destination = trimmed ? `/articles?search=${encodeURIComponent(trimmed)}` : '/articles';
+    await router.push(destination);
+    setShowMobileSearch(false);
+  };
+
+  const toggleMobileSearch = () => {
+    setShowMobileSearch((current) => !current);
+  };
+
+  return (
+    <>
+      <header className="sticky top-0 left-0 right-0 z-50 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          {/* Back button – only show if not on home page */}
+          {!isHomePage && (
+            <button
+              onClick={goBack}
+              className="inline-flex items-center justify-center text-[var(--color-txt2)] text-sm font-semibold p-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-transparent hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-bg)] transition-all"
+              aria-label="Go back"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="w-4 h-4"
+              >
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Search form – desktop */}
+          <form
+            onSubmit={handleSearchSubmit}
+            className="hidden md:flex flex-1 min-w-0 items-center rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5"
+          >
+            <div className="relative flex-1 min-w-0">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-txt2)]"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search articles"
+                className="w-full bg-transparent pl-10 pr-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt2)] outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition hover:bg-[var(--color-accent-h)]"
+              aria-label="Search articles"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="h-5 w-5"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </button>
+          </form>
+
+          {/* Mobile search toggle */}
+          <button
+            type="button"
+            onClick={toggleMobileSearch}
+            className="inline-flex md:hidden h-10 w-10 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-txt2)] transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            aria-label={showMobileSearch ? 'Close search' : 'Open search'}
+            aria-expanded={showMobileSearch}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="h-5 w-5"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          </button>
+
+          <ThemeToggle />
+        </div>
+      </header>
+
+      {/* Mobile search dropdown */}
+      {showMobileSearch && (
+        <div className="md:hidden bg-[var(--color-surface)]/95 border-b border-[var(--color-border)] px-4 sm:px-6 pb-3">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="flex items-center rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5"
+          >
+            <div className="relative flex-1 min-w-0">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-txt2)]"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search articles"
+                className="w-full bg-transparent pl-10 pr-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt2)] outline-none"
+                autoFocus
+              />
+            </div>
+            <button
+              type="submit"
+              className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition hover:bg-[var(--color-accent-h)]"
+              aria-label="Search articles"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="h-5 w-5"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}

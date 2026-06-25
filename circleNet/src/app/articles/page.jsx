@@ -25,4 +25,3 @@ export default async function ArticlesPage() {
 
   return <ArticleGrid initialArticles={articles} initialTotal={total} />;
 }
-

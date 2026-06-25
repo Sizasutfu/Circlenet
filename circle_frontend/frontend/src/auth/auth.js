@@ -173,7 +173,10 @@ async function emailVerifyOtp() {
   const btn = document.getElementById("email-verify-btn");
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
   try {
-    await api("POST", "/api/users/email/verify", { email, code });
+    const res = await api("POST", "/api/users/email/verify", { email, code });
+    // ✅ FIX: Store the token if returned (needed to stay logged in on refresh)
+    if (res.token) localStorage.setItem("circle_token", res.token);
+
     if (_pendingVerifyUser) {
       // Coming from registration — user data already in memory
       setCurrentUser(_pendingVerifyUser);
@@ -375,6 +378,8 @@ async function phoneLoginVerifyOtp() {
 
   try {
     const res = await api("POST", "/api/auth/phone/verify-otp", { phone, code });
+    // ✅ FIX: store token if returned (important for session persistence)
+    if (res.token) localStorage.setItem("circle_token", res.token);
     _clearOtpTimer();
     setCurrentUser(res.data);
     showToast("Welcome back, " + (res.data?.name ?? "there").split(" ")[0] + "! 👋");
@@ -485,6 +490,8 @@ async function phoneRegisterVerifyOtp() {
 
   try {
     const res = await api("POST", "/api/auth/phone/register/verify-otp", { phone, code, name });
+    // ✅ FIX: store token if returned (needed to stay logged in on refresh)
+    if (res.token) localStorage.setItem("circle_token", res.token);
     _clearOtpTimer();
     setCurrentUser(res.data);
     showToast("Welcome to Circle, " + (res.data?.name ?? "friend").split(" ")[0] + "! 🎉");

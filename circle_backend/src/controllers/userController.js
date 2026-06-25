@@ -6,6 +6,7 @@
 // ============================================================
 
 const bcrypt            = require('bcrypt');
+const { generateToken } = require('../utils/jwt');
 const UserModel         = require('../models/userModel');
 const FollowModel       = require('../models/followModel');
 const NotificationModel = require('../models/notificationModel');
@@ -128,9 +129,12 @@ async function login(req, res) {
       });
     }
 
+   // Generate JWT
+    const token = generateToken({ id: user.id, email: user.email, name: user.name });
+
     // Never send the password hash to the client
     const { password: _, email_verified: __, ...safeUser } = user;
-    return sendOk(res, 200, 'Login successful.', safeUser);
+    return sendOk(res, 200, 'Login successful.', { ...safeUser, token });
   } catch (err) {
     console.error('login error:', err);
     return sendError(res, 500, 'Server error.');

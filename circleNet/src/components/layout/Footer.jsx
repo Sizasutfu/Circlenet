@@ -1,22 +1,29 @@
+// src/components/layout/Footer.jsx
+'use client';
+
+import Link from 'next/link';
+
 export default function Footer() {
+  const year = new Date().getFullYear();
+
   return (
-    <footer className="border-t border-border mt-12 py-8 text-txt3 text-sm">
+    <footer className="border-t border-[var(--color-border)] mt-12 py-8 text-[var(--color-txt3)] text-sm">
       <div className="max-w-screen-lg mx-auto px-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-semibold text-txt">Circle Blog</p>
-          <p>© {new Date().getFullYear()} Circle. All rights reserved.</p>
+          <p className="font-semibold text-[var(--color-txt)]">CircleNet</p>
+          <p>© {year} CircleNet. All rights reserved.</p>
         </div>
 
         <div className="flex flex-wrap justify-center gap-4 text-sm">
-          <a href="/about" className="hover:text-accent transition-colors">
+          <Link href="/about" className="hover:text-[var(--color-accent)] transition-colors">
             About
-          </a>
-          <a href="/privacy-policy" className="hover:text-accent transition-colors">
+          </Link>
+          <Link href="/privacy-policy" className="hover:text-[var(--color-accent)] transition-colors">
             Privacy Policy
-          </a>
-          <a href="/contact" className="hover:text-accent transition-colors">
+          </Link>
+          <Link href="/contact" className="hover:text-[var(--color-accent)] transition-colors">
             Contact
-          </a>
+          </Link>
         </div>
       </div>
     </footer>

@@ -40,6 +40,7 @@ export default function RootLayout({ children }) {
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1816934530564614"
           crossOrigin="anonymous"
         />
+        <link rel="manifest" href="/manifest.json" />
       </head>
       <body className="bg-bg text-txt font-body antialiased">
         <Providers>

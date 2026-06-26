@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  allowedDevOrigins: ['10.38.154.203'],
+  allowedDevOrigins: ['10.25.111.203'],
 
   // ── Rewrites – proxy API and uploads to your Circle backend ──
   rewrites() {

@@ -12,6 +12,7 @@ const ALLOWED_ORIGINS = [
   'https://www.circlenet.social',
   'https://admin.circlenet.social',
   'http://localhost:3000',
+  'http://10.25.111.203:3000',
   'https://circlenet-articles.vercel.app/articles',
   'https://blog.circlenet.social',
 

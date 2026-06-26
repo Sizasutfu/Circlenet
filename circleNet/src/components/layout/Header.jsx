@@ -1,10 +1,12 @@
+// src/components/layout/Header.jsx
 'use client';
+
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import ThemeToggle from '../ThemeToggle';
 import { useAuth } from '@/lib/auth';
 
-export default function Header() {
+export default function Header({ onMenuClick }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -13,8 +15,35 @@ export default function Header() {
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const { user, logout } = useAuth();
 
+  // ── Detect current context for search placeholder ──
+  const getSearchContext = () => {
+    if (pathname.startsWith('/groups')) return 'groups';
+    if (pathname.startsWith('/articles')) return 'articles';
+    if (pathname.startsWith('/search')) {
+      const type = searchParams.get('type');
+      return type || 'posts';
+    }
+    return 'posts'; // default for feed, profile, messages, etc.
+  };
+
+  const searchContext = getSearchContext();
+  const placeholders = {
+    posts: 'Search posts...',
+    people: 'Search people...',
+    groups: 'Search groups...',
+    articles: 'Search articles...',
+  };
+
+  const searchTypes = {
+    posts: 'posts',
+    people: 'people',
+    groups: 'groups',
+    articles: 'articles',
+  };
+
   useEffect(() => {
-    setQuery(searchParams.get('search') || '');
+    const q = searchParams.get('q') || '';
+    setQuery(q);
   }, [searchParams]);
 
   const goBack = () => {
@@ -25,11 +54,12 @@ export default function Header() {
     }
   };
 
-  const handleSearchSubmit = async (event) => {
-    event.preventDefault();
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
     const trimmed = query.trim();
-    const destination = trimmed ? `/articles?search=${encodeURIComponent(trimmed)}` : '/articles';
-    await router.push(destination);
+    if (!trimmed) return;
+    const type = searchTypes[searchContext] || 'posts';
+    router.push(`/search?q=${encodeURIComponent(trimmed)}&type=${type}`);
     setShowMobileSearch(false);
   };
 
@@ -40,74 +70,61 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 left-0 right-0 z-50 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 min-w-0">
-          {/* Back button – only show if not on home page */}
+        {/* Left: hamburger + back button */}
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Hamburger menu button – visible only on mobile */}
+          <button
+            onClick={onMenuClick}
+            className="md:hidden inline-flex items-center justify-center text-[var(--color-txt2)] p-2 rounded-lg hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition"
+            aria-label="Toggle navigation"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+
           {!isHomePage && (
             <button
               onClick={goBack}
               className="inline-flex items-center justify-center text-[var(--color-txt2)] text-sm font-semibold p-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-transparent hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-bg)] transition-all"
               aria-label="Go back"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="w-4 h-4"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
           )}
         </div>
 
+        {/* Right: search + theme toggle */}
         <div className="flex items-center gap-2 min-w-0">
-          {/* Search form – desktop */}
           <form
             onSubmit={handleSearchSubmit}
             className="hidden md:flex flex-1 min-w-0 items-center rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5"
           >
             <div className="relative flex-1 min-w-0">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-txt2)]"
-              >
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-txt2)]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="7" />
                 <path d="M21 21l-4.35-4.35" />
               </svg>
               <input
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search articles"
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={placeholders[searchContext] || 'Search...'}
                 className="w-full bg-transparent pl-10 pr-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt2)] outline-none"
               />
             </div>
-            <button
-              type="submit"
-              className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition hover:bg-[var(--color-accent-h)]"
-              aria-label="Search articles"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="h-5 w-5"
-              >
+            <button type="submit" className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition hover:bg-[var(--color-accent-h)]" aria-label="Search">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="7" />
                 <path d="M21 21l-4.35-4.35" />
               </svg>
             </button>
           </form>
 
-          {/* Mobile search toggle */}
           <button
             type="button"
             onClick={toggleMobileSearch}
@@ -115,14 +132,7 @@ export default function Header() {
             aria-label={showMobileSearch ? 'Close search' : 'Open search'}
             aria-expanded={showMobileSearch}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              className="h-5 w-5"
-            >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="7" />
               <path d="M21 21l-4.35-4.35" />
             </svg>
@@ -135,44 +145,23 @@ export default function Header() {
       {/* Mobile search dropdown */}
       {showMobileSearch && (
         <div className="md:hidden bg-[var(--color-surface)]/95 border-b border-[var(--color-border)] px-4 sm:px-6 pb-3">
-          <form
-            onSubmit={handleSearchSubmit}
-            className="flex items-center rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5"
-          >
+          <form onSubmit={handleSearchSubmit} className="flex items-center rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5">
             <div className="relative flex-1 min-w-0">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-txt2)]"
-              >
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-txt2)]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="7" />
                 <path d="M21 21l-4.35-4.35" />
               </svg>
               <input
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search articles"
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={placeholders[searchContext] || 'Search...'}
                 className="w-full bg-transparent pl-10 pr-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt2)] outline-none"
                 autoFocus
               />
             </div>
-            <button
-              type="submit"
-              className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition hover:bg-[var(--color-accent-h)]"
-              aria-label="Search articles"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="h-5 w-5"
-              >
+            <button type="submit" className="ml-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition hover:bg-[var(--color-accent-h)]" aria-label="Search">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="7" />
                 <path d="M21 21l-4.35-4.35" />
               </svg>

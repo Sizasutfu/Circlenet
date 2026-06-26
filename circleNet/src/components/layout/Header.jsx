@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import ThemeToggle from '../ThemeToggle';
 import { useAuth } from '@/lib/auth';
 
-export default function Header({ onMenuClick }) {
+export default function Header({ onMenuClick, hidden = false }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -69,7 +69,11 @@ export default function Header({ onMenuClick }) {
 
   return (
     <>
-      <header className="sticky top-0 left-0 right-0 z-50 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+      <header
+        className={`sticky top-0 left-0 right-0 z-[60] bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4 ${
+          hidden ? 'max-md:hidden' : ''
+        }`}
+      >
         {/* Left: hamburger + back button */}
         <div className="flex items-center gap-3 min-w-0">
           {/* Hamburger menu button – visible only on mobile */}

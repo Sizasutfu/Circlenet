@@ -2,7 +2,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { apiClient } from '@/lib/api';
 
 // ── SVG Icons ──
 const TwitterIcon = () => (
@@ -50,7 +51,6 @@ const MailIcon = () => (
   </svg>
 );
 
-// ── Trust badge icons ──
 const LockIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -86,10 +86,30 @@ const CoffeeIcon = () => (
   </svg>
 );
 
+// ── Main Footer Component ──
 export default function Footer() {
   const year = new Date().getFullYear();
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
+  const [trendingTopics, setTrendingTopics] = useState([]);
+  const [topicsLoading, setTopicsLoading] = useState(true);
+
+  // ── Fetch trending topics ──
+  useEffect(() => {
+    const fetchTrending = async () => {
+      try {
+        const res = await apiClient('/api/topics?limit=4');
+        const topics = res.data || [];
+        setTrendingTopics(topics);
+      } catch (err) {
+        console.warn('Failed to fetch trending topics:', err);
+        setTrendingTopics([]);
+      } finally {
+        setTopicsLoading(false);
+      }
+    };
+    fetchTrending();
+  }, []);
 
   const handleSubscribe = (e) => {
     e.preventDefault();
@@ -115,15 +135,9 @@ export default function Footer() {
               Where real connections happen. Share moments, join conversations, and grow your community.
             </p>
             <div className="flex flex-wrap gap-4 mt-3 text-xs text-[var(--color-txt3)]">
-              <span className="flex items-center gap-1">
-                <LockIcon /> SSL Secured
-              </span>
-              <span className="flex items-center gap-1">
-                <ShieldIcon /> Privacy Protected
-              </span>
-              <span className="flex items-center gap-1">
-                <LightningIcon /> 99.9% Uptime
-              </span>
+              <span className="flex items-center gap-1"><LockIcon /> SSL Secured</span>
+              <span className="flex items-center gap-1"><ShieldIcon /> Privacy Protected</span>
+              <span className="flex items-center gap-1"><LightningIcon /> 99.9% Uptime</span>
             </div>
           </div>
 
@@ -153,33 +167,9 @@ export default function Footer() {
           <div>
             <h3 className="font-semibold text-[var(--color-txt)] mb-3">Follow Us</h3>
             <div className="flex gap-4 mb-4">
-              <a
-                href="https://twitter.com/circlenet"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
-                aria-label="Twitter"
-              >
-                <TwitterIcon />
-              </a>
-              <a
-                href="https://github.com/circlenet"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
-                aria-label="GitHub"
-              >
-                <GitHubIcon />
-              </a>
-              <a
-                href="https://www.youtube.com/c/circlenet"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
-                aria-label="YouTube"
-              >
-                <YouTubeIcon />
-              </a>
+              <a href="https://twitter.com/circlenet" target="_blank" rel="noopener noreferrer" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition" aria-label="Twitter"><TwitterIcon /></a>
+              <a href="https://github.com/circlenet" target="_blank" rel="noopener noreferrer" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition" aria-label="GitHub"><GitHubIcon /></a>
+              <a href="https://www.youtube.com/c/circlenet" target="_blank" rel="noopener noreferrer" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition" aria-label="YouTube"><YouTubeIcon /></a>
             </div>
 
             {/* Language selector */}
@@ -194,30 +184,31 @@ export default function Footer() {
                   <option value="es">Español</option>
                   <option value="de">Deutsch</option>
                 </select>
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-txt3)]">
-                  <GlobeIcon />
-                </span>
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-txt3)]"><GlobeIcon /></span>
               </div>
             </div>
 
-            {/* Trending topics */}
+            {/* Trending topics – dynamic from API */}
             <div>
               <p className="text-xs font-medium text-[var(--color-txt2)] uppercase tracking-wider mb-1 flex items-center gap-1">
                 <HashtagIcon /> Trending
               </p>
               <div className="flex flex-wrap gap-2">
-                <Link href="/topic/tech" className="text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition text-xs flex items-center">
-                  <HashtagIcon /> tech
-                </Link>
-                <Link href="/topic/community" className="text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition text-xs flex items-center">
-                  <HashtagIcon /> community
-                </Link>
-                <Link href="/topic/live" className="text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition text-xs flex items-center">
-                  <HashtagIcon /> live
-                </Link>
-                <Link href="/topic/design" className="text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition text-xs flex items-center">
-                  <HashtagIcon /> design
-                </Link>
+                {topicsLoading ? (
+                  <span className="text-xs text-[var(--color-txt3)]">Loading…</span>
+                ) : trendingTopics.length === 0 ? (
+                  <span className="text-xs text-[var(--color-txt3)]">No trending topics</span>
+                ) : (
+                  trendingTopics.map((topic) => (
+                    <Link
+                      key={topic.topic}
+                      href={`/topic/${encodeURIComponent(topic.topic)}`}
+                      className="text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition text-xs flex items-center"
+                    >
+                      <HashtagIcon /> {topic.topic}
+                    </Link>
+                  ))
+                )}
               </div>
             </div>
           </div>

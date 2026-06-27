@@ -1,123 +1,91 @@
-// ============================================================
-//  sw.js  –  Circle Service Worker
-//  Strategy:
-//    • App shell (HTML, icons, manifest) → Cache-first
-//    • Navigation requests               → Network-first, cache fallback
-//    • API calls (/api/*)                → Stale-while-revalidate
-//                                           (serve cache, update in bg)
-//    • Uploaded media (/uploads/*)       → Cache-first, network fallback
-//    • Everything else                   → Network, fall back to cache
-//    • Push notifications                → Show system notification
-//                                           + deep-link on click
-// ============================================================
-
-const CACHE_NAME    = 'circle-v7';
-const API_CACHE     = 'circle-api-v5';
-const MEDIA_CACHE   = 'circle-media-v5';
-const OFFLINE_URL   = './index.html';
-
-// Max age for cached API responses (5 minutes)
-const API_MAX_AGE_MS    = 30 * 60 * 1000;
-// Max number of API responses to cache
-const API_MAX_ENTRIES   = 20;
-// Max number of media files to cache
-const MEDIA_MAX_ENTRIES = 100;
-
-const PRECACHE_URLS = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon.png',
-  '/src/config/api.js',
-  '/src/auth/auth.js',
-  '/src/lightbox/lightbox_v2.js',
-  '/src/feed/feed_v2.js',
-  '/src/groups/groups.js',
-  '/src/profile/profile.js',
-  '/src/comments/comments.js',
-  '/src/reposts/reposts.js',
-  '/src/explore/explore.js',
-  '/src/search/search.js',
-  '/src/settings/settings.js',
-  '/src/notifications/notifications.js',
-  '/src/pushNotifications/pushNotifications.js',
-  '/src/dm/dm.js',
-  '/src/media/media.js',
-  '/src/post-detail/postDetail.js',
-  '/src/suggested-users/suggested-users.js',
-  '/src/router/router.js',
-  '/src/dail-codes/dailcodes.js',
-  '/src/whisper/whisper-composer.js',
-  '/src/whisper/whisper-inbox.js',
-  '/src/whisper/whisper-send.js',
-  '/src/whisper/whisper-settings.js',
-  '/main.js',
-  '/wsClient.js',
-  '/src/live/live.js',
+// public/sw.js
+const CACHE_NAME = 'circlenet-v1';
+const STATIC_ASSETS = [
+  '/',
+  '/manifest.json',
+  '/icon.png',
+  '/icon-maskable.png',
 ];
 
-// ── Helpers ───────────────────────────────────────────────
-
-// Stamp a response with a custom header so we can check its age later
-function stampResponse(response) {
-  const headers = new Headers(response.headers);
-  headers.set('sw-cached-at', Date.now().toString());
-  return new Response(response.body, {
-    status:     response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-// Returns true if the cached response is older than API_MAX_AGE_MS
-function isStale(cachedResponse) {
-  const cachedAt = cachedResponse.headers.get('sw-cached-at');
-  if (!cachedAt) return true;
-  return Date.now() - parseInt(cachedAt, 10) > API_MAX_AGE_MS;
-}
-
-// Trim a cache to a max number of entries (evict oldest first)
-async function trimCache(cacheName, maxEntries) {
-  const cache = await caches.open(cacheName);
-  const keys  = await cache.keys();
-  if (keys.length > maxEntries) {
-    await cache.delete(keys[0]);
-    await trimCache(cacheName, maxEntries);
-  }
-}
-
-// ── Install: pre-cache app shell ──────────────────────────
-self.addEventListener('install', event => {
+// ── Install: cache static assets ──
+self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(PRECACHE_URLS))
+      .then((cache) => {
+        // Use allSettled so a single failing asset doesn't break the whole install
+        return Promise.allSettled(
+          STATIC_ASSETS.map((url) =>
+            cache.add(url).catch((err) => {
+              console.warn(`[SW] Failed to cache ${url}:`, err);
+            })
+          )
+        );
+      })
       .then(() => self.skipWaiting())
   );
 });
 
-// ── Activate: remove old caches ───────────────────────────
-self.addEventListener('activate', event => {
-  const KEEP = [CACHE_NAME, API_CACHE, MEDIA_CACHE];
+// ── Activate: remove old caches ──
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(keys =>
+    caches.keys().then((keys) =>
       Promise.all(
-        keys
-          .filter(key => !KEEP.includes(key))
-          .map(key => caches.delete(key))
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
       )
     ).then(() => self.clients.claim())
   );
 });
 
-// ── Push: receive and display notification ────────────────
-self.addEventListener('push', event => {
+// ── Fetch: network-first for navigation, cache-first for assets ──
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  // Skip cross-origin, non-GET, and API requests
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
+
+  // For navigation (HTML) – try network first, fallback to cache
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => {
+          return caches.match(request).then((cached) => cached || caches.match('/'));
+        })
+    );
+    return;
+  }
+
+  // For static assets – cache first, fallback to network
+  event.respondWith(
+    caches.match(request)
+      .then((cached) => {
+        if (cached) return cached;
+        return fetch(request)
+          .then((response) => {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            return response;
+          })
+          .catch(() => new Response('Offline', { status: 503 }));
+      })
+  );
+});
+
+// ── Push: display notification ──
+self.addEventListener('push', (event) => {
   let payload = {
     title: 'Circle',
-    body:  'You have a new notification',
-    icon:  self.location.origin + '/icon.png',
-    badge: self.location.origin + '/icon.png',
-    tag:   'circle-notification',
-    data:  { url: './' },
+    body: 'You have a new notification',
+    icon: '/icon.png',
+    badge: '/icon.png',
+    tag: 'circle-notification',
+    data: { url: '/' },
   };
 
   if (event.data) {
@@ -130,67 +98,32 @@ self.addEventListener('push', event => {
     }
   }
 
-  const options = {
-    body:               payload.body,
-    icon:               payload.icon  || (self.location.origin + '/icon.png'),
-    badge:              payload.badge || (self.location.origin + '/icon.png'),
-    tag:                payload.tag   || 'circle-notification',
-    data:               payload.data,
-    vibrate:            [100, 50, 100],
-    renotify:           true,
-    requireInteraction: false,
-    actions:            payload.actions || [],
-  };
-
   event.waitUntil(
-    self.registration.showNotification(payload.title, options)
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: payload.icon,
+      badge: payload.badge,
+      tag: payload.tag,
+      data: payload.data,
+      vibrate: [100, 50, 100],
+      renotify: true,
+    })
   );
 });
 
-// ── Notification click: focus app and deep-navigate ───────
-self.addEventListener('notificationclick', event => {
+// ── Notification Click: deep-link ──
+self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const notifData = event.notification.data || {};
-  const tag       = event.notification.tag  || '';
-
   let notifType = notifData.notifType || null;
-  let postId    = notifData.postId    ? Number(notifData.postId)  : null;
-  let actorId   = notifData.actorId   ? Number(notifData.actorId) : null;
-  let notifId   = notifData.notifId   ? Number(notifData.notifId) : null;
-  const fallback = notifData.url || './';
-
-  if (!notifType && tag && tag !== 'circle-welcome' && tag !== 'circle-notification') {
-    const POST_TYPES  = ['like','comment','reply','repost','mention','new_post'];
-    const ACTOR_TYPES = ['follow','profile_pic'];
-    const dashIdx = tag.lastIndexOf('-');
-    const tagType = dashIdx > -1 ? tag.slice(0, dashIdx) : tag;
-    const tagId   = dashIdx > -1 ? parseInt(tag.slice(dashIdx + 1), 10) : null;
-
-    if (POST_TYPES.includes(tagType)) {
-      notifType = tagType;
-      if (!postId && tagId) postId = tagId;
-    } else if (ACTOR_TYPES.includes(tagType)) {
-      notifType = tagType;
-      if (!actorId && tagId) actorId = tagId;
-    } else if (tag === 'milestone') {
-      notifType = 'milestone';
-    }
-  }
-
-  console.log('[Circle SW] notificationclick', { notifType, postId, actorId, notifId, tag, notifData });
-
-  let deepUrl = fallback;
-  if (notifType === 'follow' || notifType === 'profile_pic') {
-    deepUrl = `${fallback}#notif:profile:${actorId || ''}`;
-  } else if (postId) {
-    deepUrl = `${fallback}#notif:post:${postId}`;
-  } else if (notifType === 'milestone') {
-    deepUrl = `${fallback}#notif:profile:me`;
-  }
+  let postId = notifData.postId ? Number(notifData.postId) : null;
+  let actorId = notifData.actorId ? Number(notifData.actorId) : null;
+  let notifId = notifData.notifId ? Number(notifData.notifId) : null;
+  const fallback = notifData.url || '/';
 
   const msgPayload = {
-    type:      'NOTIFICATION_CLICK',
+    type: 'NOTIFICATION_CLICK',
     notifType,
     postId,
     actorId,
@@ -198,7 +131,7 @@ self.addEventListener('notificationclick', event => {
   };
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
         if (client.url.startsWith(self.location.origin) && 'focus' in client) {
           client.postMessage(msgPayload);
@@ -206,130 +139,8 @@ self.addEventListener('notificationclick', event => {
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow(deepUrl);
+        return clients.openWindow(fallback);
       }
-    })
-  );
-});
-
-// ── Push subscription change ──────────────────────────────
-self.addEventListener('pushsubscriptionchange', event => {
-  event.waitUntil(
-    self.registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: event.oldSubscription
-        ? event.oldSubscription.options.applicationServerKey
-        : null,
-    }).then(subscription =>
-      fetch('/api/push/subscribe', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ subscription }),
-      })
-    )
-  );
-});
-
-// ── Fetch: route by request type ─────────────────────────
-self.addEventListener('fetch', event => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  // Never intercept non-GET or cross-origin requests
-  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
-
-  // ── Uploaded media → cache-first, network fallback ──
-  if (url.pathname.startsWith('/uploads/')) {
-    event.respondWith(
-      caches.open(MEDIA_CACHE).then(async cache => {
-        const cached = await cache.match(request);
-        if (cached) return cached;
-
-        try {
-          const response = await fetch(request);
-          if (response && response.status === 200) {
-            cache.put(request, response.clone());
-            trimCache(MEDIA_CACHE, MEDIA_MAX_ENTRIES);
-          }
-          return response;
-        } catch {
-          return new Response('', { status: 503 });
-        }
-      })
-    );
-    return;
-  }
-
-  // ── API calls → stale-while-revalidate ──────────────
-  if (url.pathname.startsWith('/api/')) {
-    const SKIP_CACHE = [
-      '/api/auth',
-      '/api/push',
-      '/api/admin',
-    ];
-    const shouldSkip = SKIP_CACHE.some(p => url.pathname.startsWith(p));
-
-    if (shouldSkip) return;
-
-    event.respondWith(
-      caches.open(API_CACHE).then(async cache => {
-        const cached = await cache.match(request);
-
-        const networkFetch = fetch(request)
-          .then(async response => {
-            if (response && response.status === 200) {
-              const stamped = stampResponse(response.clone());
-              await cache.put(request, stamped);
-              trimCache(API_CACHE, API_MAX_ENTRIES);
-            }
-            return response;
-          })
-          .catch(() => null);
-
-        if (cached) return cached;
-
-        const networkResponse = await networkFetch;
-        if (networkResponse) return networkResponse;
-
-        return new Response(JSON.stringify({ offline: true, data: [] }), {
-          status:  200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      })
-    );
-    return;
-  }
-
-  // ── App shell + static assets ────────────────────────
-  // Navigation requests (page loads) → network-first so pages like
-  // /reset-password always get a fresh response, fall back to cache offline.
-  // Static assets → cache-first for performance.
-  event.respondWith(
-    caches.match(request).then(cached => {
-      if (request.mode === 'navigate') {
-        return fetch(request)
-          .then(response => {
-            if (!response || response.status !== 200) return cached || response;
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
-            return response;
-          })
-          .catch(() => cached || caches.match(OFFLINE_URL));
-      }
-
-      // Static assets — cache first
-      if (cached) return cached;
-
-      return fetch(request)
-        .then(response => {
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
-          return response;
-        })
-        .catch(() => caches.match(OFFLINE_URL));
     })
   );
 });

@@ -315,6 +315,22 @@ async function updateUsername(req, res) {
   }
 }
 
+// ── Get user by username ──
+async function getUserByUsername(req, res) {
+  try {
+    const { username } = req.params;
+    const user = await UserModel.getByUsername(username);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    // Return the same shape as getProfile
+    return res.json({ success: true, data: user });
+  } catch (err) {
+    console.error('getUserByUsername error:', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -325,4 +341,5 @@ module.exports = {
   updateUsername,
   searchUsers,
   getNewMembers,
+  getUserByUsername
 };

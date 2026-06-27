@@ -252,7 +252,23 @@ async function getNewMembers(viewerId, limit = 10) {
   const [rows] = await db.query(query, params);
   return rows;
 }
-
+// ── Get user by username ──
+ // ── Get user by username ──
+ // ── Get user by username ──
+// ── Get user by username ──
+async function getByUsername(username) {
+  const [rows] = await db.query(
+    `SELECT id, name, username, email, bio, picture, 
+            cover_image as coverImage,
+            location, school, occupation, website, gender, phone, 
+            date_of_birth as dateOfBirth, 
+            created_at as joined
+     FROM users 
+     WHERE username = ?`,
+    [username]
+  );
+  return rows.length ? rows[0] : null;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 //  PASTE THESE THREE METHODS INTO your models/userModel.js
 //
@@ -301,4 +317,4 @@ async function markEmailVerified(userId) {
   );
 }
 
-module.exports = { ...UserModel, getNewMembers, saveVerificationCode, findByValidVerificationCode, markEmailVerified };
+module.exports = { ...UserModel, getNewMembers, saveVerificationCode, findByValidVerificationCode, markEmailVerified, getByUsername };

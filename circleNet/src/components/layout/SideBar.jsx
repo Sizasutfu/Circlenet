@@ -6,8 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useLive } from '@/contexts/LiveContext';
+import { useCompose } from '@/contexts/ComposeContext';
 import { useState } from 'react';
-
 
 // ── Icons ──
 const HomeIcon = (props) => (
@@ -115,7 +115,8 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { openPanel, unreadCount } = useNotifications();
-  const { openSetup } = useLive()
+  const { openSetup } = useLive();
+  const { openCompose } = useCompose();
   const [dmCount, setDmCount] = useState(5);
 
   const navItems = [
@@ -162,7 +163,6 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
       id: 'live',
       label: 'Go Live',
       icon: LiveIcon,
-      href: '/live',
       onClick: openSetup,
       isLive: true,
     },
@@ -174,8 +174,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
   };
 
   const handleCreatePost = () => {
-    console.log('Open compose');
-    // TODO: open composer modal
+    openCompose();
   };
 
   const handleLinkClick = () => {
@@ -188,21 +187,20 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
 
   return (
     <>
-      {/* Overlay – only visible on mobile when sidebar is open */}
       {isOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={onClose} />
       )}
 
-      {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-screen w-[260px] flex-col bg-[var(--color-card)] border-r border-[var(--color-border)] shadow-[var(--color-shadow)] transform transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0`}
+        className={`
+          fixed left-0 top-0 z-50 flex h-screen w-[260px] flex-col
+          bg-[var(--color-card)] border-r border-[var(--color-border)]
+          shadow-[var(--color-shadow)]
+          transform transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:translate-x-0
+        `}
       >
-        {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-[var(--color-border)]">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-accent)] shadow-md shadow-[var(--color-accent-glow)]">
             <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white">
@@ -214,7 +212,6 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
           </span>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
@@ -236,25 +233,28 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
               );
             }
 
-            if (item.isLive) {
+            // ── Go Live button ──
+            if (item.id === 'live') {
               return (
-                <Link
+                <button
                   key={item.id}
-                  href={item.href}
-                  onClick={handleLinkClick}
-                  className="group relative flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-3 text-sm font-medium text-white shadow-md shadow-rose-500/30 transition-all hover:shadow-lg hover:shadow-rose-500/50 hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={() => {
+                    item.onClick?.();
+                    handleLinkClick();
+                  }}
+                  className="group relative flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-3 text-sm font-medium text-white shadow-md shadow-rose-500/30 transition-all hover:shadow-lg hover:shadow-rose-500/50 hover:scale-[1.02] active:scale-[0.98] w-full text-left"
                 >
                   <Icon className="h-5 w-5" />
                   <span>{item.label}</span>
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500"></span>
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500" />
                   </span>
-                </Link>
+                </button>
               );
             }
 
-            // Special handling for notifications (uses onClick)
+            // ── Notifications (button with openPanel) ──
             if (item.id === 'notifications') {
               return (
                 <button
@@ -264,7 +264,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
                     handleLinkClick();
                   }}
                   className={`
-                    group relative flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all
+                    group relative flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all w-full text-left
                     ${
                       isActive
                         ? 'bg-[var(--color-accent-bg)] text-[var(--color-accent)] shadow-sm shadow-[var(--color-accent-glow)]'
@@ -295,7 +295,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
               );
             }
 
-            // Regular internal link
+            // ── Regular internal links ──
             return (
               <Link
                 key={item.id}
@@ -350,7 +350,6 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
           </button>
         </nav>
 
-        {/* User Area */}
         {user ? (
           <div className="border-t border-[var(--color-border)] p-4">
             <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface)] p-2 transition-colors hover:bg-[var(--color-accent-bg)]">

@@ -3,47 +3,40 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import ThemeToggle from '../ThemeToggle';
 import { useAuth } from '@/lib/auth';
 
-export default function Header({ onMenuClick, hidden = false }) {
+export default function Header({ onMenuClick }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isHomePage = pathname === '/' || pathname === '/articles';
-  const [query, setQuery] = useState('');
-  const [showMobileSearch, setShowMobileSearch] = useState(false);
   const { user, logout } = useAuth();
 
-  // ── Detect current context for search placeholder ──
-  const getSearchContext = () => {
-    if (pathname.startsWith('/groups')) return 'groups';
-    if (pathname.startsWith('/articles')) return 'articles';
-    if (pathname.startsWith('/search')) {
-      const type = searchParams.get('type');
-      return type || 'posts';
-    }
-    return 'posts'; // default for feed, profile, messages, etc.
-  };
+  const [query, setQuery] = useState('');
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
 
-  const searchContext = getSearchContext();
-  const placeholders = {
-    posts: 'Search posts...',
-    people: 'Search people...',
-    groups: 'Search groups...',
-    articles: 'Search articles...',
-  };
-
-  const searchTypes = {
-    posts: 'posts',
-    people: 'people',
-    groups: 'groups',
-    articles: 'articles',
-  };
+  // ── Client‑only placeholder (avoids hydration mismatch) ──
+  const [placeholder, setPlaceholder] = useState('Search...');
 
   useEffect(() => {
-    const q = searchParams.get('q') || '';
-    setQuery(q);
+    const getSearchContext = () => {
+      if (pathname.startsWith('/groups')) return 'Search groups...';
+      if (pathname.startsWith('/articles')) return 'Search articles...';
+      if (pathname.startsWith('/search')) {
+        const type = searchParams.get('type');
+        if (type === 'people') return 'Search people...';
+        if (type === 'groups') return 'Search groups...';
+        return 'Search posts...';
+      }
+      return 'Search posts...';
+    };
+    setPlaceholder(getSearchContext());
+  }, [pathname, searchParams]);
+
+  useEffect(() => {
+    setQuery(searchParams.get('q') || '');
   }, [searchParams]);
 
   const goBack = () => {
@@ -54,11 +47,11 @@ export default function Header({ onMenuClick, hidden = false }) {
     }
   };
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
+  const handleSearchSubmit = async (event) => {
+    event.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) return;
-    const type = searchTypes[searchContext] || 'posts';
+    const type = pathname.startsWith('/groups') ? 'groups' : 'posts';
     router.push(`/search?q=${encodeURIComponent(trimmed)}&type=${type}`);
     setShowMobileSearch(false);
   };
@@ -69,14 +62,10 @@ export default function Header({ onMenuClick, hidden = false }) {
 
   return (
     <>
-      <header
-        className={`sticky top-0 left-0 right-0 z-[60] bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4 ${
-          hidden ? 'max-md:hidden' : ''
-        }`}
-      >
-        {/* Left: hamburger + back button */}
+      <header className="sticky top-0 left-0 right-0 z-40 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+        {/* Left: hamburger + logo + back */}
         <div className="flex items-center gap-3 min-w-0">
-          {/* Hamburger menu button – visible only on mobile */}
+          {/* Hamburger – visible only on mobile */}
           <button
             onClick={onMenuClick}
             className="md:hidden inline-flex items-center justify-center text-[var(--color-txt2)] p-2 rounded-lg hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition"
@@ -89,6 +78,20 @@ export default function Header({ onMenuClick, hidden = false }) {
             </svg>
           </button>
 
+          {/* Logo – visible on all screens */}
+          <Link
+            href="/feed"
+            className="flex items-center gap-2 font-head text-lg font-extrabold text-[var(--color-txt)] tracking-tight min-w-0"
+          >
+            <div className="w-7 h-7 bg-[var(--color-accent)] rounded-lg grid place-items-center shadow-[var(--color-accent-glow)] flex-shrink-0">
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-white">
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+            </div>
+            <span className="hidden sm:inline">Circlenet</span>
+          </Link>
+
+          {/* Back button – only if not home */}
           {!isHomePage && (
             <button
               onClick={goBack}
@@ -102,7 +105,7 @@ export default function Header({ onMenuClick, hidden = false }) {
           )}
         </div>
 
-        {/* Right: search + theme toggle */}
+        {/* Right: search + theme */}
         <div className="flex items-center gap-2 min-w-0">
           <form
             onSubmit={handleSearchSubmit}
@@ -117,7 +120,7 @@ export default function Header({ onMenuClick, hidden = false }) {
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={placeholders[searchContext] || 'Search...'}
+                placeholder={placeholder}
                 className="w-full bg-transparent pl-10 pr-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt2)] outline-none"
               />
             </div>
@@ -159,7 +162,7 @@ export default function Header({ onMenuClick, hidden = false }) {
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={placeholders[searchContext] || 'Search...'}
+                placeholder={placeholder}
                 className="w-full bg-transparent pl-10 pr-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt2)] outline-none"
                 autoFocus
               />

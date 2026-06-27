@@ -31,6 +31,78 @@ function fmtNum(n) {
   return String(n || 0);
 }
 
+// ── User list modal ──
+function UserListModal({ title, users, onClose, isLoading }) {
+  const { user: currentUser } = useAuth();
+  const router = useRouter();
+
+  const handleUserClick = (userId) => {
+    onClose();
+    if (userId === currentUser?.id) {
+      router.push('/profile');
+    } else {
+      router.push(`/profile/${userId}`);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
+          <h3 className="font-head font-bold text-[var(--color-txt)]">{title}</h3>
+          <button onClick={onClose} className="text-[var(--color-txt2)] hover:text-[var(--color-txt)] text-xl">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="inline-block h-6 w-6 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
+            </div>
+          ) : users.length === 0 ? (
+            <p className="text-center text-[var(--color-txt2)] py-8">No {title.toLowerCase()} yet.</p>
+          ) : (
+            users.map((user) => {
+              const avatarUrl = resolveMediaUrl(user.picture);
+              const initial = (user.name || '?').charAt(0).toUpperCase();
+              const color = stringToColor(user.name || '');
+              return (
+                <div
+                  key={user.id}
+                  className="flex items-center gap-3 p-3 hover:bg-[var(--color-surface)] rounded-xl cursor-pointer transition"
+                  onClick={() => handleUserClick(user.id)}
+                >
+                  <div
+                    className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
+                    style={{ background: avatarUrl ? 'transparent' : color }}
+                  >
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
+                    ) : (
+                      initial
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-[var(--color-txt)] text-sm">{user.name}</div>
+                    <div className="text-xs text-[var(--color-txt2)]">@{user.username}</div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Toast ──
+function Toast({ message, type }) {
+  return (
+    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium ${type === 'error' ? 'bg-[var(--color-rose)]' : 'bg-[var(--color-green)]'}`}>
+      {message}
+    </div>
+  );
+}
+
 export default function ProfileClient({ username = null, initialUser = null }) {
   const { user: currentUser, logout } = useAuth();
   const router = useRouter();
@@ -38,7 +110,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
 
   // ── State ──
   const [profile, setProfile] = useState(initialUser);
-  const [loading, setLoading] = useState(!initialUser);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('posts');
   const [posts, setPosts] = useState([]);
@@ -46,27 +118,36 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const [postsHasMore, setPostsHasMore] = useState(false);
   const [postsLoading, setPostsLoading] = useState(false);
   const postsLoadMoreRef = useRef(null);
+  const [toast, setToast] = useState(null);
+
+  // ── Followers/Following modal state ──
+  const [listModal, setListModal] = useState({ open: false, type: '', users: [], isLoading: false });
 
   // ── Determine if viewing own profile ──
   const isOwnProfile = !username || (currentUser && profile?.id === currentUser.id);
   const targetUsername = username || currentUser?.username;
 
-  // ── Fetch profile if not passed ──
+  const showToast = (msg, type = 'success') => {
+    setToast({ message: msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // ── Fetch profile ──
   useEffect(() => {
+    // If we have initialUser from server component, use it
     if (initialUser) {
       setProfile(initialUser);
       setLoading(false);
       return;
     }
 
+    // If no currentUser and no username, redirect to login
     if (!currentUser && !username) {
       router.push('/login');
       return;
     }
 
     const fetchProfile = async () => {
-      setLoading(true);
-      setError(null);
       try {
         let endpoint;
         if (username) {
@@ -77,12 +158,21 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         const res = await apiClient(endpoint);
         setProfile(res.data || res);
       } catch (err) {
-        console.error('Failed to fetch profile:', err);
+        console.error('[Profile] Error:', err);
         setError(err.message || 'Failed to load profile');
+        if (err.message?.includes('404') && username) {
+          router.push('/feed');
+        }
       } finally {
         setLoading(false);
       }
     };
+
+    // Avoid re-fetching if we already have the correct profile
+    if (profile && (profile.id === currentUser?.id || profile.username === username)) {
+      setLoading(false);
+      return;
+    }
 
     fetchProfile();
   }, [username, currentUser, initialUser, router]);
@@ -143,6 +233,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       }));
     } catch (err) {
       console.error('Follow action failed:', err);
+      showToast('Failed to follow/unfollow.', 'error');
     }
   };
 
@@ -153,20 +244,16 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     const formData = new FormData();
     formData.append('image', file);
     try {
-      const token = localStorage.getItem('circle_token');
-      const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-      const res = await fetch(`${baseURL}/api/users/${currentUser.id}/picture`, {
+      await apiClient(`/api/users/${currentUser.id}/picture`, {
         method: 'PUT',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
-      if (!res.ok) throw new Error('Upload failed');
-      // Re-fetch profile
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
       setProfile(refetch.data || refetch);
+      showToast('Avatar updated! 📸');
     } catch (err) {
       console.error(err);
-      alert('Failed to upload avatar.');
+      showToast('Failed to upload avatar.', 'error');
     }
   };
 
@@ -177,20 +264,36 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     const formData = new FormData();
     formData.append('image', file);
     try {
-      const token = localStorage.getItem('circle_token');
-      const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-      const res = await fetch(`${baseURL}/api/users/${currentUser.id}/cover`, {
+      await apiClient(`/api/users/${currentUser.id}/cover`, {
         method: 'PUT',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
-      if (!res.ok) throw new Error('Upload failed');
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
       setProfile(refetch.data || refetch);
+      showToast('Cover updated! 🖼️');
     } catch (err) {
       console.error(err);
-      alert('Failed to upload cover.');
+      showToast('Failed to upload cover.', 'error');
     }
+  };
+
+  // ── Open followers/following modal ──
+  const openUserList = async (type) => {
+    if (!profile) return;
+    setListModal({ open: true, type, users: [], isLoading: true });
+    try {
+      const endpoint = `/api/users/${profile.id}/${type}`;
+      const res = await apiClient(endpoint);
+      const users = res.data || [];
+      setListModal({ open: true, type, users, isLoading: false });
+    } catch (err) {
+      console.error('Failed to fetch', type, err);
+      setListModal({ open: true, type, users: [], isLoading: false });
+    }
+  };
+
+  const closeListModal = () => {
+    setListModal({ open: false, type: '', users: [], isLoading: false });
   };
 
   // ── Render states ──
@@ -263,10 +366,30 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   // ── UI ──
   return (
     <div className="max-w-4xl mx-auto">
+      {toast && <Toast message={toast.message} type={toast.type} />}
+
       {/* ── Cover ── */}
-      <div className="relative h-48 md:h-64 rounded-[var(--radius-radius)] overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)]">
+      <div className="relative h-48 md:h-64 rounded-[var(--radius-radius)] overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)] group">
         {coverUrl ? (
-          <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
+          <div
+            className="relative w-full h-full cursor-pointer"
+            onClick={() => openLightbox([coverUrl], 0)}
+          >
+            <img
+              src={coverUrl}
+              alt="Cover"
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
+              <span className="bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                View full image
+              </span>
+            </div>
+          </div>
         ) : (
           <div
             className="w-full h-full"
@@ -276,7 +399,8 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         {isOwnProfile && (
           <label
             htmlFor="cover-upload"
-            className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/50 text-white text-xs px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/70 transition"
+            className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/50 text-white text-xs px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/70 transition z-10"
+            onClick={(e) => e.stopPropagation()}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
@@ -303,6 +427,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
                 <label
                   htmlFor="avatar-upload"
                   className="absolute bottom-0 right-0 bg-[var(--color-accent)] rounded-full p-1.5 cursor-pointer hover:bg-[var(--color-accent-h)] transition shadow-md"
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
@@ -392,8 +517,18 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         {/* ── Stats ── */}
         <div className="mt-4 flex gap-6 text-sm">
           <div><span className="font-bold text-[var(--color-txt)]">{postCount || 0}</span> <span className="text-[var(--color-txt2)]">Posts</span></div>
-          <div><span className="font-bold text-[var(--color-txt)]">{followerCount || 0}</span> <span className="text-[var(--color-txt2)]">Followers</span></div>
-          <div><span className="font-bold text-[var(--color-txt)]">{followingCount || 0}</span> <span className="text-[var(--color-txt2)]">Following</span></div>
+          <div
+            className="cursor-pointer hover:text-[var(--color-accent)] transition"
+            onClick={() => openUserList('followers')}
+          >
+            <span className="font-bold text-[var(--color-txt)]">{followerCount || 0}</span> <span className="text-[var(--color-txt2)]">Followers</span>
+          </div>
+          <div
+            className="cursor-pointer hover:text-[var(--color-accent)] transition"
+            onClick={() => openUserList('following')}
+          >
+            <span className="font-bold text-[var(--color-txt)]">{followingCount || 0}</span> <span className="text-[var(--color-txt2)]">Following</span>
+          </div>
         </div>
 
         {!isOwnProfile && mutualFollowers && mutualFollowers.length > 0 && (
@@ -465,6 +600,16 @@ export default function ProfileClient({ username = null, initialUser = null }) {
           )}
         </div>
       </div>
+
+      {/* ── User list modal ── */}
+      {listModal.open && (
+        <UserListModal
+          title={listModal.type === 'followers' ? 'Followers' : 'Following'}
+          users={listModal.users}
+          isLoading={listModal.isLoading}
+          onClose={closeListModal}
+        />
+      )}
     </div>
   );
 }

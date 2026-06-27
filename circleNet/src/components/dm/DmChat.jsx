@@ -49,12 +49,14 @@ export default function DmChat() {
     sendMessage,
     loadMoreMessages,
     typing,
+    emitTyping,
   } = useDm();
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -66,8 +68,10 @@ export default function DmChat() {
     try {
       await sendMessage(input);
       setInput('');
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      emitTyping(false);
     } catch (err) {
-      // toast would be shown by consumer
+      // toast could be shown
     } finally {
       setSending(false);
     }
@@ -80,7 +84,18 @@ export default function DmChat() {
     }
   };
 
-  // Determine the last sent message id for "Seen" label
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setInput(value);
+    // Emit typing
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    emitTyping(true);
+    typingTimeoutRef.current = setTimeout(() => {
+      emitTyping(false);
+    }, 2000);
+  };
+
+  // Determine last sent message id for "Seen" label
   let lastSentId = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].sender_id === user?.id && !String(messages[i].id).startsWith('tmp_')) {
@@ -203,7 +218,7 @@ export default function DmChat() {
           className="flex-1 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl px-4 py-2.5 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] resize-none max-h-[120px] overflow-y-auto leading-relaxed focus:border-[var(--color-accent)] outline-none transition"
           placeholder="Type a message…"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           rows={1}
           style={{ height: 'auto' }}

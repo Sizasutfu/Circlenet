@@ -26,6 +26,32 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
+// ── Helper to get comment user info ──
+function getCommentUser(comment) {
+  // If comment has a nested 'user' object (from populated field)
+  if (comment.user) {
+    return {
+      name: comment.user.name || 'Unknown',
+      username: comment.user.username || 'unknown',
+      picture: comment.user.picture || null,
+    };
+  }
+  // If comment has flat 'author' and 'authorPicture' fields
+  if (comment.author) {
+    return {
+      name: comment.author,
+      username: comment.authorUsername || 'unknown',
+      picture: comment.authorPicture || null,
+    };
+  }
+  // Fallback to userId or id
+  return {
+    name: 'Unknown',
+    username: 'unknown',
+    picture: null,
+  };
+}
+
 // ── Toast ──
 function Toast({ message, type, onClose }) {
   useEffect(() => {
@@ -136,6 +162,7 @@ export default function PostDetailClient({ postId }) {
         body: JSON.stringify({ text }),
       });
       const newComment = res.data || res;
+      // Ensure newComment has user info
       setComments((prev) => [newComment, ...prev]);
       setCommentText('');
       showToast('Comment added!', 'success');
@@ -241,30 +268,37 @@ export default function PostDetailClient({ postId }) {
         {comments.length === 0 ? (
           <p className="text-sm text-[var(--color-txt3)]">No comments yet. Be the first!</p>
         ) : (
-          comments.map((comment) => (
-            <div key={comment.id} className="flex gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3">
-              <div
-                className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs"
-                style={{
-                  background: comment.user?.picture ? 'transparent' : stringToColor(comment.user?.name || ''),
-                }}
-              >
-                {comment.user?.picture ? (
-                  <img src={resolveMediaUrl(comment.user.picture)} alt={comment.user.name} className="w-full h-full rounded-full object-cover" />
-                ) : (
-                  comment.user?.name?.charAt(0)?.toUpperCase() || '?'
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-[var(--color-txt)]">{comment.user?.name || 'Unknown'}</span>
-                  <span className="text-xs text-[var(--color-txt3)]">@{comment.user?.username || 'unknown'}</span>
-                  <span className="text-xs text-[var(--color-txt3)]">· {new Date(comment.createdAt).toLocaleString()}</span>
+          comments.map((comment) => {
+            // Get user info using the helper
+            const commentUser = getCommentUser(comment);
+            const { name, username, picture } = commentUser;
+            const avatarUrl = resolveMediaUrl(picture);
+            const initial = name.charAt(0).toUpperCase();
+            const color = stringToColor(name);
+
+            return (
+              <div key={comment.id} className="flex gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3">
+                <div
+                  className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+                  style={{ background: avatarUrl ? 'transparent' : color }}
+                >
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={name} className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    initial
+                  )}
                 </div>
-                <p className="text-sm text-[var(--color-txt)] mt-0.5">{comment.text}</p>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>
+                    <span className="text-xs text-[var(--color-txt3)]">@{username}</span>
+                    <span className="text-xs text-[var(--color-txt3)]">· {new Date(comment.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="text-sm text-[var(--color-txt)] mt-0.5">{comment.text}</p>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

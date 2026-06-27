@@ -5,11 +5,13 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import * as E2E from '@/lib/e2e';
+import { useWs } from '@/contexts/WsContext';
 
 const DmContext = createContext();
 
 export function DmProvider({ children }) {
   const { user } = useAuth();
+  const { registerHandler, joinConversation, leaveConversation, sendTyping } = useWs();
 
   // ── State ──
   const [inbox, setInbox] = useState([]);
@@ -22,14 +24,14 @@ export function DmProvider({ children }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [typing, setTyping] = useState(false);
 
-  // ── Refs to keep latest values stable inside intervals ──
+  // ── Refs for stable values ──
   const userRef = useRef(user);
   const activeConvIdRef = useRef(activeConvId);
   const latestIdRef = useRef(latestId);
   const inboxRef = useRef(inbox);
-  const intervalRef = useRef(null);
-  const heartbeatRef = useRef(null);
+  const messagesRef = useRef(messages);
 
+  // Keep refs updated
   useEffect(() => {
     userRef.current = user;
   }, [user]);
@@ -46,6 +48,12 @@ export function DmProvider({ children }) {
     inboxRef.current = inbox;
   }, [inbox]);
 
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  const typingTimeoutRef = useRef(null);
+
   // ── Load inbox ──
   const loadInbox = useCallback(async () => {
     if (!userRef.current) return;
@@ -56,12 +64,11 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, []);
 
-  // ── Poll new messages ──
+  // ── Poll new messages (fallback) ──
   const pollNewMessages = useCallback(async () => {
     const convId = activeConvIdRef.current;
     const lastId = latestIdRef.current;
-    const currentUser = userRef.current;
-    if (!convId || !lastId || !currentUser) return;
+    if (!convId || !lastId || !userRef.current) return;
 
     try {
       const res = await apiClient(`/api/dm/conversations/${convId}/messages/new?after_id=${lastId}`);
@@ -83,9 +90,8 @@ export function DmProvider({ children }) {
       if (decrypted.length) {
         setLatestId(decrypted[decrypted.length - 1].id);
       }
-      // Mark as read
       await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
-      loadInbox(); // refresh inbox to update unread counts
+      loadInbox();
     } catch (_) {}
   }, [loadInbox]);
 
@@ -102,12 +108,19 @@ export function DmProvider({ children }) {
     if (!userRef.current) return;
     const conv = inboxRef.current.find((c) => c.id === convId);
     if (!conv) return;
+
+    if (activeConvIdRef.current) {
+      leaveConversation(activeConvIdRef.current);
+    }
+
     setActiveConvId(convId);
     setActiveOther({ id: conv.other_id, name: conv.other_name, picture: conv.other_picture });
     setMessages([]);
     setHasMore(false);
     setCursor(null);
     setLatestId(null);
+
+    joinConversation(convId);
 
     try {
       const res = await apiClient(`/api/dm/conversations/${convId}/messages?limit=10`);
@@ -126,23 +139,37 @@ export function DmProvider({ children }) {
       setHasMore(hasMoreData);
       setCursor(decrypted.length ? decrypted[0].id : null);
       setLatestId(decrypted.length ? decrypted[decrypted.length - 1].id : null);
-      // Mark as read
       await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
-      // Update inbox unread count
       setInbox((prev) =>
         prev.map((c) => (c.id === convId ? { ...c, unread_count: 0 } : c))
       );
     } catch (_) {}
-  }, []);
+  }, [joinConversation, leaveConversation]);
 
-  // ── Load more messages ──
+  const closeConversation = useCallback(() => {
+    if (activeConvIdRef.current) {
+      leaveConversation(activeConvIdRef.current);
+    }
+    setActiveConvId(null);
+    setActiveOther(null);
+    setMessages([]);
+    setLatestId(null);
+    setCursor(null);
+    setHasMore(false);
+    setTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+  }, [leaveConversation]);
+
   const loadMoreMessages = useCallback(async () => {
-    if (!activeConvId || !hasMore || loadingMore || !cursor) return;
+    if (!activeConvIdRef.current || !hasMore || loadingMore || !cursor) return;
     setLoadingMore(true);
-    const conv = inboxRef.current.find((c) => c.id === activeConvId);
+    const conv = inboxRef.current.find((c) => c.id === activeConvIdRef.current);
     try {
       const res = await apiClient(
-        `/api/dm/conversations/${activeConvId}/messages?limit=10&before_id=${cursor}`
+        `/api/dm/conversations/${activeConvIdRef.current}/messages?limit=10&before_id=${cursor}`
       );
       const msgs = res.data?.messages || [];
       const hasMoreData = res.data?.hasMore || false;
@@ -160,12 +187,11 @@ export function DmProvider({ children }) {
       setCursor(decrypted.length ? decrypted[0].id : cursor);
     } catch (_) {}
     setLoadingMore(false);
-  }, [activeConvId, hasMore, loadingMore, cursor]);
+  }, [hasMore, loadingMore, cursor]);
 
-  // ── Send message ──
   const sendMessage = useCallback(async (text) => {
-    if (!userRef.current || !activeConvId || !text.trim()) return;
-    const conv = inboxRef.current.find((c) => c.id === activeConvId);
+    if (!userRef.current || !activeConvIdRef.current || !text.trim()) return;
+    const conv = inboxRef.current.find((c) => c.id === activeConvIdRef.current);
     if (!conv) return;
     const tempId = 'tmp_' + Date.now();
     const tempMsg = {
@@ -178,7 +204,7 @@ export function DmProvider({ children }) {
     setMessages((prev) => [...prev, tempMsg]);
     try {
       const wireBody = await E2E.encrypt(conv.other_id, text, apiClient);
-      const res = await apiClient(`/api/dm/conversations/${activeConvId}/messages`, {
+      const res = await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages`, {
         method: 'POST',
         body: JSON.stringify({ body: wireBody }),
       });
@@ -194,33 +220,149 @@ export function DmProvider({ children }) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       throw err;
     }
-  }, [activeConvId, loadInbox]);
+  }, [loadInbox]);
 
-  // ── Polling setup – runs once when user is available ──
+  const emitTyping = useCallback((isTyping) => {
+    if (activeConvIdRef.current) {
+      sendTyping(activeConvIdRef.current, isTyping);
+    }
+  }, [sendTyping]);
+
+  // ── WS injected message ──
+  const wsInjectMessage = useCallback(async (convId, message) => {
+    if (activeConvIdRef.current !== convId) return;
+    if (messagesRef.current.find((m) => m.id === message.id)) return;
+
+    let plain = message.body;
+    if (plain && plain.startsWith('e2e:')) {
+      const conv = inboxRef.current.find((c) => c.id === convId);
+      if (conv) {
+        plain = await E2E.decrypt(conv.other_id, plain, apiClient);
+      }
+    }
+    message._plain = plain;
+
+    setMessages((prev) => [...prev, message]);
+    setLatestId(message.id);
+    await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
+  }, []);
+
+  const wsRefreshInbox = useCallback((convId, message) => {
+    setInbox((prev) => {
+      const idx = prev.findIndex((c) => c.id === convId);
+      if (idx !== -1) {
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          last_message: message.body,
+          last_sender_id: message.sender_id,
+          last_message_at: message.created_at,
+          unread_count:
+            message.sender_id !== userRef.current?.id &&
+            convId !== activeConvIdRef.current
+              ? (updated[idx].unread_count || 0) + 1
+              : updated[idx].unread_count,
+        };
+        return updated;
+      }
+      loadInbox();
+      return prev;
+    });
+  }, [loadInbox]);
+
+  const handleMessageSeen = useCallback((msg) => {
+    if (activeConvIdRef.current !== msg.conversationId) return;
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msg.messageId ? { ...m, is_read: 1 } : m))
+    );
+  }, []);
+
+  const handleDMRead = useCallback((msg) => {
+    if (activeConvIdRef.current !== msg.conversationId) return;
+    setMessages((prev) => {
+      const lastSent = [...prev].reverse().find((m) => m.sender_id === userRef.current?.id);
+      if (lastSent) {
+        return prev.map((m) => (m.id === lastSent.id ? { ...m, is_read: 1 } : m));
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleTyping = useCallback((msg) => {
+    if (activeConvIdRef.current !== msg.conversationId) return;
+    setTyping(msg.isTyping);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    if (msg.isTyping) {
+      typingTimeoutRef.current = setTimeout(() => {
+        setTyping(false);
+        typingTimeoutRef.current = null;
+      }, 3000);
+    }
+  }, []);
+
+  // ── Register WS handlers ──
   useEffect(() => {
-    // Clean up any existing intervals
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    const unregNewDM = registerHandler('new_dm', (msg) => {
+      wsInjectMessage(msg.conversationId, msg.message);
+      wsRefreshInbox(msg.conversationId, msg.message);
+    });
 
-    if (!user) return;
+    const unregMessageSeen = registerHandler('message_seen', (msg) => {
+      handleMessageSeen(msg);
+    });
 
-    // Initial load
+    const unregDMRead = registerHandler('dm_read', (msg) => {
+      handleDMRead(msg);
+    });
+
+    const unregTyping = registerHandler('typing', (msg) => {
+      handleTyping(msg);
+    });
+
+    return () => {
+      unregNewDM();
+      unregMessageSeen();
+      unregDMRead();
+      unregTyping();
+    };
+  }, [registerHandler, wsInjectMessage, wsRefreshInbox, handleMessageSeen, handleDMRead, handleTyping]);
+
+  // ── Polling and initial load ──
+  // This effect runs whenever user changes (login/logout)
+  useEffect(() => {
+    if (!user) {
+      // Clear intervals if user logs out
+      if (window._dmInterval) clearInterval(window._dmInterval);
+      if (window._heartbeatInterval) clearInterval(window._heartbeatInterval);
+      setInbox([]);
+      setMessages([]);
+      return;
+    }
+
+    // Load inbox immediately
     loadInbox();
     sendHeartbeat();
 
-    // Set up intervals – 10 seconds for inbox & new messages, 30 seconds for heartbeat
-    intervalRef.current = setInterval(() => {
+    // Set up intervals
+    const dmInterval = setInterval(() => {
       loadInbox();
       if (activeConvIdRef.current) pollNewMessages();
-    }, 10000); // 👈 increased to 10 seconds
+    }, 10000);
 
-    heartbeatRef.current = setInterval(sendHeartbeat, 30000);
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
+
+    window._dmInterval = dmInterval;
+    window._heartbeatInterval = heartbeatInterval;
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+      clearInterval(dmInterval);
+      clearInterval(heartbeatInterval);
+      window._dmInterval = null;
+      window._heartbeatInterval = null;
     };
-  }, [user, loadInbox, sendHeartbeat, pollNewMessages]); // depends on stable callbacks
+  }, [user, loadInbox, sendHeartbeat, pollNewMessages]); // 👈 depends on user
 
   // ── Context value ──
   const value = {
@@ -233,14 +375,10 @@ export function DmProvider({ children }) {
     typing,
     loadInbox,
     openConversation,
+    closeConversation,
     sendMessage,
     loadMoreMessages,
-    setActiveConvId,
-    setActiveOther,
-    setMessages,
-    setHasMore,
-    setLoadingMore,
-    setTyping,
+    emitTyping,
     pollNewMessages,
   };
 

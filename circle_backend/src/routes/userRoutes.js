@@ -74,7 +74,9 @@ router.put('/:id/picture', requireAuth, upload.fields([{ name: 'image', maxCount
 router.put('/:id/cover', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updateCoverImage);
 router.put('/:id',         requireAuth, userController.updateProfile);
 router.put('/:id/username', requireAuth, userController.updateUsername);
-
+// ── Get user by username (public) ──
+// GET /api/users/by-username/:username
+router.get('/by-username/:username', userController.getUserByUsername);
 router.post("/reset-password",         requestPasswordReset);
 router.post("/reset-password/confirm", confirmResetPassword);
 

@@ -5,8 +5,11 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import WhisperSettings from '@/components/whisper/WhisperSettings';
+import PushToggle from '@/components/push/PushToggle';
+import PushPreferences from '@/components/push/PushPreferences';
 
-// ── Country dial codes (common ones) ──
+// ── Country dial codes ──
 const DIAL_CODES = [
   { code: '+1', country: 'US/CA' },
   { code: '+44', country: 'UK' },
@@ -53,7 +56,6 @@ const DIAL_CODES = [
   { code: '+62', country: 'ID' },
 ];
 
-// ── Helper: resolve media URLs ──
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -70,13 +72,11 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 60%)`;
 }
 
-// ── Toast notification (simple) ──
 function Toast({ message, type, onClose }) {
   useEffect(() => {
     const timer = setTimeout(onClose, 4000);
     return () => clearTimeout(timer);
   }, [onClose]);
-
   const bgColor = type === 'error' ? 'var(--color-rose)' : 'var(--color-green)';
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium" style={{ background: bgColor }}>
@@ -89,7 +89,7 @@ export default function SettingsClient() {
   const { user, login } = useAuth();
   const router = useRouter();
 
-  // ── State for all fields ──
+  // ── Form state ──
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -105,11 +105,11 @@ export default function SettingsClient() {
   const [phone, setPhone] = useState('');
 
   // ── Notification preferences ──
+  // Note: 'push' is handled separately by the PushToggle component
   const [notifPrefs, setNotifPrefs] = useState({
     likes: true,
     comments: true,
     reposts: true,
-    push: true,
     new_post: true,
     profile_pic: true,
     mention: true,
@@ -122,7 +122,7 @@ export default function SettingsClient() {
     activity: true,
   });
 
-  // ── Loading and toast states ──
+  // ── UI state ──
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
@@ -136,14 +136,11 @@ export default function SettingsClient() {
       }
 
       try {
-        // Fetch fresh profile
         const response = await apiClient(`/api/users/${user.id}/profile`);
         const profile = response.data || {};
 
-        // Merge with current user (in case API doesn't return everything)
         const merged = { ...user, ...profile };
 
-        // Populate form fields
         setName(merged.name || '');
         setUsername(merged.username || '');
         setEmail(merged.email || '');
@@ -156,7 +153,6 @@ export default function SettingsClient() {
         if (merged.dateOfBirth) {
           setDateOfBirth(merged.dateOfBirth.split('T')[0]);
         }
-        // Phone: stored as "dialCode|digits"
         const phoneRaw = merged.phone || '';
         const parts = phoneRaw.split('|');
         if (parts.length === 2) {
@@ -166,7 +162,6 @@ export default function SettingsClient() {
           setPhone(phoneRaw);
         }
 
-        // Load preferences from localStorage
         const storedPrefs = localStorage.getItem('circle_notif_prefs');
         if (storedPrefs) {
           const parsed = JSON.parse(storedPrefs);
@@ -178,7 +173,6 @@ export default function SettingsClient() {
         }
       } catch (err) {
         console.error('Failed to load profile data:', err);
-        // Fallback to user from auth
         setName(user.name || '');
         setUsername(user.username || '');
         setEmail(user.email || '');
@@ -186,9 +180,13 @@ export default function SettingsClient() {
         setLoading(false);
       }
     }
-
     loadData();
   }, [user, router]);
+
+  // ── Show toast ──
+  const showToast = (msg, type = 'success') => {
+    setToast({ message: msg, type });
+  };
 
   // ── Handle phone change ──
   const handlePhoneChange = (e) => {
@@ -207,8 +205,6 @@ export default function SettingsClient() {
       showToast('Email is required.', 'error');
       return;
     }
-
-    // Validate username if changed
     if (username && !/^[a-z0-9_]{3,25}$/.test(username)) {
       showToast('Username must be 3–25 letters, numbers, underscores.', 'error');
       return;
@@ -217,7 +213,6 @@ export default function SettingsClient() {
     setSaving(true);
 
     try {
-      // Build patch object – only include changed fields
       const patch = { name: name.trim(), email: email.trim() };
       const current = user;
 
@@ -231,24 +226,20 @@ export default function SettingsClient() {
       const currentDob = current.dateOfBirth ? current.dateOfBirth.split('T')[0] : null;
       if (dateOfBirth !== currentDob) patch.dateOfBirth = dateOfBirth || null;
 
-      // Phone: combine dial code and digits
       const fullPhone = phone ? `${dialCode}|${phone}` : null;
       if (fullPhone !== (current.phone || null)) patch.phone = fullPhone;
 
       if (password) patch.password = password;
 
-      // ── Save profile fields ──
       let updatedUser = { ...current };
       if (Object.keys(patch).length > 0) {
         const res = await apiClient(`/api/users/${user.id}`, {
           method: 'PUT',
           body: JSON.stringify(patch),
         });
-        // Merge server response
         updatedUser = { ...updatedUser, ...res.data };
       }
 
-      // ── Save username separately if changed ──
       if (username && username !== current.username) {
         await apiClient(`/api/users/${user.id}/username`, {
           method: 'PUT',
@@ -257,24 +248,18 @@ export default function SettingsClient() {
         updatedUser.username = username;
       }
 
-      // ── Save preferences ──
-      const prefs = {
-        ...notifPrefs,
-        ...privPrefs,
-      };
+      const prefs = { ...notifPrefs, ...privPrefs };
       localStorage.setItem('circle_notif_prefs', JSON.stringify(prefs));
 
-      // ── Update auth context and localStorage ──
       const finalUser = {
         ...updatedUser,
         picture: resolveMediaUrl(updatedUser.picture),
       };
       localStorage.setItem('circle_user', JSON.stringify(finalUser));
-      login(finalUser); // Update context (login function from useAuth)
+      login(finalUser);
 
       showToast('Profile updated successfully! ✅', 'success');
 
-      // Optionally post a profile update activity (if you have that endpoint)
       try {
         await apiClient('/api/posts', {
           method: 'POST',
@@ -288,11 +273,6 @@ export default function SettingsClient() {
     } finally {
       setSaving(false);
     }
-  };
-
-  // ── Toast helper ──
-  const showToast = (msg, type = 'success') => {
-    setToast({ message: msg, type });
   };
 
   // ── Loading state ──
@@ -312,16 +292,16 @@ export default function SettingsClient() {
 
       <h1 className="text-2xl font-head font-bold text-[var(--color-txt)] mb-6">Settings</h1>
 
-      {/* Profile Picture */}
+      {/* ── Profile Picture ── */}
       <div className="mb-8 flex items-center gap-4">
         <div
-          className="h-20 w-20 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-md"
+          className="h-20 w-20 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-md overflow-hidden"
           style={{
             background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
           }}
         >
           {user?.picture ? (
-            <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full rounded-full object-cover" />
+            <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full object-cover" />
           ) : (
             (user?.name?.charAt(0)?.toUpperCase() || '?')
           )}
@@ -333,7 +313,7 @@ export default function SettingsClient() {
         </div>
       </div>
 
-      {/* Form */}
+      {/* ── Form ── */}
       <div className="space-y-6">
         {/* Name */}
         <div>
@@ -489,7 +469,7 @@ export default function SettingsClient() {
         </div>
       </div>
 
-      {/* Notification Preferences */}
+      {/* ── Notification Preferences ── */}
       <div className="mt-10">
         <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Notification Preferences</h2>
         <div className="space-y-2">
@@ -497,7 +477,6 @@ export default function SettingsClient() {
             { key: 'likes', label: 'Likes on my posts' },
             { key: 'comments', label: 'Comments on my posts' },
             { key: 'reposts', label: 'Reposts of my posts' },
-            { key: 'push', label: 'Push notifications' },
             { key: 'new_post', label: 'New posts from people I follow' },
             { key: 'profile_pic', label: 'Profile picture updates from friends' },
             { key: 'mention', label: 'Mentions' },
@@ -506,7 +485,7 @@ export default function SettingsClient() {
             <label key={key} className="flex items-center gap-3 text-sm text-[var(--color-txt2)]">
               <input
                 type="checkbox"
-                checked={notifPrefs[key]}
+                checked={notifPrefs[key] !== undefined ? notifPrefs[key] : false}
                 onChange={(e) => setNotifPrefs((prev) => ({ ...prev, [key]: e.target.checked }))}
                 className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
               />
@@ -516,14 +495,23 @@ export default function SettingsClient() {
         </div>
       </div>
 
-      {/* Privacy Preferences */}
+      {/* ── Push Notifications ── */}
+      <div className="mt-8">
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Push Notifications</h2>
+        <div className="space-y-4">
+          <PushToggle />
+          <PushPreferences />
+        </div>
+      </div>
+
+      {/* ── Privacy Preferences ── */}
       <div className="mt-8">
         <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Privacy Preferences</h2>
         <div className="space-y-2">
           <label className="flex items-center gap-3 text-sm text-[var(--color-txt2)]">
             <input
               type="checkbox"
-              checked={privPrefs.account}
+              checked={privPrefs.account !== undefined ? privPrefs.account : false}
               onChange={(e) => setPrivPrefs((prev) => ({ ...prev, account: e.target.checked }))}
               className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
             />
@@ -532,7 +520,7 @@ export default function SettingsClient() {
           <label className="flex items-center gap-3 text-sm text-[var(--color-txt2)]">
             <input
               type="checkbox"
-              checked={privPrefs.activity}
+              checked={privPrefs.activity !== undefined ? privPrefs.activity : false}
               onChange={(e) => setPrivPrefs((prev) => ({ ...prev, activity: e.target.checked }))}
               className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
             />
@@ -541,7 +529,10 @@ export default function SettingsClient() {
         </div>
       </div>
 
-      {/* Save Button */}
+      {/* ── Whisper Settings ── */}
+      <WhisperSettings />
+
+      {/* ── Save Button ── */}
       <div className="mt-8 flex gap-3">
         <button
           onClick={handleSave}

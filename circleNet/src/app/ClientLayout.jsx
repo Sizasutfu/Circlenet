@@ -2,7 +2,7 @@
 'use client';
 
 import { Suspense, useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation'; // 👈 added
+import { useRouter } from 'next/navigation';
 import { AuthProvider } from '@/lib/auth';
 import { WsProvider } from '@/contexts/WsContext';
 import { DmProvider } from '@/contexts/DmContext';
@@ -43,7 +43,7 @@ function LightboxWrapper({ children }) {
 }
 
 function FloatingComposeButton() {
-  const router = useRouter(); // ✅ now defined
+  const router = useRouter();
   return (
     <button
       onClick={() => router.push('/compose')}
@@ -92,7 +92,7 @@ export default function ClientLayout({ children }) {
                                 <Suspense fallback={<div className="h-14" />}>
                                   <Header onMenuClick={toggleSidebar} />
                                 </Suspense>
-                                <main className="flex-1 px-3 sm:px-6 py-4 pb-20 md:pb-4">
+                                <main className="flex-1 px-2 sm:px-6 py-4 pb-20 md:pb-4">
                                   <LiveFeedStrip />
                                   {children}
                                 </main>

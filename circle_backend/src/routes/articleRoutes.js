@@ -19,7 +19,7 @@ router.get('/:id',       articleController.getArticleById);
 // ── Write — requires auth ─────────────────────────────────────
 router.post(
   '/',
-  requireAdmin,   // <-- only admins can create articles
+  requireAuth,   // <-- all users can create articles
   upload.fields([{ name: 'image', maxCount: 1 }]),
   compressUploads,
   articleController.createArticle

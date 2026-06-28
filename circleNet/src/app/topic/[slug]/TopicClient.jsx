@@ -1,7 +1,7 @@
 // src/app/topic/[slug]/TopicClient.jsx
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react'; // 👈 add useMemo
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useExplore } from '@/contexts/ExploreContext';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
@@ -21,7 +21,16 @@ export default function TopicClient({ slug }) {
 
   const loadMoreRef = useRef(null);
 
-  // ── Deduplicate posts by id ──
+  // ── Decode the slug once ──
+  const decodedSlug = useMemo(() => {
+    try {
+      return decodeURIComponent(slug);
+    } catch (_) {
+      return slug;
+    }
+  }, [slug]);
+
+  // ── Deduplicate posts ──
   const uniquePosts = useMemo(() => {
     const seen = new Set();
     return topicPosts.filter((post) => {
@@ -32,17 +41,17 @@ export default function TopicClient({ slug }) {
   }, [topicPosts]);
 
   useEffect(() => {
-    if (!slug) return;
-    loadTopicFeed(slug, 1, false);
-    if (user) followTopic(slug);
-  }, [slug, user]);
+    if (!decodedSlug) return;
+    loadTopicFeed(decodedSlug, 1, false);
+    if (user) followTopic(decodedSlug);
+  }, [decodedSlug, user]);
 
-  // Infinite scroll
+  // ── Infinite scroll ──
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && topicHasMore && !topicLoading) {
-          loadTopicFeed(slug, currentTopic ? undefined : 1, true);
+          loadTopicFeed(decodedSlug, currentTopic ? undefined : 1, true);
         }
       },
       { threshold: 0.1 }
@@ -51,9 +60,9 @@ export default function TopicClient({ slug }) {
       observer.observe(loadMoreRef.current);
     }
     return () => observer.disconnect();
-  }, [topicHasMore, topicLoading, slug, currentTopic]);
+  }, [topicHasMore, topicLoading, decodedSlug, currentTopic]);
 
-  if (!slug) {
+  if (!decodedSlug) {
     return (
       <div className="max-w-3xl mx-auto p-8 text-center text-[var(--color-txt2)]">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
@@ -75,8 +84,8 @@ export default function TopicClient({ slug }) {
       </button>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)]">#{slug}</h1>
-        <p className="text-sm text-[var(--color-txt2)]">Posts tagged with #{slug}</p>
+        <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)]">#{decodedSlug}</h1>
+        <p className="text-sm text-[var(--color-txt2)]">Posts tagged with #{decodedSlug}</p>
       </div>
 
       <div className="space-y-4">
@@ -97,7 +106,7 @@ export default function TopicClient({ slug }) {
             </div>
           ))
         ) : uniquePosts.length === 0 ? (
-          <div className="text-center py-12 text-[var(--color-txt2)]">No posts for #{slug} yet.</div>
+          <div className="text-center py-12 text-[var(--color-txt2)]">No posts for #{decodedSlug} yet.</div>
         ) : (
           uniquePosts.map((post) => <PostCard key={post.id} post={post} />)
         )}

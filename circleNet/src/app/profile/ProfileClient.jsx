@@ -36,12 +36,12 @@ function UserListModal({ title, users, onClose, isLoading }) {
   const { user: currentUser } = useAuth();
   const router = useRouter();
 
-  const handleUserClick = (userId) => {
+  const handleUserClick = (user) => {
     onClose();
-    if (userId === currentUser?.id) {
+    if (user.id === currentUser?.id) {
       router.push('/profile');
     } else {
-      router.push(`/profile/${userId}`);
+      router.push(`/profile/${user.username}`);
     }
   };
 
@@ -68,7 +68,7 @@ function UserListModal({ title, users, onClose, isLoading }) {
                 <div
                   key={user.id}
                   className="flex items-center gap-3 p-3 hover:bg-[var(--color-surface)] rounded-xl cursor-pointer transition"
-                  onClick={() => handleUserClick(user.id)}
+                  onClick={() => handleUserClick(user)}
                 >
                   <div
                     className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
@@ -110,7 +110,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
 
   // ── State ──
   const [profile, setProfile] = useState(initialUser);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialUser);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('posts');
   const [posts, setPosts] = useState([]);
@@ -119,35 +119,35 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const [postsLoading, setPostsLoading] = useState(false);
   const postsLoadMoreRef = useRef(null);
   const [toast, setToast] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   // ── Followers/Following modal state ──
   const [listModal, setListModal] = useState({ open: false, type: '', users: [], isLoading: false });
 
   // ── Determine if viewing own profile ──
   const isOwnProfile = !username || (currentUser && profile?.id === currentUser.id);
-  const targetUsername = username || currentUser?.username;
 
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // ── Fetch profile ──
+  // ── Fetch profile (only if initialUser not provided or if we need to refresh) ──
   useEffect(() => {
-    // If we have initialUser from server component, use it
     if (initialUser) {
       setProfile(initialUser);
       setLoading(false);
       return;
     }
 
-    // If no currentUser and no username, redirect to login
     if (!currentUser && !username) {
       router.push('/login');
       return;
     }
 
     const fetchProfile = async () => {
+      setLoading(true);
+      setError(null);
       try {
         let endpoint;
         if (username) {
@@ -168,7 +168,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       }
     };
 
-    // Avoid re-fetching if we already have the correct profile
+    // Avoid re‑fetching if we already have the correct profile
     if (profile && (profile.id === currentUser?.id || profile.username === username)) {
       setLoading(false);
       return;
@@ -240,7 +240,15 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   // ── Avatar upload ──
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
-    if (!file || !currentUser || !isOwnProfile) return;
+    if (!file || !currentUser || !isOwnProfile) {
+      showToast('You can only change your own avatar.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image must be under 5MB.', 'error');
+      return;
+    }
+    setUploading(true);
     const formData = new FormData();
     formData.append('image', file);
     try {
@@ -252,8 +260,11 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       setProfile(refetch.data || refetch);
       showToast('Avatar updated! 📸');
     } catch (err) {
-      console.error(err);
-      showToast('Failed to upload avatar.', 'error');
+      console.error('Avatar upload error:', err);
+      showToast('Failed to upload avatar: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -261,6 +272,11 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const handleCoverUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !currentUser || !isOwnProfile) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image must be under 5MB.', 'error');
+      return;
+    }
+    setUploading(true);
     const formData = new FormData();
     formData.append('image', file);
     try {
@@ -272,8 +288,11 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       setProfile(refetch.data || refetch);
       showToast('Cover updated! 🖼️');
     } catch (err) {
-      console.error(err);
-      showToast('Failed to upload cover.', 'error');
+      console.error('Cover upload error:', err);
+      showToast('Failed to upload cover: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -363,10 +382,17 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     { label: 'Joined', value: joinDate },
   ].filter(d => d.value);
 
+  // ── Toast ──
+  const ToastComponent = ({ message, type }) => (
+    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium ${type === 'error' ? 'bg-[var(--color-rose)]' : 'bg-[var(--color-green)]'}`}>
+      {message}
+    </div>
+  );
+
   // ── UI ──
   return (
     <div className="max-w-4xl mx-auto">
-      {toast && <Toast message={toast.message} type={toast.type} />}
+      {toast && <ToastComponent message={toast.message} type={toast.type} />}
 
       {/* ── Cover ── */}
       <div className="relative h-48 md:h-64 rounded-[var(--radius-radius)] overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)] group">
@@ -426,19 +452,28 @@ export default function ProfileClient({ username = null, initialUser = null }) {
               <>
                 <label
                   htmlFor="avatar-upload"
-                  className="absolute bottom-0 right-0 bg-[var(--color-accent)] rounded-full p-1.5 cursor-pointer hover:bg-[var(--color-accent-h)] transition shadow-md"
+                  className="absolute bottom-0 right-0 bg-[var(--color-accent)] rounded-full p-1.5 cursor-pointer hover:bg-[var(--color-accent-h)] transition shadow-md z-10"
                   onClick={(e) => e.stopPropagation()}
+                  title="Change avatar"
                 >
                   <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
                     <circle cx="12" cy="13" r="4"/>
                   </svg>
-                  <input type="file" id="avatar-upload" className="hidden" accept="image/*" onChange={handleAvatarUpload} />
+                  <input
+                    type="file"
+                    id="avatar-upload"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    disabled={uploading}
+                  />
                 </label>
                 {avatarUrl && (
                   <button
                     onClick={() => openLightbox([avatarUrl], 0)}
                     className="absolute top-0 right-0 bg-black/40 rounded-full p-1.5 hover:bg-black/60 transition"
+                    title="View avatar"
                   >
                     <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>

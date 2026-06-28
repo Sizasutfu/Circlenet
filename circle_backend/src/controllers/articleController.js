@@ -126,9 +126,7 @@ async function getArticleAnalytics(req, res) {
 
 // ── POST /api/articles ────────────────────────────────────────
 async function createArticle(req, res) {
-  const userId   = req.adminId;
-  const userName = req.adminName;
-
+  const userId = req.actorId; // 👈 use actorId (the logged-in user)
   const { title, excerpt, content, published } = req.body;
 
   if (!title || !title.trim())
@@ -149,7 +147,7 @@ async function createArticle(req, res) {
 
   try {
     const user = await UserModel.findById(userId);
-    if (!user) return sendError(res, 404, 'Admin user record not found.');
+    if (!user) return sendError(res, 404, 'User not found.'); // 👈 changed message
 
     const articleId = await ArticleModel.createArticle(userId, {
       title:      title.trim(),
@@ -160,6 +158,7 @@ async function createArticle(req, res) {
       published:  published === 'true',
     });
 
+    // Send notifications to followers (if published)
     if (published === 'true') {
       const followerIds = await FollowModel.getFollowerIds(userId);
       const sampled = [...followerIds]
@@ -204,7 +203,6 @@ async function createArticle(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
-
 // ── PUT /api/articles/:id ─────────────────────────────────────
 async function updateArticle(req, res) {
   const id = parseInt(req.params.id);

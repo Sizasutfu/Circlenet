@@ -5,7 +5,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useLive } from '@/contexts/LiveContext';
 
 export default function LiveSetupModal() {
-  const { isSetupOpen, closeSetup, startLive, localStream } = useLive();
+  const {
+    isSetupOpen,
+    closeSetup,
+    startLive,
+    localStream,
+    setupError,
+    openSetup,
+  } = useLive();
   const [title, setTitle] = useState('');
   const [isStarting, setIsStarting] = useState(false);
   const videoRef = useRef(null);
@@ -31,6 +38,8 @@ export default function LiveSetupModal() {
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
         <h2 className="text-xl font-head font-extrabold text-[var(--color-txt)]">Go Live</h2>
         <p className="text-sm text-[var(--color-txt2)] mb-4">Share a live moment with your Circle.</p>
+
+        {/* Preview */}
         <div className="w-full h-48 rounded-xl bg-black/60 overflow-hidden relative mb-4">
           <video
             ref={videoRef}
@@ -40,6 +49,8 @@ export default function LiveSetupModal() {
             className="w-full h-full object-cover scale-x-[-1]"
           />
         </div>
+
+        {/* Title input */}
         <input
           type="text"
           value={title}
@@ -48,9 +59,28 @@ export default function LiveSetupModal() {
           maxLength={80}
           className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition mb-4"
         />
+
+        {/* Error message with retry */}
+        {setupError && (
+          <div className="text-sm text-[var(--color-rose)] bg-[var(--color-rose-bg)] p-2 rounded mb-3 flex items-center justify-between">
+            <span>{setupError}</span>
+            <button
+              onClick={() => {
+                // Retry: close and reopen setup to trigger permission prompt again
+                closeSetup();
+                setTimeout(() => openSetup(), 300);
+              }}
+              className="ml-2 px-3 py-1 bg-[var(--color-accent)] text-white rounded-full text-xs font-medium hover:bg-[var(--color-accent-h)] transition whitespace-nowrap"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Start button */}
         <button
           onClick={handleStart}
-          disabled={isStarting || !title.trim()}
+          disabled={isStarting || !title.trim() || !!setupError}
           className="w-full py-3 bg-[var(--color-rose)] text-white rounded-xl font-extrabold text-sm hover:bg-[var(--color-rose)]/80 transition disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isStarting ? (
@@ -65,7 +95,12 @@ export default function LiveSetupModal() {
             </>
           )}
         </button>
-        <button onClick={closeSetup} className="w-full mt-2 py-2 text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition text-center">
+
+        {/* Cancel */}
+        <button
+          onClick={closeSetup}
+          className="w-full mt-2 py-2 text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition text-center"
+        >
           Cancel
         </button>
       </div>

@@ -14,7 +14,7 @@ export function LiveProvider({ children }) {
 
   const [activeSessions, setActiveSessions] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
-  const [role, setRole] = useState(null); // 'host' | 'viewer' | null
+  const [role, setRole] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [title, setTitle] = useState('');
   const [broadcasterName, setBroadcasterName] = useState('');
@@ -27,6 +27,7 @@ export function LiveProvider({ children }) {
   const [camOff, setCamOff] = useState(false);
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [setupError, setSetupError] = useState(null);
 
   const localStreamRef = useRef(null);
   const peersRef = useRef({});
@@ -47,26 +48,57 @@ export function LiveProvider({ children }) {
     }
   }, []);
 
-  // ── Open setup modal ──
+  // ── Open setup modal with improved error handling ──
   const openSetup = useCallback(async () => {
     if (!user) {
       alert('Please log in to go live.');
       return;
     }
+    setSetupError(null);
     setIsSetupOpen(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setLocalStream(stream);
-      localStreamRef.current = stream;
-    } catch (err) {
-      console.error('[Live] Camera/mic denied:', err);
-      alert('Camera or microphone access was denied.');
-      setIsSetupOpen(false);
-    }
+
+    let retries = 0;
+    const maxRetries = 2;
+
+    const requestMedia = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+        setLocalStream(stream);
+        localStreamRef.current = stream;
+        setSetupError(null);
+      } catch (err) {
+        console.error('[Live] Camera/mic error:', err);
+        if (err.name === 'NotAllowedError') {
+          if (retries < maxRetries) {
+            retries++;
+            // Wait a bit then retry – sometimes the user clicks "Allow" on the second try
+            await new Promise(r => setTimeout(r, 600));
+            return requestMedia();
+          } else {
+            setSetupError(
+              'Camera and microphone access is blocked. Please allow access in your browser settings and try again.'
+            );
+            setIsSetupOpen(false);
+          }
+        } else if (err.name === 'NotFoundError') {
+          setSetupError('No camera or microphone found. Please connect a device and try again.');
+          setIsSetupOpen(false);
+        } else {
+          setSetupError('Could not access camera or microphone: ' + err.message);
+          setIsSetupOpen(false);
+        }
+      }
+    };
+
+    await requestMedia();
   }, [user]);
 
   const closeSetup = useCallback(() => {
     setIsSetupOpen(false);
+    setSetupError(null);
     if (localStreamRef.current && role !== 'host') {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       setLocalStream(null);
@@ -93,11 +125,9 @@ export function LiveProvider({ children }) {
       setBroadcasterAvatar(data.broadcasterAvatar || user.picture || '');
       setIsSetupOpen(false);
       setIsOverlayOpen(true);
-      // Force video on
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) videoTrack.enabled = true;
       setCamOff(false);
-      // Notify via WS
       wsSend({
         type: 'live:started',
         sessionId: data.sessionId,
@@ -128,7 +158,6 @@ export function LiveProvider({ children }) {
       setBroadcasterAvatar(data.broadcasterAvatar || '');
       setTitle(data.title || '');
     } catch (_) {}
-    // Send viewer_join via WS
     wsSend({
       type: 'live:viewer_join',
       sessionId,
@@ -154,7 +183,6 @@ export function LiveProvider({ children }) {
       }
       wsSend({ type: 'live:viewer_leave', sessionId, viewerId: user?.id });
     }
-    // Teardown
     setIsOverlayOpen(false);
     setRole(null);
     setSessionId(null);
@@ -218,7 +246,6 @@ export function LiveProvider({ children }) {
       case 'live:ended':
         setActiveSessions((prev) => prev.filter((s) => s.sessionId !== msg.sessionId));
         if (role === 'viewer' && sessionId === msg.sessionId) {
-          // Show ended screen – we can set a flag
           setIsOverlayOpen(false);
         }
         break;
@@ -226,7 +253,6 @@ export function LiveProvider({ children }) {
         setViewerCount(msg.viewerCount);
         if (role === 'host') {
           // handle RTC offer (simplified – you'd call a function)
-          // For full implementation, use WebRTC logic
         }
         break;
       case 'live:viewer_left':
@@ -283,6 +309,7 @@ export function LiveProvider({ children }) {
     camOff,
     isOverlayOpen,
     isSetupOpen,
+    setupError,
     openSetup,
     closeSetup,
     startLive,

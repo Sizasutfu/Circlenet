@@ -1,7 +1,7 @@
 // src/hooks/useLightbox.js
 'use client';
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 
 const LightboxContext = createContext();
 
@@ -12,18 +12,25 @@ export function LightboxProvider({ children }) {
     initialIndex: 0,
   });
 
-  const openLightbox = (images, initialIndex = 0) => {
+  const openLightbox = useCallback((images, initialIndex = 0) => {
     const imageArray = Array.isArray(images) ? images : [images];
+    // Normalize: if string, convert to object
+    const normalized = imageArray.map((img) => {
+      if (typeof img === 'string') {
+        return { src: img, type: 'image', meta: {} };
+      }
+      return img;
+    });
     setLightboxState({
       isOpen: true,
-      images: imageArray,
+      images: normalized,
       initialIndex,
     });
-  };
+  }, []);
 
-  const closeLightbox = () => {
+  const closeLightbox = useCallback(() => {
     setLightboxState((prev) => ({ ...prev, isOpen: false }));
-  };
+  }, []);
 
   return (
     <LightboxContext.Provider value={{ lightboxState, openLightbox, closeLightbox }}>

@@ -16,8 +16,6 @@ export default function Header({ onMenuClick }) {
 
   const [query, setQuery] = useState('');
   const [showMobileSearch, setShowMobileSearch] = useState(false);
-
-  // ── Client‑only placeholder (avoids hydration mismatch) ──
   const [placeholder, setPlaceholder] = useState('Search...');
 
   useEffect(() => {
@@ -62,10 +60,9 @@ export default function Header({ onMenuClick }) {
 
   return (
     <>
-      <header className="sticky top-0 left-0 right-0 z-40 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+      <header className="sticky top-0 left-0 right-0 z-40 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full h-14 flex items-center justify-between">
         {/* Left: hamburger + logo + back */}
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Hamburger – visible only on mobile */}
+        <div className="flex items-center gap-3 min-w-0 px-4 sm:px-6">
           <button
             onClick={onMenuClick}
             className="md:hidden inline-flex items-center justify-center text-[var(--color-txt2)] p-2 rounded-lg hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition"
@@ -78,7 +75,6 @@ export default function Header({ onMenuClick }) {
             </svg>
           </button>
 
-          {/* Logo – visible on all screens */}
           <Link
             href="/feed"
             className="flex items-center gap-2 font-head text-lg font-extrabold text-[var(--color-txt)] tracking-tight min-w-0"
@@ -91,7 +87,6 @@ export default function Header({ onMenuClick }) {
             <span className="hidden sm:inline">Circlenet</span>
           </Link>
 
-          {/* Back button – only if not home */}
           {!isHomePage && (
             <button
               onClick={goBack}
@@ -106,7 +101,7 @@ export default function Header({ onMenuClick }) {
         </div>
 
         {/* Right: search + theme */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 px-4 sm:px-6">
           <form
             onSubmit={handleSearchSubmit}
             className="hidden md:flex flex-1 min-w-0 items-center rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5"

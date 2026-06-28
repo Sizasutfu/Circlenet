@@ -8,7 +8,9 @@ export const metadata = {
 };
 
 export default async function Page({ searchParams }) {
-  const groupId = searchParams?.groupId || null;
+  // 兼容 Next.js 14（同步）和 15（异步 Promise）
+  const params = searchParams instanceof Promise ? await searchParams : searchParams;
+  const groupId = params?.groupId || null;
 
   return (
     <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading...</div>}>

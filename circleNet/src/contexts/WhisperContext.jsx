@@ -4,13 +4,13 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
-import { generateWhisperCard } from '@/lib/whisperCard';
 
 const WhisperContext = createContext();
 
 export function WhisperProvider({ children }) {
   const { user } = useAuth();
 
+  // ── State ──
   const [messages, setMessages] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
@@ -46,16 +46,6 @@ export function WhisperProvider({ children }) {
     await apiClient(`/api/whisper/${id}/report`, { method: 'POST' });
   }, []);
 
-  // ── Update settings ──
-  const updateSettings = useCallback(async (enabled) => {
-    const res = await apiClient('/api/whisper/settings', {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled }),
-    });
-    setSettings(prev => ({ ...prev, enabled }));
-    return res;
-  }, []);
-
   // ── Fetch settings ──
   const fetchSettings = useCallback(async () => {
     if (!user) return;
@@ -64,8 +54,25 @@ export function WhisperProvider({ children }) {
       setSettings(res);
     } catch (err) {
       console.error('Failed to fetch whisper settings:', err);
+      // Fallback to default
+      setSettings({ enabled: false, link_slug: '' });
     }
   }, [user]);
+
+  // ── Update settings (enable/disable) ──
+  const updateSettings = useCallback(async (enabled) => {
+    try {
+      const res = await apiClient('/api/whisper/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      });
+      setSettings(prev => ({ ...prev, enabled }));
+      return res;
+    } catch (err) {
+      console.error('Whisper settings update failed:', err);
+      throw err; // rethrow so the UI can handle it
+    }
+  }, []);
 
   // ── Post whisper to feed (with card image) ──
   const postWhisper = useCallback(async (whisperId, replyText) => {
@@ -75,6 +82,8 @@ export function WhisperProvider({ children }) {
     const messageObj = messages.find(m => m.id === whisperId);
     if (!messageObj) throw new Error('Whisper message not found');
 
+    // Dynamically import the card generator to avoid client‑side issues
+    const { generateWhisperCard } = await import('@/lib/whisperCard');
     const canvas = await generateWhisperCard(messageObj.message, user.username);
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
     const imageFile = new File([blob], `whisper-${whisperId}.png`, { type: 'image/png' });
@@ -85,26 +94,20 @@ export function WhisperProvider({ children }) {
     formData.append('image', imageFile);
 
     // 3. Send to API
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/api/whisper/${whisperId}/post`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('circle_token')}`,
-      },
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Failed to post whisper');
+    try {
+      const res = await apiClient(`/api/whisper/${whisperId}/post`, {
+        method: 'POST',
+        body: formData,
+      });
+      // Mark message as posted locally
+      setMessages(prev => prev.map(m =>
+        m.id === whisperId ? { ...m, posted: true } : m
+      ));
+      return res;
+    } catch (err) {
+      console.error('Failed to post whisper:', err);
+      throw err;
     }
-    const data = await res.json();
-
-    // 4. Mark message as posted locally
-    setMessages(prev => prev.map(m =>
-      m.id === whisperId ? { ...m, posted: true } : m
-    ));
-
-    return data;
   }, [user, messages]);
 
   const value = {
@@ -116,8 +119,8 @@ export function WhisperProvider({ children }) {
     fetchInbox,
     deleteMessage,
     reportMessage,
-    updateSettings,
     fetchSettings,
+    updateSettings,
     postWhisper,
   };
 
@@ -126,6 +129,8 @@ export function WhisperProvider({ children }) {
 
 export function useWhisper() {
   const context = useContext(WhisperContext);
-  if (!context) throw new Error('useWhisper must be used within a WhisperProvider');
+  if (!context) {
+    throw new Error('useWhisper must be used within a WhisperProvider');
+  }
   return context;
 }

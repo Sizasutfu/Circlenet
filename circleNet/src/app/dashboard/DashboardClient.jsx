@@ -9,10 +9,9 @@ import { useWhisper } from '@/contexts/WhisperContext';
 import { useGroups } from '@/contexts/GroupsContext';
 import { useLive } from '@/contexts/LiveContext';
 import { useExplore } from '@/contexts/ExploreContext';
+import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCompose } from '@/contexts/ComposeContext';
-import { apiClient } from '@/lib/api';
 
 function StatCard({ label, value, icon, link, color = 'var(--color-accent)' }) {
   return (
@@ -42,7 +41,6 @@ export default function DashboardClient() {
   const { myGroups } = useGroups();
   const { activeSessions } = useLive();
   const { topics } = useExplore();
-  const { openCompose } = useCompose();
 
   const [totalPosts, setTotalPosts] = useState(0);
   const [followerCount, setFollowerCount] = useState(0);
@@ -155,7 +153,7 @@ export default function DashboardClient() {
       {/* ── Quick Actions ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
         <button
-          onClick={() => openCompose()}
+          onClick={() => router.push('/compose')}
           className="flex items-center justify-center gap-2 p-3 bg-[var(--color-accent)] text-white rounded-xl font-semibold hover:bg-[var(--color-accent-h)] transition"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -184,8 +182,8 @@ export default function DashboardClient() {
           </svg>
           Whisper {unreadWhispers > 0 && `(${unreadWhispers})`}
         </Link>
-        <Link
-          href="/live"
+        <button
+          onClick={() => router.push('/live')}
           className="flex items-center justify-center gap-2 p-3 border border-[var(--color-border)] rounded-xl font-medium text-[var(--color-txt2)] hover:bg-[var(--color-surface)] transition"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -193,7 +191,7 @@ export default function DashboardClient() {
             <circle cx="12" cy="12" r="3" />
           </svg>
           Go Live
-        </Link>
+        </button>
       </div>
 
       {/* ── Two-column layout ── */}

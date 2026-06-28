@@ -2,6 +2,7 @@
 'use client';
 
 import { Suspense, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation'; // 👈 added
 import { AuthProvider } from '@/lib/auth';
 import { WsProvider } from '@/contexts/WsContext';
 import { DmProvider } from '@/contexts/DmContext';
@@ -12,7 +13,6 @@ import { ExploreProvider } from '@/contexts/ExploreContext';
 import { LiveProvider } from '@/contexts/LiveContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { PushProvider } from '@/contexts/PushContext';
-import { ComposeProvider } from '@/contexts/ComposeContext';
 import { LightboxProvider } from '@/hooks/useLightbox';
 import Lightbox from '@/components/ui/Lightbox';
 import { useLightbox } from '@/hooks/useLightbox';
@@ -25,8 +25,6 @@ import LiveSetupModal from '@/components/live/LiveSetupModal';
 import LiveOverlay from '@/components/live/LiveOverlay';
 import LiveFeedStrip from '@/components/live/LiveFeedStrip';
 import LiveToast from '@/components/live/LiveToast';
-import ComposeModal from '@/components/compose/ComposeModal';
-import { useCompose } from '@/contexts/ComposeContext';
 
 function LightboxWrapper({ children }) {
   const { lightboxState, closeLightbox } = useLightbox();
@@ -45,10 +43,10 @@ function LightboxWrapper({ children }) {
 }
 
 function FloatingComposeButton() {
-  const { openCompose } = useCompose();
+  const router = useRouter(); // ✅ now defined
   return (
     <button
-      onClick={() => openCompose()}
+      onClick={() => router.push('/compose')}
       className="fixed bottom-20 right-4 z-40 bg-[var(--color-accent)] text-white rounded-full p-4 shadow-lg shadow-[var(--color-accent-glow)] hover:bg-[var(--color-accent-h)] transition transform hover:scale-105 md:hidden"
       aria-label="Create post"
     >
@@ -79,45 +77,43 @@ export default function ClientLayout({ children }) {
     <AuthProvider>
       <WsProvider>
         <PushProvider>
-          <ComposeProvider>
-            <DmProvider>
-              <WhisperProvider>
-                <GroupsProvider>
-                  <SearchProvider>
-                    <ExploreProvider>
-                      <LiveProvider>
-                        <NotificationProvider>
-                          <LightboxProvider>
-                            <LightboxWrapper>
-                              <div className="flex min-h-screen">
-                                <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />
-                                <div className="flex-1 flex flex-col min-h-screen md:ml-[260px]">
-                                  <Suspense fallback={<div className="h-14" />}>
-                                    <Header onMenuClick={toggleSidebar} />
-                                  </Suspense>
-                                  <main className="flex-1 px-3 sm:px-6 py-4 pb-20 md:pb-4">
-                                    <LiveFeedStrip />
-                                    {children}
-                                  </main>
-                                  <Footer />
-                                </div>
+          <DmProvider>
+            <WhisperProvider>
+              <GroupsProvider>
+                <SearchProvider>
+                  <ExploreProvider>
+                    <LiveProvider>
+                      <NotificationProvider>
+                        <LightboxProvider>
+                          <LightboxWrapper>
+                            <div className="flex min-h-screen">
+                              <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />
+                              <div className="flex-1 flex flex-col min-h-screen md:ml-[260px]">
+                                <Suspense fallback={<div className="h-14" />}>
+                                  <Header onMenuClick={toggleSidebar} />
+                                </Suspense>
+                                <main className="flex-1 px-3 sm:px-6 py-4 pb-20 md:pb-4">
+                                  <LiveFeedStrip />
+                                  {children}
+                                </main>
+                                <Footer />
                               </div>
-                              <NotificationPanel />
-                              <LiveSetupModal />
-                              <LiveOverlay />
-                              <LiveToast />
-                              <ComposeModal />
-                              <FloatingComposeButton />
-                            </LightboxWrapper>
-                          </LightboxProvider>
-                        </NotificationProvider>
-                      </LiveProvider>
-                    </ExploreProvider>
-                  </SearchProvider>
-                </GroupsProvider>
-              </WhisperProvider>
-            </DmProvider>
-          </ComposeProvider>
+                            </div>
+                            <NotificationPanel />
+                            <LiveSetupModal />
+                            <LiveOverlay />
+                            <LiveToast />
+                            <FloatingComposeButton />
+                            <MobileNavbar />
+                          </LightboxWrapper>
+                        </LightboxProvider>
+                      </NotificationProvider>
+                    </LiveProvider>
+                  </ExploreProvider>
+                </SearchProvider>
+              </GroupsProvider>
+            </WhisperProvider>
+          </DmProvider>
         </PushProvider>
       </WsProvider>
     </AuthProvider>

@@ -24,9 +24,9 @@ export default function DmInbox() {
   );
 
   return (
-    <div className="flex flex-col h-full bg-[var(--color-surface)]">
-      {/* Header */}
-      <div className="p-4 pb-3 border-b border-[var(--color-border)] flex-shrink-0">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-[var(--color-surface)]">
+      {/* Header with search */}
+      <div className="flex-shrink-0 p-4 pb-3 border-b border-[var(--color-border)]">
         <h2 className="font-head text-lg font-extrabold text-[var(--color-txt)] mb-3">
           Messages
         </h2>
@@ -51,7 +51,7 @@ export default function DmInbox() {
         </div>
       </div>
 
-      {/* Conversation List */}
+      {/* Conversation list – scrollable */}
       <div className="flex-1 overflow-y-auto py-2">
         {!user ? (
           <div className="text-center py-12 px-4 text-[var(--color-txt2)]">
@@ -111,10 +111,9 @@ export default function DmInbox() {
               >
                 {/* Avatar */}
                 <div
-                  className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                  className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
                   style={{
                     background: conv.other_picture ? 'transparent' : color,
-                    overflow: 'hidden',
                   }}
                 >
                   {conv.other_picture ? (
@@ -128,7 +127,7 @@ export default function DmInbox() {
                   )}
                 </div>
 
-                {/* Info */}
+                {/* Info – truncate to prevent overflow */}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-[var(--color-txt)] truncate">
                     {conv.other_name}
@@ -138,10 +137,10 @@ export default function DmInbox() {
                   </div>
                 </div>
 
-                {/* Meta */}
+                {/* Meta – right aligned */}
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
                   {timeStr && (
-                    <div className="text-[10px] text-[var(--color-txt3)]">
+                    <div className="text-[10px] text-[var(--color-txt3)] whitespace-nowrap">
                       {timeStr}
                     </div>
                   )}
@@ -155,10 +154,10 @@ export default function DmInbox() {
         )}
       </div>
 
-      {/* New Message Button */}
+      {/* New Message button – stays at bottom */}
       <button
         onClick={() => document.getElementById('dm-new-modal').classList.add('open')}
-        className="mx-4 mb-4 py-2.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer"
+        className="flex-shrink-0 mx-4 mb-4 py-2.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer w-[calc(100%-2rem)]"
       >
         + New Message
       </button>

@@ -4,8 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -24,10 +23,9 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
-export default function ComposePage() {
+export default function ComposePage({ groupId = null }) {
   const { user } = useAuth();
   const router = useRouter();
-  
 
   const [mode, setMode] = useState('post');
   const [isSubmitting, setIsSubmitting] = useState(false);

@@ -7,10 +7,12 @@ export const metadata = {
   description: 'Create a new post or article.',
 };
 
-export default function Page() {
+export default async function Page({ searchParams }) {
+  const groupId = searchParams?.groupId || null;
+
   return (
     <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading...</div>}>
-      <ComposePage />
+      <ComposePage groupId={groupId} />
     </Suspense>
   );
 }

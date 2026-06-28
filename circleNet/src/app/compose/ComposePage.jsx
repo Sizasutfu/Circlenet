@@ -27,8 +27,7 @@ function stringToColor(str) {
 export default function ComposePage() {
   const { user } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const groupId = searchParams.get('groupId') || null;
+  
 
   const [mode, setMode] = useState('post');
   const [isSubmitting, setIsSubmitting] = useState(false);

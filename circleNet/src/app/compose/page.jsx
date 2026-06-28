@@ -1,4 +1,5 @@
 // src/app/compose/page.jsx
+import { Suspense } from 'react';
 import ComposePage from './ComposePage';
 
 export const metadata = {
@@ -7,5 +8,9 @@ export const metadata = {
 };
 
 export default function Page() {
-  return <ComposePage />;
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading...</div>}>
+      <ComposePage />
+    </Suspense>
+  );
 }

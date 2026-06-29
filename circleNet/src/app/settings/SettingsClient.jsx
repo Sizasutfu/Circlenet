@@ -235,7 +235,7 @@ export default function SettingsClient() {
       if (Object.keys(patch).length > 0) {
         const res = await apiClient(`/api/users/${user.id}`, {
           method: 'PUT',
-          body: JSON.stringify(patch),
+          body: patch,
         });
         updatedUser = { ...updatedUser, ...res.data };
       }
@@ -243,7 +243,7 @@ export default function SettingsClient() {
       if (username && username !== current.username) {
         await apiClient(`/api/users/${user.id}/username`, {
           method: 'PUT',
-          body: JSON.stringify({ username }),
+          body: { username },
         });
         updatedUser.username = username;
       }
@@ -263,7 +263,7 @@ export default function SettingsClient() {
       try {
         await apiClient('/api/posts', {
           method: 'POST',
-          body: JSON.stringify({ type: 'profile_update', text: bio || '' }),
+          body: { type: 'profile_update', text: bio || '' },
         });
       } catch (_) {}
 

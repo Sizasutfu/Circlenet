@@ -81,6 +81,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const toggleExpand = () => setIsExpanded(!isExpanded);
   const shouldTruncate = text?.length > 200 && !isExpanded;
 
+  const postImageUrl = resolveMediaUrl(image);
+  const postVideoUrl = resolveMediaUrl(video);
+
   const handleImageClick = (e) => {
     e.preventDefault();
     if (postImageUrl) {
@@ -93,8 +96,17 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     setVideoError(true);
   };
 
-  const postImageUrl = resolveMediaUrl(image);
-  const postVideoUrl = resolveMediaUrl(video);
+  // ── Download image ──
+  const handleDownloadImage = () => {
+    if (!postImageUrl) return;
+    // Create a temporary anchor element
+    const link = document.createElement('a');
+    link.href = postImageUrl;
+    link.download = `post-image-${id}.png`; // or .jpg, but we'll keep generic
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const renderMedia = () => {
     if (postVideoUrl) {
@@ -188,6 +200,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
           {/* Engagement bar */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
+            {/* Like */}
             <button
               onClick={handleLike}
               className={`flex items-center gap-1 transition hover:text-[var(--color-rose)] ${
@@ -200,6 +213,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{likeCount}</span>
             </button>
 
+            {/* Comment */}
             <button
               onClick={() => onComment && onComment(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
@@ -210,6 +224,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{comments.length || 0}</span>
             </button>
 
+            {/* Repost */}
             <button
               onClick={() => onRepost && onRepost(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-green)]"
@@ -223,6 +238,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{reposts.length || 0}</span>
             </button>
 
+            {/* Share */}
             <button
               onClick={() => onShare && onShare(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
@@ -237,6 +253,22 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{shares || 0}</span>
             </button>
 
+            {/* ── Download image ── */}
+            {postImageUrl && (
+              <button
+                onClick={handleDownloadImage}
+                className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
+                title="Download image"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </button>
+            )}
+
+            {/* ── View count (author only) ── */}
             {isAuthor && viewCount > 0 && (
               <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

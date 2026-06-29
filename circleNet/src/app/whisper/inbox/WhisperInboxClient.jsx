@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { useWhisper } from '@/contexts/WhisperContext';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
+import { generateWhisperCard } from '@/lib/whisperCard';
 import WhisperReplyModal from '@/components/whisper/WhisperReplyModal';
 
 function relativeTime(iso) {
@@ -41,7 +42,6 @@ export default function WhisperInboxClient() {
   const [whisperSlug, setWhisperSlug] = useState(null);
   const [slugLoading, setSlugLoading] = useState(true);
 
-  // ── Fetch the username (or link_slug) for the public link ──
   useEffect(() => {
     if (!user) return;
 
@@ -97,6 +97,49 @@ export default function WhisperInboxClient() {
   const loadMore = () => {
     if (hasMore && !loading) {
       fetchInbox(cursor);
+    }
+  };
+
+  // ── Download Whisper Card ──
+  const handleDownloadWhisper = async (msg) => {
+    try {
+      const canvas = await generateWhisperCard(msg.message, user.username);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `whisper-${msg.id}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error downloading whisper:', err);
+      alert('Failed to download image.');
+    }
+  };
+
+  // ── Share Whisper Card (Web Share API) ──
+  const handleShareWhisper = async (msg) => {
+    try {
+      const canvas = await generateWhisperCard(msg.message, user.username);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const file = new File([blob], `whisper-${msg.id}.png`, { type: 'image/png' });
+
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Whisper card',
+          files: [file],
+        });
+      } else {
+        // Fallback to download
+        await handleDownloadWhisper(msg);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Error sharing whisper:', err);
+        alert('Failed to share image.');
+      }
     }
   };
 
@@ -227,6 +270,34 @@ export default function WhisperInboxClient() {
                     <line x1="12" y1="9" x2="12" y2="13" />
                     <line x1="12" y1="17" x2="12.01" y2="17" />
                   </svg>
+                </button>
+
+                {/* ── Download Image ── */}
+                <button
+                  onClick={() => handleDownloadWhisper(msg)}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full text-xs font-bold hover:bg-[var(--color-accent-bg)] transition"
+                  title="Download whisper card"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                  </svg>
+                  Download
+                </button>
+
+                {/* ── Share Image (via Web Share API) ── */}
+                <button
+                  onClick={() => handleShareWhisper(msg)}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full text-xs font-bold hover:bg-[var(--color-accent-bg)] transition"
+                  title="Share whisper card to other apps"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                  Share
                 </button>
               </div>
             </div>

@@ -1,10 +1,11 @@
-// src/app/whisper/inbox/whisperInboxClient.jsx
+// src/app/whisper/inbox/WhisperInboxClient.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useWhisper } from '@/contexts/WhisperContext';
 import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api';
 import WhisperReplyModal from '@/components/whisper/WhisperReplyModal';
 
 function relativeTime(iso) {
@@ -32,11 +33,58 @@ export default function WhisperInboxClient() {
     reportMessage,
     settings,
     fetchSettings,
-    updateSettings, // 👈 added this
+    updateSettings,
   } = useWhisper();
 
   const [replyTarget, setReplyTarget] = useState(null);
   const [cursor, setCursor] = useState(null);
+  const [whisperSlug, setWhisperSlug] = useState(null);
+  const [slugLoading, setSlugLoading] = useState(true);
+
+  // ── Fetch the username (or link_slug) for the public link ──
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchSlug = async () => {
+      try {
+        // Option 1: Use the settings API (which returns link_slug)
+        // If you want to fetch from a separate endpoint, you can do that here.
+        // We'll use the settings endpoint as it's already called by fetchSettings.
+        // But we need to wait for settings to be loaded.
+        // If settings.link_slug is available, use it.
+        if (settings?.link_slug) {
+          setWhisperSlug(settings.link_slug);
+          setSlugLoading(false);
+          return;
+        }
+
+        // If not available in settings, fallback to user.username from auth.
+        if (user.username) {
+          setWhisperSlug(user.username);
+          setSlugLoading(false);
+          return;
+        }
+
+        // If still missing, fetch the user profile to get username.
+        const res = await apiClient(`/api/users/${user.id}/profile`);
+        const profile = res.data || res;
+        if (profile.username) {
+          setWhisperSlug(profile.username);
+        } else {
+          // Ultimate fallback: use the user's name or a default.
+          setWhisperSlug(user.name || 'user');
+        }
+        setSlugLoading(false);
+      } catch (err) {
+        console.warn('Failed to fetch whisper slug:', err);
+        // Fallback to user.username or name
+        setWhisperSlug(user.username || user.name || 'user');
+        setSlugLoading(false);
+      }
+    };
+
+    fetchSlug();
+  }, [user, settings]);
 
   useEffect(() => {
     if (!user) {
@@ -65,7 +113,8 @@ export default function WhisperInboxClient() {
 
   if (!user) return null;
 
-  const publicLink = `${window.location.origin}/whisper/send/${user.username}`;
+  // ── Build the public whisper link ──
+  const publicLink = `${window.location.origin}/whisper/send/${whisperSlug || 'user'}`;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
@@ -97,14 +146,21 @@ export default function WhisperInboxClient() {
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6 flex items-center justify-between gap-3 flex-wrap">
         <div>
           <div className="text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wider">Your Whisper link</div>
-          <div className="text-sm font-mono text-[var(--color-accent)] break-all">{publicLink}</div>
+          {slugLoading ? (
+            <div className="text-sm font-mono text-[var(--color-txt2)] animate-pulse">Loading…</div>
+          ) : (
+            <div className="text-sm font-mono text-[var(--color-accent)] break-all">{publicLink}</div>
+          )}
         </div>
         <button
           onClick={() => {
-            navigator.clipboard.writeText(publicLink);
-            alert('Link copied! 🔗');
+            if (whisperSlug) {
+              navigator.clipboard.writeText(publicLink);
+              alert('Link copied! 🔗');
+            }
           }}
-          className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition"
+          disabled={!whisperSlug}
+          className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition disabled:opacity-50"
         >
           Copy link
         </button>

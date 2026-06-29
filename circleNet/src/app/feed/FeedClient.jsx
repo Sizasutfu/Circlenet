@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api';
 import PostCard from '@/components/ui/PostCard';
 import ArticleCard from '@/components/articles/ArticleCard';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -26,6 +27,16 @@ function Toast({ message, type, onClose }) {
       {message}
     </div>
   );
+}
+
+function stringToColor(str) {
+  if (!str) return '#888';
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash % 360);
+  return `hsl(${hue}, 70%, 55%)`;
 }
 
 export default function FeedClient() {
@@ -49,7 +60,7 @@ export default function FeedClient() {
   const [articlesHasMore, setArticlesHasMore] = useState(false);
   const [articlesLoading, setArticlesLoading] = useState(false);
 
-  // ── Composer state ──
+  // ── Composer state (only for logged-in users) ──
   const [composerText, setComposerText] = useState('');
   const [composerImage, setComposerImage] = useState(null);
   const [composerImagePreview, setComposerImagePreview] = useState(null);
@@ -58,16 +69,21 @@ export default function FeedClient() {
 
   const loadMoreRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [toast, setToast] = useState(null);
+  const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
-  // ── Fetch posts ──
+  // ── Fetch posts (public or authenticated) ──
   const fetchPosts = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
     try {
-      const feedTab = activeTab === 'following' ? 'following' : 'global';
+      const feedTab = activeTab === 'following' && user ? 'following' : 'global';
       const response = await apiClient(`/api/posts?feed=${feedTab}&page=${pageNum}&limit=20`);
+      
       let postsData = [];
       let hasMoreData = false;
+
+      // Safely extract posts from various response shapes
       if (response?.data?.posts) {
         postsData = response.data.posts;
         hasMoreData = response.data.pagination?.hasMore || postsData.length === 20;
@@ -78,6 +94,9 @@ export default function FeedClient() {
         postsData = response;
         hasMoreData = postsData.length === 20;
       }
+      // Ensure postsData is always an array
+      if (!Array.isArray(postsData)) postsData = [];
+
       const postsWithUser = postsData.map((p) => ({
         ...p,
         user: p.user || { name: p.author || 'Unknown', username: p.authorUsername || '', picture: p.authorPicture || null },
@@ -98,7 +117,7 @@ export default function FeedClient() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [activeTab]);
+  }, [activeTab, user]);
 
   // ── Fetch articles ──
   const fetchArticles = useCallback(async (pageNum = 1, append = false) => {
@@ -133,16 +152,12 @@ export default function FeedClient() {
 
   // ── Initial load ──
   useEffect(() => {
-    if (!user) {
-      router.push('/login');
-      return;
-    }
     if (activeTab === 'articles') {
       if (articles.length === 0 && !articlesLoading) fetchArticles(1, false);
     } else {
       fetchPosts(1, false);
     }
-  }, [user, router, activeTab]);
+  }, [activeTab]);
 
   // ── Intersection Observer ──
   useEffect(() => {
@@ -164,15 +179,11 @@ export default function FeedClient() {
     return () => observer.disconnect();
   }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore]);
 
-  // ── Toast ──
-  const [toast, setToast] = useState(null);
-  const showToast = (msg, type = 'success') => setToast({ message: msg, type });
-
   // ── Like, comment, repost, share ──
   const handleLike = async (postId) => { /* existing like logic */ };
   const handleComment = (postId) => showToast('Comment feature coming soon!', 'success');
   const handleRepost = async (postId) => {
-    if (!user) return;
+    if (!user) { showToast('Log in to repost.', 'error'); return; }
     try {
       await apiClient(`/api/posts/${postId}/repost`, { method: 'POST' });
       showToast('Reposted! 🔁', 'success');
@@ -190,10 +201,10 @@ export default function FeedClient() {
     }
   };
 
-  // ── Create post ──
+  // ── Create post (only if logged in) ──
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user) { showToast('Please log in to post.', 'error'); return; }
     if (!composerText.trim() && !composerImage) {
       showToast('Please write something or add an image.', 'error');
       return;
@@ -203,19 +214,11 @@ export default function FeedClient() {
       const formData = new FormData();
       formData.append('text', composerText.trim());
       if (composerImage) formData.append('image', composerImage);
-      const token = localStorage.getItem('circle_token');
-      const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-      const res = await fetch(`${baseURL}/api/posts`, {
+      const data = await apiClient('/api/posts', {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to create post');
-      }
-      const newPostData = await res.json();
-      const newPost = newPostData.data || newPostData;
+      const newPost = data.data || data;
       const optimisticPost = {
         id: newPost.id || Date.now(),
         text: composerText.trim(),
@@ -257,15 +260,7 @@ export default function FeedClient() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── Render ──
-  if (!user) {
-    return (
-      <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
-        <p>Please log in to see the feed.</p>
-      </div>
-    );
-  }
-
+  // ── Render states ──
   if (loading && activeTab !== 'articles') {
     return (
       <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
@@ -288,6 +283,7 @@ export default function FeedClient() {
 
   const renderContent = () => {
     if (activeTab === 'articles') {
+      // Articles rendering
       if (articlesLoading && articles.length === 0) {
         return (
           <div className="space-y-4">
@@ -321,11 +317,18 @@ export default function FeedClient() {
       );
     }
 
-    // Posts feed
+    // ── Posts feed ──
     return (
       <div className="space-y-4">
         {posts.length === 0 ? (
-          <p className="text-center text-[var(--color-txt2)] py-8">No posts yet. Be the first to share something!</p>
+          <div className="text-center py-8 text-[var(--color-txt2)]">
+            <p>No posts yet. Be the first to share something!</p>
+            {!user && (
+              <Link href="/login" className="inline-block mt-4 px-4 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm">
+                Log in to post
+              </Link>
+            )}
+          </div>
         ) : (
           posts.map((post) => (
             <PostCard
@@ -354,8 +357,8 @@ export default function FeedClient() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* ── Composer ── */}
-      {activeTab !== 'articles' && (
+      {/* ── Composer (only if logged in) ── */}
+      {user && activeTab !== 'articles' && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6 shadow-sm">
           <div className="flex items-start gap-3">
             <div
@@ -408,29 +411,30 @@ export default function FeedClient() {
 
       {/* ── Tabs ── */}
       <div className="flex gap-2 mb-6 border-b border-[var(--color-border)]">
-        {['global', 'following', 'articles'].map((tab) => (
+        <button
+          onClick={() => setActiveTab('global')}
+          className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === 'global' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
+        >
+          Global
+        </button>
+        {user && (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === tab ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
+            onClick={() => setActiveTab('following')}
+            className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === 'following' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            Following
           </button>
-        ))}
+        )}
+        <button
+          onClick={() => setActiveTab('articles')}
+          className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === 'articles' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
+        >
+          Articles
+        </button>
       </div>
 
       {/* ── Content ── */}
       {renderContent()}
     </div>
   );
-}
-
-function stringToColor(str) {
-  if (!str) return '#888';
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
 }

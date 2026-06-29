@@ -24,14 +24,13 @@ export function DmProvider({ children }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [typing, setTyping] = useState(false);
 
-  // ── Refs for stable values ──
+  // ── Refs ──
   const userRef = useRef(user);
   const activeConvIdRef = useRef(activeConvId);
   const latestIdRef = useRef(latestId);
   const inboxRef = useRef(inbox);
   const messagesRef = useRef(messages);
 
-  // Keep refs updated
   useEffect(() => {
     userRef.current = user;
   }, [user]);
@@ -189,6 +188,7 @@ export function DmProvider({ children }) {
     setLoadingMore(false);
   }, [hasMore, loadingMore, cursor]);
 
+  // ── Send message (fixed: no manual JSON.stringify) ──
   const sendMessage = useCallback(async (text) => {
     if (!userRef.current || !activeConvIdRef.current || !text.trim()) return;
     const conv = inboxRef.current.find((c) => c.id === activeConvIdRef.current);
@@ -206,7 +206,7 @@ export function DmProvider({ children }) {
       const wireBody = await E2E.encrypt(conv.other_id, text, apiClient);
       const res = await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body: wireBody }),
+        body: { body: wireBody }, // ✅ plain object – apiClient will stringify
       });
       const saved = res.data || res;
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -293,6 +293,7 @@ export function DmProvider({ children }) {
     setTyping(msg.isTyping);
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
     }
     if (msg.isTyping) {
       typingTimeoutRef.current = setTimeout(() => {
@@ -330,10 +331,8 @@ export function DmProvider({ children }) {
   }, [registerHandler, wsInjectMessage, wsRefreshInbox, handleMessageSeen, handleDMRead, handleTyping]);
 
   // ── Polling and initial load ──
-  // This effect runs whenever user changes (login/logout)
   useEffect(() => {
     if (!user) {
-      // Clear intervals if user logs out
       if (window._dmInterval) clearInterval(window._dmInterval);
       if (window._heartbeatInterval) clearInterval(window._heartbeatInterval);
       setInbox([]);
@@ -341,11 +340,9 @@ export function DmProvider({ children }) {
       return;
     }
 
-    // Load inbox immediately
     loadInbox();
     sendHeartbeat();
 
-    // Set up intervals
     const dmInterval = setInterval(() => {
       loadInbox();
       if (activeConvIdRef.current) pollNewMessages();
@@ -362,7 +359,7 @@ export function DmProvider({ children }) {
       window._dmInterval = null;
       window._heartbeatInterval = null;
     };
-  }, [user, loadInbox, sendHeartbeat, pollNewMessages]); // 👈 depends on user
+  }, [user, loadInbox, sendHeartbeat, pollNewMessages]);
 
   // ── Context value ──
   const value = {

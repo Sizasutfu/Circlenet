@@ -87,7 +87,6 @@ export default function DmChat() {
   const handleInputChange = (e) => {
     const value = e.target.value;
     setInput(value);
-    // Emit typing
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     emitTyping(true);
     typingTimeoutRef.current = setTimeout(() => {
@@ -175,8 +174,11 @@ export default function DmChat() {
             ? <div className="text-[11px] font-medium text-[var(--color-txt3)] text-right mt-1 mr-0.5">Seen</div>
             : null;
 
+          // ✅ Unique key: id + timestamp + temp flag
+          const key = `${msg.id}-${msg.created_at}-${isTmp ? 'tmp' : 'real'}`;
+
           return (
-            <Fragment key={msg.id}>
+            <Fragment key={key}>
               {divider}
               <div className={`flex ${mine ? 'flex-row-reverse' : ''} items-end gap-2 animate-fadeUp`}>
                 {mine && !isTmp && (

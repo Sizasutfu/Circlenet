@@ -54,7 +54,6 @@ export function WhisperProvider({ children }) {
       setSettings(res);
     } catch (err) {
       console.error('Failed to fetch whisper settings:', err);
-      // Fallback to default
       setSettings({ enabled: false, link_slug: '' });
     }
   }, [user]);
@@ -64,13 +63,13 @@ export function WhisperProvider({ children }) {
     try {
       const res = await apiClient('/api/whisper/settings', {
         method: 'PATCH',
-        body: JSON.stringify({ enabled }),
+        body: { enabled }, // ✅ plain object – apiClient will stringify
       });
       setSettings(prev => ({ ...prev, enabled }));
       return res;
     } catch (err) {
       console.error('Whisper settings update failed:', err);
-      throw err; // rethrow so the UI can handle it
+      throw err;
     }
   }, []);
 
@@ -93,7 +92,7 @@ export function WhisperProvider({ children }) {
     formData.append('text', replyText);
     formData.append('image', imageFile);
 
-    // 3. Send to API
+    // 3. Send to API – apiClient handles FormData without stringifying
     try {
       const res = await apiClient(`/api/whisper/${whisperId}/post`, {
         method: 'POST',

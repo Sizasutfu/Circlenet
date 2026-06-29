@@ -167,9 +167,33 @@ export default function Footer() {
           <div>
             <h3 className="font-semibold text-[var(--color-txt)] mb-3">Follow Us</h3>
             <div className="flex gap-4 mb-4">
-              <a href="https://twitter.com/circlenet" target="_blank" rel="noopener noreferrer" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition" aria-label="Twitter"><TwitterIcon /></a>
-              <a href="https://github.com/circlenet" target="_blank" rel="noopener noreferrer" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition" aria-label="GitHub"><GitHubIcon /></a>
-              <a href="https://www.youtube.com/c/circlenet" target="_blank" rel="noopener noreferrer" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition" aria-label="YouTube"><YouTubeIcon /></a>
+              <a
+                href="https://twitter.com/sbeats15214647"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
+                aria-label="Twitter"
+              >
+                <TwitterIcon />
+              </a>
+              <a
+                href="https://github.com/sizasutfu"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
+                aria-label="GitHub"
+              >
+                <GitHubIcon />
+              </a>
+              <a
+                href="https://www.youtube.com/c/circlenet"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
+                aria-label="YouTube"
+              >
+                <YouTubeIcon />
+              </a>
             </div>
 
             {/* Language selector */}
@@ -188,7 +212,7 @@ export default function Footer() {
               </div>
             </div>
 
-            {/* Trending topics – dynamic from API */}
+            {/* Trending topics */}
             <div>
               <p className="text-xs font-medium text-[var(--color-txt2)] uppercase tracking-wider mb-1 flex items-center gap-1">
                 <HashtagIcon /> Trending

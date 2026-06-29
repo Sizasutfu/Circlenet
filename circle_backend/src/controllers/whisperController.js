@@ -61,19 +61,13 @@ async function sendMessage(req, res) {
 
 // ─── GET /api/whisper/settings ──────────────────────────────────
 async function getSettings(req, res) {
-  console.log('[Whisper] actorId:', req.actorId);
- 
   try {
     const userId = req.actorId;
     let settings = await WhisperModel.getUserSettings(userId);
-   
-    console.log('[Whisper] raw settings:', settings);
-
     if (!settings) {
       await WhisperModel.upsertSettings(userId, false);
       settings = await WhisperModel.getUserSettings(userId);
     }
-
     return sendOk(res, 200, 'Settings fetched.', {
       enabled: !!settings.enabled,
       link_slug: settings.link_slug,
@@ -84,11 +78,9 @@ async function getSettings(req, res) {
   }
 }
 
-
 // ─── PATCH /api/whisper/settings ────────────────────────────────
 async function updateSettings(req, res) {
   try {
-    console.log('[Whisper] body.enabled:', req.body.enabled, typeof req.body.enabled);
     const userId = req.actorId;
     const enabled = Boolean(req.body.enabled);
     await WhisperModel.upsertSettings(userId, enabled);
@@ -164,7 +156,16 @@ async function reportMessage(req, res) {
 // Accepts multipart image + text; creates a post from the whisper.
 async function createPostFromWhisper(req, res) {
   try {
-    const userId = req.actorId;
+    // 🔧 FIX: Fallback to req.userId if actorId is not set
+    const userId = req.actorId || req.userId;
+    console.log('[Whisper] createPostFromWhisper - userId:', userId);
+    console.log('[Whisper] req.file:', req.file);
+    console.log('[Whisper] req.body.text:', req.body.text);
+
+    if (!userId) {
+      return sendError(res, 401, 'You must be logged in to do that.');
+    }
+
     const messageId = parseInt(req.params.id);
     const text = (req.body.text || '').trim();
 
@@ -184,7 +185,6 @@ async function createPostFromWhisper(req, res) {
 
     return sendOk(res, 201, 'Post created from whisper.', newPost);
   } catch (err) {
-    // Handle specific business errors
     if (err.message === 'Message not found') {
       return sendError(res, 404, err.message);
     }

@@ -21,7 +21,8 @@ export default function WhisperReplyModal({ message, onClose, onPosted }) {
       await postWhisper(message.id, reply);
       onPosted();
     } catch (err) {
-      setError(err.message || 'Failed to post');
+      console.error('Whisper reply error:', err);
+      setError(err.message || 'Failed to post. Please try again.');
     } finally {
       setLoading(false);
     }

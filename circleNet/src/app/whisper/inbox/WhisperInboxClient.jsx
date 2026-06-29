@@ -47,37 +47,26 @@ export default function WhisperInboxClient() {
 
     const fetchSlug = async () => {
       try {
-        // Option 1: Use the settings API (which returns link_slug)
-        // If you want to fetch from a separate endpoint, you can do that here.
-        // We'll use the settings endpoint as it's already called by fetchSettings.
-        // But we need to wait for settings to be loaded.
-        // If settings.link_slug is available, use it.
         if (settings?.link_slug) {
           setWhisperSlug(settings.link_slug);
           setSlugLoading(false);
           return;
         }
-
-        // If not available in settings, fallback to user.username from auth.
         if (user.username) {
           setWhisperSlug(user.username);
           setSlugLoading(false);
           return;
         }
-
-        // If still missing, fetch the user profile to get username.
         const res = await apiClient(`/api/users/${user.id}/profile`);
         const profile = res.data || res;
         if (profile.username) {
           setWhisperSlug(profile.username);
         } else {
-          // Ultimate fallback: use the user's name or a default.
           setWhisperSlug(user.name || 'user');
         }
         setSlugLoading(false);
       } catch (err) {
         console.warn('Failed to fetch whisper slug:', err);
-        // Fallback to user.username or name
         setWhisperSlug(user.username || user.name || 'user');
         setSlugLoading(false);
       }
@@ -113,7 +102,6 @@ export default function WhisperInboxClient() {
 
   if (!user) return null;
 
-  // ── Build the public whisper link ──
   const publicLink = `${window.location.origin}/whisper/send/${whisperSlug || 'user'}`;
 
   return (

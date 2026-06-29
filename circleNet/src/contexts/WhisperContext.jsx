@@ -24,10 +24,11 @@ export function WhisperProvider({ children }) {
     try {
       const url = cursorParam ? `/api/whisper/inbox?cursor=${cursorParam}` : '/api/whisper/inbox';
       const res = await apiClient(url);
-      const msgs = res.messages || [];
+      // Extract messages from the correct path
+      const msgs = res.data?.messages || res.messages || [];
       setMessages(prev => cursorParam ? [...prev, ...msgs] : msgs);
-      setCursor(res.nextCursor || null);
-      setHasMore(res.hasMore || false);
+      setCursor(res.data?.nextCursor || res.nextCursor || null);
+      setHasMore(res.data?.hasMore || res.hasMore || false);
     } catch (err) {
       console.error('Failed to fetch whisper inbox:', err);
     } finally {
@@ -58,12 +59,12 @@ export function WhisperProvider({ children }) {
     }
   }, [user]);
 
-  // ── Update settings (enable/disable) ──
+  // ── Update settings ──
   const updateSettings = useCallback(async (enabled) => {
     try {
       const res = await apiClient('/api/whisper/settings', {
         method: 'PATCH',
-        body: { enabled }, // ✅ plain object – apiClient will stringify
+        body: { enabled },
       });
       setSettings(prev => ({ ...prev, enabled }));
       return res;
@@ -77,35 +78,36 @@ export function WhisperProvider({ children }) {
   const postWhisper = useCallback(async (whisperId, replyText) => {
     if (!user) throw new Error('Not authenticated');
 
-    // 1. Generate the card image
     const messageObj = messages.find(m => m.id === whisperId);
     if (!messageObj) throw new Error('Whisper message not found');
 
-    // Dynamically import the card generator to avoid client‑side issues
-    const { generateWhisperCard } = await import('@/lib/whisperCard');
-    const canvas = await generateWhisperCard(messageObj.message, user.username);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    const imageFile = new File([blob], `whisper-${whisperId}.png`, { type: 'image/png' });
-
-    // 2. Build FormData
-    const formData = new FormData();
-    formData.append('text', replyText);
-    formData.append('image', imageFile);
-
-    // 3. Send to API – apiClient handles FormData without stringifying
     try {
+      // 1. Generate the card image
+      const { generateWhisperCard } = await import('@/lib/whisperCard');
+      const canvas = await generateWhisperCard(messageObj.message, user.username);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const imageFile = new File([blob], `whisper-${whisperId}.png`, { type: 'image/png' });
+
+      // 2. Build FormData
+      const formData = new FormData();
+      formData.append('text', replyText);
+      formData.append('image', imageFile);
+
+      // 3. Send to API
       const res = await apiClient(`/api/whisper/${whisperId}/post`, {
         method: 'POST',
         body: formData,
       });
+
       // Mark message as posted locally
       setMessages(prev => prev.map(m =>
         m.id === whisperId ? { ...m, posted: true } : m
       ));
       return res;
     } catch (err) {
-      console.error('Failed to post whisper:', err);
-      throw err;
+      console.error('Whisper post error:', err);
+      // Re-throw with a clear message
+      throw new Error(err.message || 'Failed to post whisper. Please try again.');
     }
   }, [user, messages]);
 

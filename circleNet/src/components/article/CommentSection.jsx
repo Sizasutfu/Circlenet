@@ -49,7 +49,7 @@ export default function CommentSection({ articleId }) {
     try {
       const payload = { text: text.trim() };
       if (replyTo) payload.parentId = replyTo.id;
-      await apiClient(`/api/articles/${articleId}/comment`, { method: 'POST', body: JSON.stringify(payload) });
+      await apiClient(`/api/articles/${articleId}/comment`, { method: 'POST', body: payload });
       setText('');
       setReplyTo(null);
       await loadComments();

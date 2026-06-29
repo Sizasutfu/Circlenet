@@ -245,7 +245,7 @@ export default function WhisperInboxClient() {
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                     </svg>
-                    Reply & Post
+                    <span className="hidden sm:inline">Reply & Post</span>
                   </button>
                 )}
                 <button
@@ -272,7 +272,7 @@ export default function WhisperInboxClient() {
                   </svg>
                 </button>
 
-                {/* ── Download Image ── */}
+                {/* Download */}
                 <button
                   onClick={() => handleDownloadWhisper(msg)}
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full text-xs font-bold hover:bg-[var(--color-accent-bg)] transition"
@@ -281,10 +281,10 @@ export default function WhisperInboxClient() {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
                   </svg>
-                  Download
+                  <span className="hidden sm:inline">Download</span>
                 </button>
 
-                {/* ── Share Image (via Web Share API) ── */}
+                {/* Share */}
                 <button
                   onClick={() => handleShareWhisper(msg)}
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full text-xs font-bold hover:bg-[var(--color-accent-bg)] transition"
@@ -297,7 +297,7 @@ export default function WhisperInboxClient() {
                     <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                     <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                   </svg>
-                  Share
+                  <span className="hidden sm:inline">Share</span>
                 </button>
               </div>
             </div>

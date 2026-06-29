@@ -99,10 +99,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   // ── Download image ──
   const handleDownloadImage = () => {
     if (!postImageUrl) return;
-    // Create a temporary anchor element
     const link = document.createElement('a');
     link.href = postImageUrl;
-    link.download = `post-image-${id}.png`; // or .jpg, but we'll keep generic
+    link.download = `post-image-${id}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -198,9 +197,8 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
             {renderMedia()}
           </Link>
 
-          {/* Engagement bar */}
+          {/* ── Engagement bar ── */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-            {/* Like */}
             <button
               onClick={handleLike}
               className={`flex items-center gap-1 transition hover:text-[var(--color-rose)] ${
@@ -213,7 +211,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{likeCount}</span>
             </button>
 
-            {/* Comment */}
             <button
               onClick={() => onComment && onComment(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
@@ -224,7 +221,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{comments.length || 0}</span>
             </button>
 
-            {/* Repost */}
             <button
               onClick={() => onRepost && onRepost(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-green)]"
@@ -238,7 +234,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{reposts.length || 0}</span>
             </button>
 
-            {/* Share */}
             <button
               onClick={() => onShare && onShare(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
@@ -265,6 +260,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
+                <span className="hidden sm:inline">Download</span>
               </button>
             )}
 

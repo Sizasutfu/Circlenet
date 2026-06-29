@@ -13,6 +13,7 @@ export default function LiveSetupModal() {
     setupError,
     openSetup,
   } = useLive();
+
   const [title, setTitle] = useState('');
   const [isStarting, setIsStarting] = useState(false);
   const videoRef = useRef(null);
@@ -39,7 +40,7 @@ export default function LiveSetupModal() {
         <h2 className="text-xl font-head font-extrabold text-[var(--color-txt)]">Go Live</h2>
         <p className="text-sm text-[var(--color-txt2)] mb-4">Share a live moment with your Circle.</p>
 
-        {/* Preview */}
+        {/* Video preview */}
         <div className="w-full h-48 rounded-xl bg-black/60 overflow-hidden relative mb-4">
           <video
             ref={videoRef}
@@ -60,17 +61,16 @@ export default function LiveSetupModal() {
           className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition mb-4"
         />
 
-        {/* Error message with retry */}
+        {/* Error message with Retry button */}
         {setupError && (
-          <div className="text-sm text-[var(--color-rose)] bg-[var(--color-rose-bg)] p-2 rounded mb-3 flex items-center justify-between">
-            <span>{setupError}</span>
+          <div className="text-sm text-[var(--color-rose)] bg-[var(--color-rose-bg)] p-3 rounded mb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+            <span className="flex-1">{setupError}</span>
             <button
               onClick={() => {
-                // Retry: close and reopen setup to trigger permission prompt again
                 closeSetup();
                 setTimeout(() => openSetup(), 300);
               }}
-              className="ml-2 px-3 py-1 bg-[var(--color-accent)] text-white rounded-full text-xs font-medium hover:bg-[var(--color-accent-h)] transition whitespace-nowrap"
+              className="px-3 py-1 bg-[var(--color-accent)] text-white rounded-full text-xs font-medium hover:bg-[var(--color-accent-h)] transition whitespace-nowrap"
             >
               Retry
             </button>

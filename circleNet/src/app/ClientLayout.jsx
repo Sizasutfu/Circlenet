@@ -25,6 +25,7 @@ import LiveSetupModal from '@/components/live/LiveSetupModal';
 import LiveOverlay from '@/components/live/LiveOverlay';
 import LiveFeedStrip from '@/components/live/LiveFeedStrip';
 import LiveToast from '@/components/live/LiveToast';
+import { useScrollDirection } from '@/hooks/useScrollDirection';
 
 function LightboxWrapper({ children }) {
   const { lightboxState, closeLightbox } = useLightbox();
@@ -47,7 +48,7 @@ function FloatingComposeButton() {
   return (
     <button
       onClick={() => router.push('/compose')}
-      className="fixed bottom-20 right-4 z-40 bg-[var(--color-accent)] text-white rounded-full p-4 shadow-lg shadow-[var(--color-accent-glow)] hover:bg-[var(--color-accent-h)] transition transform hover:scale-105 md:hidden"
+      className="flex items-center justify-center w-14 h-14 rounded-full bg-[var(--color-accent)] text-white shadow-lg shadow-[var(--color-accent-glow)] hover:bg-[var(--color-accent-h)] transition-all transform hover:scale-105 md:hidden"
       aria-label="Create post"
     >
       <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -62,6 +63,9 @@ export default function ClientLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const closeSidebar = () => setSidebarOpen(false);
+
+  const { direction, isAtTop } = useScrollDirection();
+  const shouldHide = direction === 'down' && !isAtTop;
 
   // Register service worker for push
   useEffect(() => {
@@ -103,8 +107,24 @@ export default function ClientLayout({ children }) {
                             <LiveSetupModal />
                             <LiveOverlay />
                             <LiveToast />
-                            <FloatingComposeButton />
-                            <MobileNavbar />
+
+                            {/* ── Mobile Navbar – hides on scroll down ── */}
+                            <MobileNavbar
+                              className={`transition-transform duration-300 ease-in-out ${
+                                shouldHide ? 'translate-y-full' : 'translate-y-0'
+                              }`}
+                            />
+
+                            {/* ── Floating Compose Button – hides on scroll down ── */}
+                            <div
+                              className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
+                                shouldHide
+                                  ? 'opacity-0 scale-90 pointer-events-none'
+                                  : 'opacity-100 scale-100'
+                              }`}
+                            >
+                              <FloatingComposeButton />
+                            </div>
                           </LightboxWrapper>
                         </LightboxProvider>
                       </NotificationProvider>

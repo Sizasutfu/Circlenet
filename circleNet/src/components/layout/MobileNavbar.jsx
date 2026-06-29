@@ -7,21 +7,19 @@ import { useAuth } from '@/lib/auth';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useDm } from '@/contexts/DmContext';
 
-export default function MobileNavbar() {
+export default function MobileNavbar({ className = '' }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuth();
   const { openPanel, unreadCount } = useNotifications();
   const { inbox } = useDm();
 
-  // DM unread count from inbox
   const dmUnread = inbox.reduce((acc, conv) => acc + (conv.unread_count || 0), 0);
 
+  // ── Exactly 5 items ──
   const navItems = [
     { id: 'feed', label: 'Feed', icon: HomeIcon, href: '/' },
     { id: 'explore', label: 'Explore', icon: ExploreIcon, href: '/explore' },
-    { id: 'groups', label: 'Groups', icon: GroupsIcon, href: '/groups' },
-    { id: 'messages', label: 'Messages', icon: MessageIcon, href: '/messages', badge: dmUnread },
     {
       id: 'notifications',
       label: 'Notifications',
@@ -36,11 +34,20 @@ export default function MobileNavbar() {
         openPanel();
       },
     },
+    {
+      id: 'messages',
+      label: 'Messages',
+      icon: MessageIcon,
+      href: '/messages',
+      badge: dmUnread,
+    },
     { id: 'profile', label: 'Profile', icon: UserIcon, href: '/profile' },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--color-card)] border-t border-[var(--color-border)] flex items-center justify-around px-2 py-1.5 md:hidden safe-bottom">
+    <nav
+      className={`fixed bottom-0 left-0 right-0 z-40 bg-[var(--color-card)] border-t border-[var(--color-border)] flex items-center justify-around px-2 py-1.5 md:hidden safe-bottom ${className}`}
+    >
       {navItems.map((item) => {
         const isActive = pathname === item.href;
         const Icon = item.icon;
@@ -101,25 +108,16 @@ const ExploreIcon = (props) => (
   </svg>
 );
 
-const GroupsIcon = (props) => (
+const BellIcon = (props) => (
   <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
-    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M23 21v-2a4 4 0 00-3-3.87" />
-    <path d="M16 3.13a4 4 0 010 7.75" />
+    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 01-3.46 0" />
   </svg>
 );
 
 const MessageIcon = (props) => (
   <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-  </svg>
-);
-
-const BellIcon = (props) => (
-  <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
-    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-    <path d="M13.73 21a2 2 0 01-3.46 0" />
   </svg>
 );
 

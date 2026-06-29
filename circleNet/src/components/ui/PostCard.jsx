@@ -4,6 +4,7 @@
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useLightbox } from '@/hooks/useLightbox';
+import { useAuth } from '@/lib/auth';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -21,19 +22,34 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
+function formatNumber(num) {
+  if (num === undefined || num === null) return '0';
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return String(num);
+}
+
 export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
+  const { user: currentUser } = useAuth();
+
   const {
     id,
     text,
     image,
     video,
     createdAt,
-    user,
     likes = [],
     comments = [],
     reposts = [],
     shares = 0,
+    viewCount = 0,
   } = post;
+
+  // ── Robust user extraction ──
+  const displayName = post.user?.name || post.author || 'Anonymous';
+  const username = post.user?.username || post.authorUsername || '';
+  const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(likes.length || 0);
@@ -42,12 +58,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const { openLightbox } = useLightbox();
   const videoRef = useRef(null);
-
-  const displayName = user?.name || 'Anonymous';
-  const username = user?.username || 'unknown';
-  const avatarUrl = resolveMediaUrl(user?.picture);
-  const postImageUrl = resolveMediaUrl(image);
-  const postVideoUrl = resolveMediaUrl(video);
 
   const initial = displayName.charAt(0).toUpperCase();
   const avatarColor = stringToColor(displayName);
@@ -82,6 +92,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     console.warn('⚠️ Video failed to load:', postVideoUrl);
     setVideoError(true);
   };
+
+  const postImageUrl = resolveMediaUrl(image);
+  const postVideoUrl = resolveMediaUrl(video);
 
   const renderMedia = () => {
     if (postVideoUrl) {
@@ -129,6 +142,8 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     return null;
   };
 
+  const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
+
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
@@ -138,7 +153,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
           style={{ background: avatarUrl ? 'transparent' : avatarColor }}
         >
           {avatarUrl ? (
-            <img src={avatarUrl} alt={displayName} className="h-full w-full rounded-full object-cover" />
+            <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
           ) : (
             initial
           )}
@@ -172,7 +187,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
           </Link>
 
           {/* Engagement bar */}
-          <div className="mt-3 flex items-center gap-4 text-[var(--color-txt2)] text-xs">
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <button
               onClick={handleLike}
               className={`flex items-center gap-1 transition hover:text-[var(--color-rose)] ${
@@ -184,6 +199,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </svg>
               <span>{likeCount}</span>
             </button>
+
             <button
               onClick={() => onComment && onComment(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
@@ -193,6 +209,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </svg>
               <span>{comments.length || 0}</span>
             </button>
+
             <button
               onClick={() => onRepost && onRepost(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-green)]"
@@ -205,6 +222,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </svg>
               <span>{reposts.length || 0}</span>
             </button>
+
             <button
               onClick={() => onShare && onShare(id)}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
@@ -218,6 +236,16 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </svg>
               <span>{shares || 0}</span>
             </button>
+
+            {isAuthor && viewCount > 0 && (
+              <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                {formatNumber(viewCount)}
+              </span>
+            )}
           </div>
         </div>
       </div>

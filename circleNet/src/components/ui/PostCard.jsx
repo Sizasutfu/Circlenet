@@ -1,10 +1,11 @@
 // src/components/ui/PostCard.jsx
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useLightbox } from '@/hooks/useLightbox';
 import { useAuth } from '@/lib/auth';
+import { generatePostCard } from '@/lib/postCardGenerator';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -31,10 +32,7 @@ function formatNumber(num) {
 }
 
 export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
-  // ✅ GUARD AT THE VERY TOP – before any destructuring
-  if (!post) {
-    return null;
-  }
+  if (!post) return null;
 
   const { user: currentUser } = useAuth();
 
@@ -60,6 +58,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const [likeCount, setLikeCount] = useState(likes.length || 0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   const { openLightbox } = useLightbox();
   const videoRef = useRef(null);
@@ -76,6 +77,17 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     hour: '2-digit',
     minute: '2-digit',
   });
+
+  // ── Close dropdown on outside click ──
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleLike = () => {
     setIsLiked(!isLiked);
@@ -101,9 +113,68 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     setVideoError(true);
   };
 
-  // ── Download image ──
-  const handleDownloadImage = () => {
+  // ── Download post as image ──
+  const handleDownloadPostImage = async () => {
+    if (imageLoading) return;
+    setImageLoading(true);
+    setIsDropdownOpen(false);
+    try {
+      const canvas = await generatePostCard(post, currentUser?.username);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `post-${id}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error generating post image:', err);
+      alert('Failed to generate image.');
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
+  // ── Share post image ──
+  const handleSharePostImage = async () => {
+    if (imageLoading) return;
+    setImageLoading(true);
+    setIsDropdownOpen(false);
+    try {
+      const canvas = await generatePostCard(post, currentUser?.username);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const file = new File([blob], `post-${id}.png`, { type: 'image/png' });
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Check this post',
+          files: [file],
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `post-${id}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Error sharing post image:', err);
+        alert('Failed to share image.');
+      }
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
+  // ── Download original image ──
+  const handleDownloadOriginalImage = () => {
     if (!postImageUrl) return;
+    setIsDropdownOpen(false);
     const link = document.createElement('a');
     link.href = postImageUrl;
     link.download = `post-image-${id}.png`;
@@ -178,11 +249,76 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
         {/* Content */}
         <div className="flex-1 min-w-0">
           <Link href={`/post/${id}`} className="block">
-            {/* Header */}
-            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-              <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
-              <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
-              <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
+            {/* Header with three-dot menu */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
+              </div>
+
+              {/* ── Three-dot menu (top-right) ── */}
+              <div className="relative flex-shrink-0" ref={dropdownRef}>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setIsDropdownOpen(!isDropdownOpen);
+                  }}
+                  className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
+                  title="More actions"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="6" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="12" cy="18" r="2" />
+                  </svg>
+                </button>
+
+                {isDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
+                    <button
+                      onClick={handleDownloadPostImage}
+                      disabled={imageLoading}
+                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                      </svg>
+                      {imageLoading ? 'Generating…' : 'Download as Image'}
+                    </button>
+                    <button
+                      onClick={handleSharePostImage}
+                      disabled={imageLoading}
+                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                      Share as Image
+                    </button>
+                    {postImageUrl && (
+                      <>
+                        <div className="border-t border-[var(--color-border)] my-1" />
+                        <button
+                          onClick={handleDownloadOriginalImage}
+                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          Download Original
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Text */}
@@ -202,7 +338,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
             {renderMedia()}
           </Link>
 
-          {/* Engagement bar */}
+          {/* ── Engagement bar ── */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <button
               onClick={handleLike}
@@ -253,23 +389,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{shares || 0}</span>
             </button>
 
-            {/* Download image */}
-            {postImageUrl && (
-              <button
-                onClick={handleDownloadImage}
-                className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
-                title="Download image"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                <span className="hidden sm:inline">Download</span>
-              </button>
-            )}
-
-            {/* View count (author only) */}
+            {/* ── View count (author only) ── */}
             {isAuthor && viewCount > 0 && (
               <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

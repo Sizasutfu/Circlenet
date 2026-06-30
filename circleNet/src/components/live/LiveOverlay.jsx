@@ -28,6 +28,7 @@ export default function LiveOverlay() {
     sendChat,
     sendReaction,
     watchSession,
+    floatingReactions,
   } = useLive();
 
   const [chatInput, setChatInput] = useState('');
@@ -100,6 +101,25 @@ export default function LiveOverlay() {
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black flex flex-col">
+      {/* Floating reactions layer */}
+      <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden">
+        {floatingReactions.map((r) => (
+          <div
+            key={r.id}
+            className="absolute text-5xl animate-float-up"
+            style={{
+              left: `${r.x}%`,
+              bottom: '0%',
+              animationDuration: '2.5s',
+              animationDelay: '0s',
+              animationTimingFunction: 'ease-out',
+            }}
+          >
+            {r.emoji}
+          </div>
+        ))}
+      </div>
+
       {/* Video container */}
       <div className="absolute inset-0 bg-black/90 flex items-center justify-center">
         {!hasStream ? (

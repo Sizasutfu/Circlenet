@@ -39,12 +39,27 @@ export function LiveProvider({ children }) {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupError, setSetupError] = useState(null);
+  const [floatingReactions, setFloatingReactions] = useState([]); // new
 
   const localStreamRef = useRef(null);
   const peersRef = useRef({});
   const retryTimersRef = useRef({});
+  const reactionTimerRef = useRef(null);
 
   const log = (msg, data) => console.log(`[Live:${role || 'none'}] ${msg}`, data || '');
+
+  // ── Add a floating reaction ──
+  const addFloatingReaction = useCallback((emoji) => {
+    const id = Date.now() + Math.random();
+    const x = 20 + Math.random() * 60; // random horizontal position (%)
+    const y = 20 + Math.random() * 60;
+    setFloatingReactions(prev => [...prev, { id, emoji, x, y }]);
+    // Auto-remove after 2.5s
+    if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
+    reactionTimerRef.current = setTimeout(() => {
+      setFloatingReactions(prev => prev.filter(r => r.id !== id));
+    }, 2500);
+  }, []);
 
   // ── Media support ──
   const isMediaSupported = useCallback(() => {
@@ -141,9 +156,9 @@ export function LiveProvider({ children }) {
       setTitle(data.title || "");
     } catch (_) {}
 
-    // Create peer connection (viewer)
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    peersRef.current[sid] = pc;
+    const hostIdRef = { current: null };
+    peersRef.current[sid] = { pc, hostIdRef };
 
     pc.oniceconnectionstatechange = () => {
       log('ICE connection state', pc.iceConnectionState);
@@ -157,25 +172,6 @@ export function LiveProvider({ children }) {
       }
     };
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        log('Sending ICE candidate to host');
-        wsSend({
-          type: "live:ice_candidate",
-          sessionId: sid,
-          candidate: event.candidate,
-          from: user.id,
-          to: null, // will be filled when we know hostId; we'll send after receiving offer
-        });
-      }
-    };
-
-    // We don't know hostId yet; will set when we receive offer (which includes `from`)
-    // So we'll modify the onicecandidate to use a variable hostId.
-    // We'll override it after receiving the offer.
-    // Let's store hostId in a ref.
-    const hostIdRef = { current: null };
-    // Override the onicecandidate to use hostIdRef.
-    pc.onicecandidate = (event) => {
       if (event.candidate && hostIdRef.current) {
         log('Sending ICE candidate to host');
         wsSend({
@@ -188,11 +184,7 @@ export function LiveProvider({ children }) {
       }
     };
 
-    // Store the peer and hostIdRef
-    peersRef.current[sid] = { pc, hostIdRef };
-
-    // Wait for host's offer (we will not send one)
-    // Set a timeout to retry join if no offer arrives
+    // Wait for host's offer – retry if none
     const retryTimer = setTimeout(() => {
       if (!remoteStream) {
         log('⏳ No offer received – retrying join');
@@ -216,7 +208,7 @@ export function LiveProvider({ children }) {
       try {
         await apiClient("/api/live/end", { method: "POST", body: { sessionId } });
       } catch (_) {}
-      Object.values(peersRef.current).forEach(pc => pc.close());
+      Object.values(peersRef.current).forEach(pc => pc.close?.());
       peersRef.current = {};
       wsSend({ type: "live:ended", sessionId });
     } else if (role === "viewer") {
@@ -240,6 +232,7 @@ export function LiveProvider({ children }) {
     setChatMessages([]);
     setViewerCount(0);
     setRemoteStream(null);
+    setFloatingReactions([]);
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(t => t.stop());
       setLocalStream(null);
@@ -274,8 +267,10 @@ export function LiveProvider({ children }) {
 
   const sendReaction = useCallback((emoji) => {
     if (!sessionId) return;
+    // Optimistically add floating reaction locally
+    addFloatingReaction(emoji);
     wsSend({ type: "live:reaction", sessionId, emoji });
-  }, [sessionId, wsSend]);
+  }, [sessionId, wsSend, addFloatingReaction]);
 
   // ── WebSocket message handler ──
   const handleWsMessage = useCallback((msg) => {
@@ -290,7 +285,6 @@ export function LiveProvider({ children }) {
         break;
       case "live:viewer_joined":
         setViewerCount(msg.viewerCount);
-        // Host: create offer for this viewer
         if (role === "host" && sessionId === msg.sessionId) {
           const viewerId = msg.viewerId;
           log('Viewer joined, creating offer for', viewerId);
@@ -308,7 +302,7 @@ export function LiveProvider({ children }) {
                   sessionId: msg.sessionId,
                   candidate: event.candidate,
                   from: user.id,
-                  to: viewerId, // send candidate to this viewer
+                  to: viewerId,
                 });
               }
             };
@@ -324,7 +318,7 @@ export function LiveProvider({ children }) {
                 sessionId: msg.sessionId,
                 offer: pc.localDescription,
                 from: user.id,
-                to: viewerId, // send offer specifically to this viewer
+                to: viewerId,
               });
               log('Offer sent to viewer', viewerId);
             })
@@ -340,13 +334,12 @@ export function LiveProvider({ children }) {
         }
         break;
       case "live:offer":
-        // Viewer receives offer from host
         if (role === "viewer" && sessionId === msg.sessionId) {
-          const hostId = msg.from; // host's userId
+          const hostId = msg.from;
           const entry = peersRef.current[sessionId];
           if (entry) {
-            const { pc, hostIdRef } = entry;
-            hostIdRef.current = hostId; // store hostId for ICE candidates
+            entry.hostIdRef.current = hostId;
+            const pc = entry.pc;
             log('Received offer from host', hostId);
             pc.setRemoteDescription(new RTCSessionDescription(msg.offer))
               .then(() => pc.createAnswer())
@@ -357,7 +350,7 @@ export function LiveProvider({ children }) {
                   sessionId: msg.sessionId,
                   answer: pc.localDescription,
                   from: user.id,
-                  to: hostId, // send answer back to host
+                  to: hostId,
                 });
                 log('Answer sent to host', hostId);
               })
@@ -395,6 +388,12 @@ export function LiveProvider({ children }) {
           }
         }
         break;
+      case "live:reaction":
+        if (sessionId === msg.sessionId && msg.from !== user?.id) {
+          // Show floating reaction from others
+          addFloatingReaction(msg.emoji);
+        }
+        break;
       case "live:chat_message":
         if (sessionId === msg.sessionId && msg.senderId !== user?.id) {
           setChatMessages(prev => [...prev, { senderName: msg.senderName, text: msg.text, isSelf: false }]);
@@ -402,7 +401,7 @@ export function LiveProvider({ children }) {
         break;
       default: break;
     }
-  }, [loadActiveSessions, role, sessionId, user, localStreamRef, wsSend]);
+  }, [loadActiveSessions, role, sessionId, user, localStreamRef, wsSend, addFloatingReaction]);
 
   // ── Register handlers ──
   useEffect(() => {
@@ -421,9 +420,10 @@ export function LiveProvider({ children }) {
   // ── Cleanup ──
   useEffect(() => {
     return () => {
-      Object.values(peersRef.current).forEach(pc => pc.close && pc.close());
+      Object.values(peersRef.current).forEach(pc => pc.close?.());
       if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
       Object.values(retryTimersRef.current).forEach(t => clearTimeout(t));
+      if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
     };
   }, []);
 
@@ -444,6 +444,7 @@ export function LiveProvider({ children }) {
     isOverlayOpen,
     isSetupOpen,
     setupError,
+    floatingReactions,
     openSetup,
     closeSetup,
     startLive,

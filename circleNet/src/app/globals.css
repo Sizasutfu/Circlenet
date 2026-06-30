@@ -81,3 +81,24 @@ body {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(0.6);
+  }
+  30% {
+    transform: translateY(-30vh) scale(1.2);
+  }
+  60% {
+    transform: translateY(-60vh) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-90vh) scale(0.8);
+  }
+}
+
+.animate-float-up {
+  animation: floatUp 2.5s ease-out forwards;
+}

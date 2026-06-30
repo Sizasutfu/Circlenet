@@ -40,14 +40,12 @@ export default function LiveOverlay() {
   const isHost = role === 'host';
   const isViewer = role === 'viewer';
 
-  // Auto-scroll chat
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatMessages]);
 
-  // Attach stream
   useEffect(() => {
     const stream = isHost ? localStream : remoteStream;
     console.log(`[LiveOverlay] ${isHost ? 'Host' : 'Viewer'} stream:`, stream);
@@ -64,7 +62,6 @@ export default function LiveOverlay() {
     }
   }, [localStream, remoteStream, isHost]);
 
-  // Show "retry" if viewer has no stream after 5 seconds
   useEffect(() => {
     if (isViewer && !remoteStream) {
       const timer = setTimeout(() => setLoadingTimeout(true), 5000);
@@ -74,7 +71,6 @@ export default function LiveOverlay() {
     }
   }, [isViewer, remoteStream]);
 
-  // Reset ended when overlay opens
   useEffect(() => {
     if (isOverlayOpen) {
       setEnded(false);
@@ -111,8 +107,6 @@ export default function LiveOverlay() {
               left: `${r.x}%`,
               bottom: '0%',
               animationDuration: '2.5s',
-              animationDelay: '0s',
-              animationTimingFunction: 'ease-out',
             }}
           >
             {r.emoji}

@@ -39,7 +39,7 @@ export function LiveProvider({ children }) {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupError, setSetupError] = useState(null);
-  const [floatingReactions, setFloatingReactions] = useState([]); // new
+  const [floatingReactions, setFloatingReactions] = useState([]);
 
   const localStreamRef = useRef(null);
   const peersRef = useRef({});
@@ -51,10 +51,8 @@ export function LiveProvider({ children }) {
   // ── Add a floating reaction ──
   const addFloatingReaction = useCallback((emoji) => {
     const id = Date.now() + Math.random();
-    const x = 20 + Math.random() * 60; // random horizontal position (%)
-    const y = 20 + Math.random() * 60;
-    setFloatingReactions(prev => [...prev, { id, emoji, x, y }]);
-    // Auto-remove after 2.5s
+    const x = 5 + Math.random() * 90;
+    setFloatingReactions(prev => [...prev, { id, emoji, x }]);
     if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
     reactionTimerRef.current = setTimeout(() => {
       setFloatingReactions(prev => prev.filter(r => r.id !== id));
@@ -184,7 +182,6 @@ export function LiveProvider({ children }) {
       }
     };
 
-    // Wait for host's offer – retry if none
     const retryTimer = setTimeout(() => {
       if (!remoteStream) {
         log('⏳ No offer received – retrying join');
@@ -267,7 +264,6 @@ export function LiveProvider({ children }) {
 
   const sendReaction = useCallback((emoji) => {
     if (!sessionId) return;
-    // Optimistically add floating reaction locally
     addFloatingReaction(emoji);
     wsSend({ type: "live:reaction", sessionId, emoji });
   }, [sessionId, wsSend, addFloatingReaction]);
@@ -333,6 +329,12 @@ export function LiveProvider({ children }) {
           if (pc) { pc.close(); delete peersRef.current[viewerId]; }
         }
         break;
+      case "live:viewer_count":
+        // NEW: sync viewer count for everyone in the room
+        if (sessionId === msg.sessionId) {
+          setViewerCount(msg.count);
+        }
+        break;
       case "live:offer":
         if (role === "viewer" && sessionId === msg.sessionId) {
           const hostId = msg.from;
@@ -390,7 +392,6 @@ export function LiveProvider({ children }) {
         break;
       case "live:reaction":
         if (sessionId === msg.sessionId && msg.from !== user?.id) {
-          // Show floating reaction from others
           addFloatingReaction(msg.emoji);
         }
         break;
@@ -405,7 +406,7 @@ export function LiveProvider({ children }) {
 
   // ── Register handlers ──
   useEffect(() => {
-    const types = ["live:started","live:ended","live:viewer_joined","live:viewer_left","live:chat_message","live:reaction","live:offer","live:answer","live:ice_candidate"];
+    const types = ["live:started","live:ended","live:viewer_joined","live:viewer_left","live:viewer_count","live:chat_message","live:reaction","live:offer","live:answer","live:ice_candidate"];
     const unsubs = types.map(type => registerHandler(type, handleWsMessage));
     return () => unsubs.forEach(fn => fn());
   }, [registerHandler, handleWsMessage]);

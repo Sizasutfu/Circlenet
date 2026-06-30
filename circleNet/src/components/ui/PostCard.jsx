@@ -31,6 +31,11 @@ function formatNumber(num) {
 }
 
 export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
+  // ✅ GUARD AT THE VERY TOP – before any destructuring
+  if (!post) {
+    return null;
+  }
+
   const { user: currentUser } = useAuth();
 
   const {
@@ -46,9 +51,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     viewCount = 0,
   } = post;
 
-  // ── Robust user extraction ──
+  // ── Robust extraction ──
   const displayName = post.user?.name || post.author || 'Anonymous';
-  const username = post.user?.username || post.authorUsername || '';
+  const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
   const [isLiked, setIsLiked] = useState(false);
@@ -156,7 +161,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
   return (
-    <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
+    <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div
@@ -197,7 +202,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
             {renderMedia()}
           </Link>
 
-          {/* ── Engagement bar ── */}
+          {/* Engagement bar */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <button
               onClick={handleLike}
@@ -248,7 +253,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               <span>{shares || 0}</span>
             </button>
 
-            {/* ── Download image ── */}
+            {/* Download image */}
             {postImageUrl && (
               <button
                 onClick={handleDownloadImage}
@@ -264,7 +269,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </button>
             )}
 
-            {/* ── View count (author only) ── */}
+            {/* View count (author only) */}
             {isAuthor && viewCount > 0 && (
               <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

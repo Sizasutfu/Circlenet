@@ -26,30 +26,9 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
-// ── Helper to get comment user info ──
-function getCommentUser(comment) {
-  // If comment has a nested 'user' object (from populated field)
-  if (comment.user) {
-    return {
-      name: comment.user.name || 'Unknown',
-      username: comment.user.username || 'unknown',
-      picture: comment.user.picture || null,
-    };
-  }
-  // If comment has flat 'author' and 'authorPicture' fields
-  if (comment.author) {
-    return {
-      name: comment.author,
-      username: comment.authorUsername || 'unknown',
-      picture: comment.authorPicture || null,
-    };
-  }
-  // Fallback to userId or id
-  return {
-    name: 'Unknown',
-    username: 'unknown',
-    picture: null,
-  };
+function fmtNum(n) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(n || 0);
 }
 
 // ── Toast ──
@@ -66,6 +45,29 @@ function Toast({ message, type, onClose }) {
   );
 }
 
+// ── Helper to get comment user info ──
+function getCommentUser(comment) {
+  if (comment.user) {
+    return {
+      name: comment.user.name || 'Unknown',
+      username: comment.user.username || 'unknown',
+      picture: comment.user.picture || null,
+    };
+  }
+  if (comment.author) {
+    return {
+      name: comment.author,
+      username: comment.authorUsername || comment.username || 'unknown',
+      picture: comment.authorPicture || null,
+    };
+  }
+  return {
+    name: 'Unknown',
+    username: 'unknown',
+    picture: null,
+  };
+}
+
 export default function PostDetailClient({ postId }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -76,7 +78,10 @@ export default function PostDetailClient({ postId }) {
   const [toast, setToast] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [commenting, setCommenting] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [creator, setCreator] = useState(null);
+  const [creatorLoading, setCreatorLoading] = useState(true);
 
   // ── Fetch post and comments ──
   useEffect(() => {
@@ -92,6 +97,23 @@ export default function PostDetailClient({ postId }) {
         const data = response.data || response;
         setPost(data);
         setComments(data.comments || []);
+
+        // Extract creator info
+        const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
+        if (userInfo && userInfo.id) {
+          setCreator(userInfo);
+          // Fetch full profile for bio and stats
+          try {
+            const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
+            const profile = profileRes.data || profileRes;
+            setCreator(prev => ({ ...prev, ...profile }));
+            setIsFollowing(profile.isFollowing || false);
+            setFollowerCount(profile.followerCount || 0);
+          } catch (_) {
+            // fallback – use what we have
+          }
+        }
+        setCreatorLoading(false);
       } catch (err) {
         console.error('Error fetching post:', err);
         setError(err.message || 'Failed to load post.');
@@ -107,10 +129,30 @@ export default function PostDetailClient({ postId }) {
     setToast({ message: msg, type });
   };
 
+  // ── Follow/Unfollow ──
+  const handleFollowToggle = async () => {
+    if (!user) {
+      showToast('Log in to follow.', 'error');
+      return;
+    }
+    if (!creator) return;
+    const following = isFollowing;
+    const method = following ? 'DELETE' : 'POST';
+    const endpoint = following ? `/api/unfollow/${creator.id}` : `/api/follow/${creator.id}`;
+    try {
+      await apiClient(endpoint, { method });
+      setIsFollowing(!following);
+      setFollowerCount(prev => following ? prev - 1 : prev + 1);
+      showToast(following ? 'Unfollowed.' : 'Following! 🎉');
+    } catch (err) {
+      showToast('Action failed.', 'error');
+    }
+  };
+
   // ── Like post ──
   const handleLike = async (id) => {
-    if (!user) return;
-    const isLiked = post.likes?.includes(user.id);
+    if (!user) { showToast('Log in to like.', 'error'); return; }
+    const isLiked = post?.likes?.includes(user.id) || false;
     const newLikes = isLiked
       ? post.likes.filter((uid) => uid !== user.id)
       : [...(post.likes || []), user.id];
@@ -125,7 +167,7 @@ export default function PostDetailClient({ postId }) {
 
   // ── Repost ──
   const handleRepost = async (id) => {
-    if (!user) return;
+    if (!user) { showToast('Log in to repost.', 'error'); return; }
     try {
       await apiClient(`/api/posts/${id}/repost`, { method: 'POST' });
       showToast('Reposted! 🔁', 'success');
@@ -159,10 +201,9 @@ export default function PostDetailClient({ postId }) {
     try {
       const res = await apiClient(`/api/posts/${postId}/comment`, {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        body: { text },
       });
       const newComment = res.data || res;
-      // Ensure newComment has user info
       setComments((prev) => [newComment, ...prev]);
       setCommentText('');
       showToast('Comment added!', 'success');
@@ -197,7 +238,15 @@ export default function PostDetailClient({ postId }) {
     );
   }
 
-  // ── Render post detail ──
+  // ── Creator profile ──
+  const creatorName = creator?.name || post.author || 'Anonymous';
+  const creatorUsername = creator?.username || post.authorUsername || post.username || '';
+  const creatorAvatar = creator?.picture || post.authorPicture || null;
+  const creatorBio = creator?.bio || '';
+  const creatorInitial = creatorName.charAt(0).toUpperCase();
+  const creatorColor = stringToColor(creatorName);
+  const avatarUrl = resolveMediaUrl(creatorAvatar);
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -213,15 +262,64 @@ export default function PostDetailClient({ postId }) {
         Back
       </button>
 
-      {/* Main post */}
+      {/* ── Creator Profile Section ── */}
+      {creator && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6 flex items-start gap-4">
+          <Link href={`/profile/${creatorUsername}`} className="flex-shrink-0">
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg overflow-hidden"
+              style={{ background: avatarUrl ? 'transparent' : creatorColor }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={creatorName} className="w-full h-full object-cover" />
+              ) : (
+                creatorInitial
+              )}
+            </div>
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <Link href={`/profile/${creatorUsername}`} className="font-head font-bold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition">
+                {creatorName}
+              </Link>
+              <span className="text-xs text-[var(--color-txt2)]">@{creatorUsername}</span>
+            </div>
+            {creatorBio && (
+              <p className="text-sm text-[var(--color-txt2)] mt-1 line-clamp-2">{creatorBio}</p>
+            )}
+            <div className="flex items-center gap-4 mt-2 text-xs text-[var(--color-txt3)]">
+              <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(post.user?.postCount || 0)}</span> posts</span>
+              <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(followerCount)}</span> followers</span>
+              <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(creator.followingCount || 0)}</span> following</span>
+            </div>
+          </div>
+          {user && user.id !== creator.id && (
+            <button
+              onClick={handleFollowToggle}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition flex-shrink-0 ${
+                isFollowing
+                  ? 'border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)]'
+                  : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)]'
+              }`}
+            >
+              {isFollowing ? 'Following' : 'Follow'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Main post ── */}
       <div className="mb-6">
-        <PostCard
-          post={post}
-          onLike={handleLike}
-          onComment={() => setCommenting(true)}
-          onRepost={handleRepost}
-          onShare={handleShare}
-        />
+        {/* ✅ Extra safety: only render PostCard if post exists */}
+        {post && (
+          <PostCard
+            post={post}
+            onLike={handleLike}
+            onComment={() => document.getElementById('comment-input')?.focus()}
+            onRepost={handleRepost}
+            onShare={handleShare}
+          />
+        )}
       </div>
 
       {/* Comment form */}
@@ -240,6 +338,7 @@ export default function PostDetailClient({ postId }) {
             )}
           </div>
           <input
+            id="comment-input"
             type="text"
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
@@ -269,21 +368,19 @@ export default function PostDetailClient({ postId }) {
           <p className="text-sm text-[var(--color-txt3)]">No comments yet. Be the first!</p>
         ) : (
           comments.map((comment) => {
-            // Get user info using the helper
-            const commentUser = getCommentUser(comment);
-            const { name, username, picture } = commentUser;
-            const avatarUrl = resolveMediaUrl(picture);
+            const { name, username, picture } = getCommentUser(comment);
+            const avatarUrlComment = resolveMediaUrl(picture);
             const initial = name.charAt(0).toUpperCase();
             const color = stringToColor(name);
 
             return (
-              <div key={comment.id} className="flex gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3">
+              <div key={comment.id} className="flex gap-3 border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
                 <div
                   className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                  style={{ background: avatarUrl ? 'transparent' : color }}
+                  style={{ background: avatarUrlComment ? 'transparent' : color }}
                 >
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt={name} className="w-full h-full object-cover rounded-full" />
+                  {avatarUrlComment ? (
+                    <img src={avatarUrlComment} alt={name} className="w-full h-full object-cover rounded-full" />
                   ) : (
                     initial
                   )}

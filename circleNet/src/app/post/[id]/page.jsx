@@ -1,4 +1,5 @@
 // src/app/post/[id]/page.jsx
+import { Suspense } from 'react';
 import PostDetailClient from './PostDetailClient';
 import { apiClient } from '@/lib/api';
 
@@ -14,12 +15,33 @@ export async function generateMetadata({ params }) {
   } catch {
     return {
       title: 'Post | Circlenet',
-      description: 'View this post on Circlenet',
+      description: 'View this post on Circlenet.',
     };
   }
 }
 
 export default async function PostDetailPage({ params }) {
+  // ✅ Await params to get the id
   const { id } = await params;
-  return <PostDetailClient postId={id} />;
+
+  // ✅ If id is missing or invalid, return a 404 or redirect
+  if (!id || isNaN(Number(id))) {
+    return (
+      <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
+        <p className="text-[var(--color-rose)]">Invalid post ID.</p>
+        <button
+          onClick={() => window.location.href = '/feed'}
+          className="mt-4 px-4 py-2 bg-[var(--color-accent)] text-white rounded-lg"
+        >
+          Back to Feed
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading post...</div>}>
+      <PostDetailClient postId={id} />
+    </Suspense>
+  );
 }

@@ -33,9 +33,9 @@ export default function MessagesPage() {
 
   return (
     <div className="h-[calc(100vh-60px)] min-h-0 overflow-hidden border border-[var(--color-border)] rounded-[var(--radius-radius)] bg-[var(--color-card)] flex">
-      {/* Inbox sidebar */}
+      {/* Inbox sidebar – full width on mobile, 300px on desktop */}
       <div
-        className={`w-[300px] flex-shrink-0 border-r border-[var(--color-border)] ${
+        className={`w-full md:w-[300px] flex-shrink-0 border-r border-[var(--color-border)] ${
           showInbox ? 'flex' : 'hidden md:flex'
         }`}
       >

@@ -825,3 +825,84 @@ Currently not explicitly documented in routes. Check `server.js` and middleware 
 
 **Generated on:** May 28, 2026  
 **For questions or updates:** Check the individual route files in `src/routes/` and controller files in `src/controllers/`
+
+
+Live Streaming
+Base Path: /api/live
+WebSocket: /ws?userId=<id> (for real‑time signaling)
+Authentication: requireAuth for all routes and WebSocket connections.
+
+The live streaming feature allows users to broadcast video/audio in real time. Viewers can join a session, chat, send reactions, and see live viewer counts.
+
+HTTP Endpoints
+Get Active Sessions
+text
+GET /api/live/active
+Authorization Required: Authenticated
+Response: { success: true, data: [ { sessionId, title, viewerCount, startedAt, hostId, broadcasterName, broadcasterAvatar } ] }
+Fetch all currently active live streams.
+
+Get Session Details
+text
+GET /api/live/:sessionId
+Authorization Required: Authenticated
+Response: { sessionId, title, broadcasterName, broadcasterAvatar, hostId, viewerCount, startedAt }
+Get details of a specific live session.
+
+Start a Live Stream
+text
+POST /api/live/start
+Authorization Required: Authenticated
+Body: { title: "<stream_title>" }
+Response: { sessionId, title, broadcasterName, broadcasterAvatar, hostId }
+Initiates a new live session. The host must already have camera/mic permissions.
+
+End a Live Stream
+text
+POST /api/live/end
+Authorization Required: Authenticated
+Body: { sessionId: "<session_id>" }
+Response: { success: true }
+Ends the live session and notifies all viewers via WebSocket.
+
+WebSocket Signaling
+All WebSocket messages are JSON objects with a type field. The connection URL is:
+
+text
+ws://your-domain/ws?userId=<user_id>
+Authentication is performed via the userId query parameter.
+
+Message Types
+Type	Direction	Description
+live:started	Server → All	Broadcast when a new stream starts. Payload: { type, sessionId, title, broadcasterName, broadcasterAvatar, hostId }
+live:ended	Server → Viewers	Sent when a stream ends. Payload: { type, sessionId }
+live:viewer_join	Client → Server	Viewer requests to join a session. Payload: { type, sessionId, viewerId, viewerName }
+live:viewer_joined	Server → Host	Informs the host that a viewer joined. Payload: { type, sessionId, viewerId, viewerName, viewerCount }
+live:viewer_left	Server → Host	Informs the host that a viewer left. Payload: { type, sessionId, viewerId, viewerCount }
+live:viewer_count	Server → All	Broadcasts the current viewer count to everyone in the room. Payload: { type, sessionId, count }
+live:offer	Client → Server → Target	WebRTC offer (SDP). Payload: { type, sessionId, offer, from, to }
+live:answer	Client → Server → Target	WebRTC answer. Payload: { type, sessionId, answer, from, to }
+live:ice_candidate	Client → Server → Target	ICE candidate. Payload: { type, sessionId, candidate, from, to }
+live:chat_message	Client → Server → Room	Chat message. Payload: { type, sessionId, senderId, senderName, text }
+live:reaction	Client → Server → Room	Reaction emoji. Payload: { type, sessionId, emoji, from }
+Notes:
+
+All signaling messages (offer, answer, ice_candidate) must include a to field with the target user ID for point‑to‑point routing.
+
+The server automatically broadcasts viewer_count updates when viewers join or leave.
+
+Chat and reaction messages are relayed to all participants in the room.
+
+Client Integration
+For detailed client‑side implementation, refer to:
+
+LiveContext.jsx – React context managing state and WebSocket handlers.
+
+LiveOverlay.jsx – UI overlay for active stream viewing/broadcasting.
+
+LiveSetupModal.jsx – Camera/mic permission and stream setup.
+
+Insert this section after "Link Preview" and before "Error Responses" or wherever you'd like. You can also adjust the ordering.
+
+Let me know if you'd like any modifications.
+

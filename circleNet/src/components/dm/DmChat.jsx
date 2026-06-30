@@ -50,6 +50,8 @@ export default function DmChat() {
     loadMoreMessages,
     typing,
     emitTyping,
+    closeConversation,
+    otherOnline, // ✅ new
   } = useDm();
 
   const [input, setInput] = useState('');
@@ -57,11 +59,25 @@ export default function DmChat() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const justLoadedMoreRef = useRef(false);
 
-  useEffect(() => {
+  // ── Scroll to bottom ──
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  };
 
+  // ── Auto‑scroll on new messages, but skip when loading more ──
+  useEffect(() => {
+    if (justLoadedMoreRef.current) {
+      justLoadedMoreRef.current = false;
+      return;
+    }
+    if (loadingMore) return;
+    scrollToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, loadingMore]);
+
+  // ── Handle sending ──
   const handleSend = async () => {
     if (!input.trim() || sending) return;
     setSending(true);
@@ -71,7 +87,7 @@ export default function DmChat() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       emitTyping(false);
     } catch (err) {
-      // toast could be shown
+      // handle error if needed
     } finally {
       setSending(false);
     }
@@ -94,7 +110,14 @@ export default function DmChat() {
     }, 2000);
   };
 
-  // Determine last sent message id for "Seen" label
+  // ── Load more messages (with scroll suppression) ──
+  const handleLoadMore = () => {
+    if (!hasMore || loadingMore) return;
+    justLoadedMoreRef.current = true;
+    loadMoreMessages();
+  };
+
+  // ── Determine last sent message for "Seen" label ──
   let lastSentId = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].sender_id === user?.id && !String(messages[i].id).startsWith('tmp_')) {
@@ -107,16 +130,11 @@ export default function DmChat() {
 
   return (
     <>
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--color-border)] flex-shrink-0 bg-[var(--color-surface)]">
         <button
           className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-[var(--color-txt2)] bg-[var(--color-accent-bg)] border-none cursor-pointer"
-          onClick={() => {
-            const inbox = document.getElementById('dm-inbox');
-            const chat = document.getElementById('dm-chat');
-            if (inbox) inbox.classList.remove('hidden', 'md:block');
-            if (chat) chat.classList.remove('flex', 'md:flex');
-          }}
+          onClick={() => closeConversation()}
         >
           <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path d="M15 18l-6-6 6-6" />
@@ -130,52 +148,78 @@ export default function DmChat() {
           }}
         >
           {activeOther?.picture ? (
-            <img src={activeOther.picture} alt={activeOther?.name?.charAt(0)} className="w-full h-full object-cover rounded-full" />
+            <img
+              src={activeOther.picture}
+              alt={activeOther?.name?.charAt(0)}
+              className="w-full h-full object-cover rounded-full"
+            />
           ) : (
             activeOther?.name?.charAt(0)?.toUpperCase() || '?'
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-head text-base font-extrabold text-[var(--color-txt)]">{activeOther?.name || '...'}</div>
-          <div className={`text-xs flex items-center gap-1 ${typing ? 'text-[var(--color-green)]' : 'text-[var(--color-txt2)]'}`}>
-            <span className={`inline-block w-1.5 h-1.5 rounded-full ${typing ? 'bg-[var(--color-green)]' : 'bg-[var(--color-txt3)]'}`}></span>
-            {typing ? 'Typing...' : 'Offline'}
+          <div className="font-head text-base font-extrabold text-[var(--color-txt)]">
+            {activeOther?.name || '...'}
+          </div>
+          <div className="text-xs flex items-center gap-1">
+            <span
+              className={`inline-block w-1.5 h-1.5 rounded-full ${
+                typing
+                  ? 'bg-[var(--color-green)] animate-pulse'
+                  : otherOnline
+                  ? 'bg-[var(--color-green)]'
+                  : 'bg-[var(--color-txt3)]'
+              }`}
+            />
+            {typing
+              ? 'Typing...'
+              : otherOnline
+              ? 'Online'
+              : 'Offline'}
           </div>
         </div>
-        <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)] rounded-full px-2 py-0.5 cursor-default" id="dm-e2e-badge">
+        <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)] rounded-full px-2 py-0.5 cursor-default">
           🔒 End-to-end encrypted
         </span>
       </div>
 
-      {/* Messages */}
+      {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5" id="dm-messages">
         {hasMore && (
           <button
-            onClick={loadMoreMessages}
+            onClick={handleLoadMore}
             disabled={loadingMore}
             className="block mx-auto my-3 px-4 py-1.5 bg-[var(--color-accent-bg)] text-[var(--color-accent)] border border-[var(--color-accent)] rounded-full text-xs font-semibold cursor-pointer hover:bg-[var(--color-accent)] hover:text-white transition"
           >
             {loadingMore ? 'Loading…' : '↑ Load earlier messages'}
           </button>
         )}
+
         {messages.map((msg) => {
           const mine = msg.sender_id === user?.id;
           const dateStr = fmtDate(msg.created_at);
           let divider = null;
           if (dateStr !== lastDate) {
             lastDate = dateStr;
-            divider = <div className="text-center text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wide my-2.5">{dateStr}</div>;
+            divider = (
+              <div className="text-center text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wide my-2.5">
+                {dateStr}
+              </div>
+            );
           }
           const displayText = msg._plain !== undefined ? msg._plain : msg.body;
           const isE2E = msg.body && msg.body.startsWith('e2e:');
           const isTmp = String(msg.id).startsWith('tmp_');
-          const editedLabel = msg.edited_at ? <span className="text-[10px] text-[var(--color-txt3)] ml-1">edited</span> : null;
-          const seenLabel = (mine && !isTmp && msg.id === lastSentId && msg.is_read)
-            ? <div className="text-[11px] font-medium text-[var(--color-txt3)] text-right mt-1 mr-0.5">Seen</div>
-            : null;
+          const editedLabel = msg.edited_at ? (
+            <span className="text-[10px] text-[var(--color-txt3)] ml-1">edited</span>
+          ) : null;
+          const seenLabel =
+            mine && !isTmp && msg.id === lastSentId && msg.is_read ? (
+              <div className="text-[11px] font-medium text-[var(--color-txt3)] text-right mt-1 mr-0.5">Seen</div>
+            ) : null;
 
-          // ✅ Unique key: id + timestamp + temp flag
-          const key = `${msg.id}-${msg.created_at}-${isTmp ? 'tmp' : 'real'}`;
+          // ✅ Unique key to prevent duplicate warnings
+          const key = `${msg.id}-${msg.created_at}-${msg.sender_id}-${isTmp ? 'tmp' : 'real'}`;
 
           return (
             <Fragment key={key}>
@@ -213,7 +257,7 @@ export default function DmChat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Compose */}
+      {/* ── Compose ── */}
       <div className="flex items-end gap-2.5 px-4 py-3 border-t border-[var(--color-border)] flex-shrink-0 bg-[var(--color-surface)]">
         <textarea
           ref={inputRef}

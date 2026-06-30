@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useLightbox } from '@/hooks/useLightbox';
 import { useAuth } from '@/lib/auth';
 import { generatePostCard } from '@/lib/postCardGenerator';
-// ── Action button components ──
+import { useLive } from '@/contexts/LiveContext';
 import LikeButton from './LikeButton';
 import CommentButton from './CommentButton';
 import RepostButton from './RepostButton';
@@ -43,6 +43,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const { user: currentUser } = useAuth();
   const router = useRouter();
+  const { watchSession } = useLive();
 
   const {
     id,
@@ -55,14 +56,14 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     reposts = [],
     shares = 0,
     viewCount = 0,
+    isLive = false,
+    liveSessionId = null,
   } = post;
 
-  // ── Extract user info ──
   const displayName = post.user?.name || post.author || 'Anonymous';
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
-  // ── Local state ──
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(likes.length || 0);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -87,7 +88,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     minute: '2-digit',
   });
 
-  // ── Close dropdown on outside click ──
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -98,7 +98,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ── Handlers ──
   const handleLike = () => {
     setIsLiked(!isLiked);
     setLikeCount((prev) => (isLiked ? prev - 1 : prev + 1));
@@ -123,7 +122,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     setVideoError(true);
   };
 
-  // ── Download post as image ──
   const handleDownloadPostImage = async () => {
     if (imageLoading) return;
     setImageLoading(true);
@@ -147,7 +145,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     }
   };
 
-  // ── Share post image ──
   const handleSharePostImage = async () => {
     if (imageLoading) return;
     setImageLoading(true);
@@ -181,7 +178,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     }
   };
 
-  // ── Download original image ──
   const handleDownloadOriginalImage = () => {
     if (!postImageUrl) return;
     setIsDropdownOpen(false);
@@ -193,13 +189,19 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     document.body.removeChild(link);
   };
 
-  // ── Edit post navigation ──
   const handleEditPost = () => {
     setIsDropdownOpen(false);
     router.push(`/edit-post/${id}`);
   };
 
-  // ── Render media ──
+  const handleLiveClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (liveSessionId) {
+      watchSession(liveSessionId);
+    }
+  };
+
   const renderMedia = () => {
     if (postVideoUrl) {
       return (
@@ -248,10 +250,56 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
+  // ── If this is a live post, render the special live card ──
+  if (isLive && liveSessionId) {
+    return (
+      <div
+        className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-rose)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200 cursor-pointer bg-[var(--color-rose-bg)]"
+        onClick={handleLiveClick}
+      >
+        <div className="flex items-start gap-3">
+          <div
+            className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+            style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+          >
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+            ) : (
+              initial
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
+              </div>
+              <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                LIVE
+              </span>
+            </div>
+            <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {text}
+            </div>
+            <div className="mt-2 flex items-center justify-center gap-2 bg-black/10 dark:bg-white/10 rounded-lg p-3">
+              <svg className="w-8 h-8 text-[var(--color-rose)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <polygon points="10,8 16,12 10,16" fill="currentColor" />
+              </svg>
+              <span className="text-sm font-semibold text-[var(--color-rose)]">Tap to watch live</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Regular post rendering ──
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
-        {/* Avatar */}
         <div
           className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
           style={{ background: avatarUrl ? 'transparent' : avatarColor }}
@@ -263,10 +311,8 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
           )}
         </div>
 
-        {/* Content */}
         <div className="flex-1 min-w-0">
           <Link href={`/post/${id}`} className="block">
-            {/* Header with three-dot menu */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
                 <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
@@ -274,7 +320,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
               </div>
 
-              {/* ── Three-dot menu (top-right) ── */}
               <div className="relative flex-shrink-0" ref={dropdownRef}>
                 <button
                   onClick={(e) => {
@@ -332,8 +377,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                         </button>
                       </>
                     )}
-
-                    {/* ── Edit Post (author only) ── */}
                     {isAuthor && (
                       <>
                         <div className="border-t border-[var(--color-border)] my-1" />
@@ -353,7 +396,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </div>
             </div>
 
-            {/* Text */}
             <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
               {shouldTruncate ? text.slice(0, 200) + '…' : text}
               {text?.length > 200 && (
@@ -366,34 +408,27 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               )}
             </div>
 
-            {/* Media */}
             {renderMedia()}
           </Link>
 
-          {/* ── Engagement bar with reusable action buttons ── */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <LikeButton
               count={likeCount}
               active={isLiked}
               onToggle={handleLike}
             />
-
             <CommentButton
               count={comments.length}
               onClick={() => onComment && onComment(id)}
             />
-
             <RepostButton
               count={reposts.length}
               onClick={() => onRepost && onRepost(id)}
             />
-
             <ShareButton
               count={shares || 0}
               onClick={() => onShare && onShare(id)}
             />
-
-            {/* ── View count (author only) ── */}
             {isAuthor && viewCount > 0 && (
               <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

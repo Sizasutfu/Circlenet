@@ -71,7 +71,7 @@ export default function ClientLayout({ children }) {
 
   const isLanding = pathname === '/';
 
-  // ── Routes where the footer should be hidden ──
+  // ── Routes where footer should be hidden ──
   const hideFooterRoutes = [
     '/messages',
     '/live',
@@ -81,9 +81,18 @@ export default function ClientLayout({ children }) {
     '/reset-password',
     '/whisper/inbox',
   ];
-  const shouldHideFooter = hideFooterRoutes.includes(pathname);
 
-  // Register service worker for push
+  // ── Routes where LiveFeedStrip should be hidden ──
+  // (use the same list as footer, plus any additional)
+  const hideStripRoutes = [
+    ...hideFooterRoutes,
+    // Add more routes if needed, e.g. '/about', '/contact', etc.
+  ];
+
+  const shouldHideFooter = hideFooterRoutes.includes(pathname);
+  const shouldHideStrip = isLanding || hideStripRoutes.includes(pathname);
+
+  // ── Register service worker ──
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
@@ -107,10 +116,7 @@ export default function ClientLayout({ children }) {
                         <LightboxProvider>
                           <LightboxWrapper>
                             <div className="flex min-h-screen">
-                              {/* Sidebar – hidden on landing */}
-                              {!isLanding && (
-                                <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />
-                              )}
+                              {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
                               <div
                                 className={`flex-1 flex flex-col min-h-screen ${
                                   !isLanding ? 'md:ml-[260px]' : ''
@@ -131,27 +137,25 @@ export default function ClientLayout({ children }) {
                                       : 'pb-20 md:pb-4'
                                   }`}
                                 >
-                                  {!isLanding && <LiveFeedStrip />}
+                                  {/* ✅ LiveFeedStrip now conditionally hidden */}
+                                  {!shouldHideStrip && <LiveFeedStrip />}
                                   {children}
                                 </main>
                                 {!isLanding && !shouldHideFooter && <Footer />}
                               </div>
                             </div>
 
-                            {/* App‑only UI elements – hidden on landing */}
                             {!isLanding && (
                               <>
                                 <NotificationPanel />
                                 <LiveSetupModal />
                                 <LiveOverlay />
                                 <LiveToast />
-
                                 <MobileNavbar
                                   className={`transition-transform duration-300 ease-in-out ${
                                     shouldHide ? 'translate-y-full' : 'translate-y-0'
                                   }`}
                                 />
-
                                 <div
                                   className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
                                     shouldHide

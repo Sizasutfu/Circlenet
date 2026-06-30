@@ -2,7 +2,7 @@
 'use client';
 
 import { Suspense, useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { AuthProvider } from '@/lib/auth';
 import { WsProvider } from '@/contexts/WsContext';
 import { DmProvider } from '@/contexts/DmContext';
@@ -60,12 +60,26 @@ function FloatingComposeButton() {
 }
 
 export default function ClientLayout({ children }) {
+  const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const closeSidebar = () => setSidebarOpen(false);
 
   const { direction, isAtTop } = useScrollDirection();
   const shouldHide = direction === 'down' && !isAtTop;
+
+  // ── Routes where the footer should be hidden ──
+  const hideFooterRoutes = [
+    '/messages',
+    '/live',
+    '/compose',
+    '/login',
+    '/register',
+    '/reset-password',
+    '/whisper/inbox',
+  ];
+  const shouldHideFooter = hideFooterRoutes.includes(pathname);
 
   // Register service worker for push
   useEffect(() => {
@@ -96,11 +110,15 @@ export default function ClientLayout({ children }) {
                                 <Suspense fallback={<div className="h-14" />}>
                                   <Header onMenuClick={toggleSidebar} />
                                 </Suspense>
-                                <main className="flex-1 px-2 sm:px-6 py-4 pb-20 md:pb-4">
+                                <main
+                                  className={`flex-1 px-2 sm:px-6 py-4 ${
+                                    shouldHideFooter ? 'pb-4' : 'pb-20 md:pb-4'
+                                  }`}
+                                >
                                   <LiveFeedStrip />
                                   {children}
                                 </main>
-                                <Footer />
+                                {!shouldHideFooter && <Footer />}
                               </div>
                             </div>
                             <NotificationPanel />

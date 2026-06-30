@@ -18,6 +18,7 @@ export default function LiveOverlay() {
     viewerCount,
     chatMessages,
     remoteStream,
+    localStream,
     micMuted,
     camOff,
     isOverlayOpen,
@@ -26,12 +27,17 @@ export default function LiveOverlay() {
     toggleCam,
     sendChat,
     sendReaction,
+    watchSession,
   } = useLive();
 
   const [chatInput, setChatInput] = useState('');
   const [ended, setEnded] = useState(false);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
   const videoRef = useRef(null);
   const chatContainerRef = useRef(null);
+
+  const isHost = role === 'host';
+  const isViewer = role === 'viewer';
 
   // Auto-scroll chat
   useEffect(() => {
@@ -40,19 +46,38 @@ export default function LiveOverlay() {
     }
   }, [chatMessages]);
 
-  // Attach remote stream to video element
+  // Attach stream
   useEffect(() => {
-    if (videoRef.current && remoteStream) {
-      videoRef.current.srcObject = remoteStream;
-      videoRef.current.play().catch(() => {});
+    const stream = isHost ? localStream : remoteStream;
+    console.log(`[LiveOverlay] ${isHost ? 'Host' : 'Viewer'} stream:`, stream);
+    if (videoRef.current) {
+      if (stream) {
+        videoRef.current.srcObject = stream;
+        videoRef.current
+          .play()
+          .then(() => console.log('✅ Video playing'))
+          .catch((err) => console.warn('⚠️ Video play error:', err));
+      } else {
+        videoRef.current.srcObject = null;
+      }
     }
-  }, [remoteStream]);
+  }, [localStream, remoteStream, isHost]);
 
-  // Handle ended state
+  // Show "retry" if viewer has no stream after 5 seconds
   useEffect(() => {
-    if (!isOverlayOpen) {
-      // Reset ended when overlay closes
+    if (isViewer && !remoteStream) {
+      const timer = setTimeout(() => setLoadingTimeout(true), 5000);
+      return () => clearTimeout(timer);
+    } else {
+      setLoadingTimeout(false);
+    }
+  }, [isViewer, remoteStream]);
+
+  // Reset ended when overlay opens
+  useEffect(() => {
+    if (isOverlayOpen) {
       setEnded(false);
+      setLoadingTimeout(false);
     }
   }, [isOverlayOpen]);
 
@@ -64,19 +89,45 @@ export default function LiveOverlay() {
     setChatInput('');
   };
 
-  const isHost = role === 'host';
-  const isViewer = role === 'viewer';
+  const hasStream = isHost ? !!localStream : !!remoteStream;
+
+  const handleRetry = () => {
+    setLoadingTimeout(false);
+    if (sessionId) {
+      watchSession(sessionId);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black flex flex-col">
-      {/* Video */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted={isHost} // host preview is muted
-        playsInline
-        className={`absolute inset-0 w-full h-full object-cover ${isHost ? 'scale-x-[-1]' : ''}`}
-      />
+      {/* Video container */}
+      <div className="absolute inset-0 bg-black/90 flex items-center justify-center">
+        {!hasStream ? (
+          <div className="text-center">
+            <div className="text-white/50 text-sm mb-3">
+              {isHost ? 'Initializing camera…' : 'Connecting to stream…'}
+            </div>
+            {isViewer && loadingTimeout && (
+              <button
+                onClick={handleRetry}
+                className="px-4 py-2 bg-[var(--color-accent)] text-white rounded-full text-xs font-medium hover:bg-[var(--color-accent-h)] transition"
+              >
+                Retry Connection
+              </button>
+            )}
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            autoPlay
+            muted={isHost}
+            playsInline
+            className={`w-full h-full object-cover ${isHost ? 'scale-x-[-1]' : ''}`}
+            style={{ background: '#000' }}
+          />
+        )}
+      </div>
+
       {/* Gradients */}
       <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/70 to-transparent pointer-events-none z-10" />
       <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-black/85 to-transparent pointer-events-none z-10" />
@@ -117,7 +168,6 @@ export default function LiveOverlay() {
 
       {/* Bottom bar */}
       <div className="absolute bottom-0 left-0 right-0 z-20 p-4 space-y-3">
-        {/* Host controls */}
         {isHost && (
           <div className="flex items-center justify-end gap-2">
             <button
@@ -169,7 +219,6 @@ export default function LiveOverlay() {
           </div>
         )}
 
-        {/* Reactions */}
         <div className="flex gap-2">
           {REACTIONS.map((emoji) => (
             <button
@@ -182,7 +231,6 @@ export default function LiveOverlay() {
           ))}
         </div>
 
-        {/* Chat */}
         <div className="space-y-1.5">
           <div
             ref={chatContainerRef}
@@ -220,7 +268,6 @@ export default function LiveOverlay() {
         </div>
       </div>
 
-      {/* Ended screen */}
       {ended && (
         <div className="absolute inset-0 z-30 bg-black/90 flex flex-col items-center justify-center gap-3">
           <div className="text-5xl">📴</div>

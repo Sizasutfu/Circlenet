@@ -1,14 +1,12 @@
 // src/app/page.jsx
-import { redirect } from 'next/navigation';
+import LandingPage from '@/components/LandingPage';
 
 export const metadata = {
-  title: 'Feed | Circlenet',
-  description: 'Explore the Circlenet article directory and discover the latest stories, insights, and tutorials from the community.',
-  alternates: {
-    canonical: '/feed',
-  },
+  title: 'Circlenet – Social Publishing & Community',
+  description:
+    'Circlenet is a modern platform for articles, live streams, and real‑time conversations. Join the community today.',
 };
 
 export default function HomePage() {
-  redirect('/feed');
+  return <LandingPage />;
 }

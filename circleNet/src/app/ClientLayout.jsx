@@ -69,6 +69,8 @@ export default function ClientLayout({ children }) {
   const { direction, isAtTop } = useScrollDirection();
   const shouldHide = direction === 'down' && !isAtTop;
 
+  const isLanding = pathname === '/';
+
   // ── Routes where the footer should be hidden ──
   const hideFooterRoutes = [
     '/messages',
@@ -105,44 +107,62 @@ export default function ClientLayout({ children }) {
                         <LightboxProvider>
                           <LightboxWrapper>
                             <div className="flex min-h-screen">
-                              <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />
-                              <div className="flex-1 flex flex-col min-h-screen md:ml-[260px]">
+                              {/* Sidebar – hidden on landing */}
+                              {!isLanding && (
+                                <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />
+                              )}
+                              <div
+                                className={`flex-1 flex flex-col min-h-screen ${
+                                  !isLanding ? 'md:ml-[260px]' : ''
+                                }`}
+                              >
                                 <Suspense fallback={<div className="h-14" />}>
-                                  <Header onMenuClick={toggleSidebar} />
+                                  <Header
+                                    onMenuClick={toggleSidebar}
+                                    hideMenu={isLanding}
+                                  />
                                 </Suspense>
                                 <main
                                   className={`flex-1 px-2 sm:px-6 py-4 ${
-                                    shouldHideFooter ? 'pb-4' : 'pb-20 md:pb-4'
+                                    isLanding
+                                      ? 'p-0'
+                                      : shouldHideFooter
+                                      ? 'pb-4'
+                                      : 'pb-20 md:pb-4'
                                   }`}
                                 >
-                                  <LiveFeedStrip />
+                                  {!isLanding && <LiveFeedStrip />}
                                   {children}
                                 </main>
-                                {!shouldHideFooter && <Footer />}
+                                {!isLanding && !shouldHideFooter && <Footer />}
                               </div>
                             </div>
-                            <NotificationPanel />
-                            <LiveSetupModal />
-                            <LiveOverlay />
-                            <LiveToast />
 
-                            {/* ── Mobile Navbar – hides on scroll down ── */}
-                            <MobileNavbar
-                              className={`transition-transform duration-300 ease-in-out ${
-                                shouldHide ? 'translate-y-full' : 'translate-y-0'
-                              }`}
-                            />
+                            {/* App‑only UI elements – hidden on landing */}
+                            {!isLanding && (
+                              <>
+                                <NotificationPanel />
+                                <LiveSetupModal />
+                                <LiveOverlay />
+                                <LiveToast />
 
-                            {/* ── Floating Compose Button – hides on scroll down ── */}
-                            <div
-                              className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
-                                shouldHide
-                                  ? 'opacity-0 scale-90 pointer-events-none'
-                                  : 'opacity-100 scale-100'
-                              }`}
-                            >
-                              <FloatingComposeButton />
-                            </div>
+                                <MobileNavbar
+                                  className={`transition-transform duration-300 ease-in-out ${
+                                    shouldHide ? 'translate-y-full' : 'translate-y-0'
+                                  }`}
+                                />
+
+                                <div
+                                  className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
+                                    shouldHide
+                                      ? 'opacity-0 scale-90 pointer-events-none'
+                                      : 'opacity-100 scale-100'
+                                  }`}
+                                >
+                                  <FloatingComposeButton />
+                                </div>
+                              </>
+                            )}
                           </LightboxWrapper>
                         </LightboxProvider>
                       </NotificationProvider>

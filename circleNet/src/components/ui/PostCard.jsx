@@ -3,10 +3,17 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLightbox } from '@/hooks/useLightbox';
 import { useAuth } from '@/lib/auth';
 import { generatePostCard } from '@/lib/postCardGenerator';
+// ── Action button components ──
+import LikeButton from './LikeButton';
+import CommentButton from './CommentButton';
+import RepostButton from './RepostButton';
+import ShareButton from './ShareButton';
 
+// ── Helpers ──
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -35,6 +42,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   if (!post) return null;
 
   const { user: currentUser } = useAuth();
+  const router = useRouter();
 
   const {
     id,
@@ -49,11 +57,12 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     viewCount = 0,
   } = post;
 
-  // ── Robust extraction ──
+  // ── Extract user info ──
   const displayName = post.user?.name || post.author || 'Anonymous';
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
+  // ── Local state ──
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(likes.length || 0);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -89,6 +98,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ── Handlers ──
   const handleLike = () => {
     setIsLiked(!isLiked);
     setLikeCount((prev) => (isLiked ? prev - 1 : prev + 1));
@@ -183,6 +193,13 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     document.body.removeChild(link);
   };
 
+  // ── Edit post navigation ──
+  const handleEditPost = () => {
+    setIsDropdownOpen(false);
+    router.push(`/edit-post/${id}`);
+  };
+
+  // ── Render media ──
   const renderMedia = () => {
     if (postVideoUrl) {
       return (
@@ -296,7 +313,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                         <circle cx="6" cy="12" r="3" />
                         <circle cx="18" cy="19" r="3" />
                         <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                       </svg>
                       Share as Image
                     </button>
@@ -313,6 +329,22 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                             <line x1="12" y1="15" x2="12" y2="3" />
                           </svg>
                           Download Original
+                        </button>
+                      </>
+                    )}
+
+                    {/* ── Edit Post (author only) ── */}
+                    {isAuthor && (
+                      <>
+                        <div className="border-t border-[var(--color-border)] my-1" />
+                        <button
+                          onClick={handleEditPost}
+                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                          Edit Post
                         </button>
                       </>
                     )}
@@ -338,56 +370,28 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
             {renderMedia()}
           </Link>
 
-          {/* ── Engagement bar ── */}
+          {/* ── Engagement bar with reusable action buttons ── */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-            <button
-              onClick={handleLike}
-              className={`flex items-center gap-1 transition hover:text-[var(--color-rose)] ${
-                isLiked ? 'text-[var(--color-rose)]' : ''
-              }`}
-            >
-              <svg className="w-4 h-4" fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
-              </svg>
-              <span>{likeCount}</span>
-            </button>
+            <LikeButton
+              count={likeCount}
+              active={isLiked}
+              onToggle={handleLike}
+            />
 
-            <button
+            <CommentButton
+              count={comments.length}
               onClick={() => onComment && onComment(id)}
-              className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-              </svg>
-              <span>{comments.length || 0}</span>
-            </button>
+            />
 
-            <button
+            <RepostButton
+              count={reposts.length}
               onClick={() => onRepost && onRepost(id)}
-              className="flex items-center gap-1 transition hover:text-[var(--color-green)]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M17 1l4 4-4 4" />
-                <path d="M3 11V9a4 4 0 014-4h14" />
-                <path d="M7 23l-4-4 4-4" />
-                <path d="M21 13v2a4 4 0 01-4 4H3" />
-              </svg>
-              <span>{reposts.length || 0}</span>
-            </button>
+            />
 
-            <button
+            <ShareButton
+              count={shares || 0}
               onClick={() => onShare && onShare(id)}
-              className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-              </svg>
-              <span>{shares || 0}</span>
-            </button>
+            />
 
             {/* ── View count (author only) ── */}
             {isAuthor && viewCount > 0 && (

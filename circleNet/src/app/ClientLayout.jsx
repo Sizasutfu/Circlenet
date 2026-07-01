@@ -83,14 +83,25 @@ export default function ClientLayout({ children }) {
   ];
 
   // ── Routes where LiveFeedStrip should be hidden ──
-  // (use the same list as footer, plus any additional)
   const hideStripRoutes = [
     ...hideFooterRoutes,
-    // Add more routes if needed, e.g. '/about', '/contact', etc.
+    // Add more if needed
+  ];
+
+  // ── Routes where mobile nav and floating button should be hidden ──
+  const hideMobileNavRoutes = [
+    '/messages',
+    '/live',
+    '/compose',
+    '/login',
+    '/register',
+    '/reset-password',
+    '/whisper/inbox',
   ];
 
   const shouldHideFooter = hideFooterRoutes.includes(pathname);
   const shouldHideStrip = isLanding || hideStripRoutes.includes(pathname);
+  const shouldHideMobileNav = isLanding || hideMobileNavRoutes.includes(pathname);
 
   // ── Register service worker ──
   useEffect(() => {
@@ -137,7 +148,6 @@ export default function ClientLayout({ children }) {
                                       : 'pb-20 md:pb-4'
                                   }`}
                                 >
-                                  {/* ✅ LiveFeedStrip now conditionally hidden */}
                                   {!shouldHideStrip && <LiveFeedStrip />}
                                   {children}
                                 </main>
@@ -151,20 +161,24 @@ export default function ClientLayout({ children }) {
                                 <LiveSetupModal />
                                 <LiveOverlay />
                                 <LiveToast />
-                                <MobileNavbar
-                                  className={`transition-transform duration-300 ease-in-out ${
-                                    shouldHide ? 'translate-y-full' : 'translate-y-0'
-                                  }`}
-                                />
-                                <div
-                                  className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
-                                    shouldHide
-                                      ? 'opacity-0 scale-90 pointer-events-none'
-                                      : 'opacity-100 scale-100'
-                                  }`}
-                                >
-                                  <FloatingComposeButton />
-                                </div>
+                                {!shouldHideMobileNav && (
+                                  <>
+                                    <MobileNavbar
+                                      className={`transition-transform duration-300 ease-in-out ${
+                                        shouldHide ? 'translate-y-full' : 'translate-y-0'
+                                      }`}
+                                    />
+                                    <div
+                                      className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
+                                        shouldHide
+                                          ? 'opacity-0 scale-90 pointer-events-none'
+                                          : 'opacity-100 scale-100'
+                                      }`}
+                                    >
+                                      <FloatingComposeButton />
+                                    </div>
+                                  </>
+                                )}
                               </>
                             )}
                           </LightboxWrapper>

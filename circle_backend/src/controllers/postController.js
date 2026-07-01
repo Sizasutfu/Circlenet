@@ -88,7 +88,9 @@ async function getPostById(req, res) {
          p.video,
          p.is_repost        AS isRepost,
          p.original_post_id AS originalPostId,
-         p.created_at       AS createdAt
+         p.created_at       AS createdAt,
+         p.is_live,
+         p.live_session_id
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id = ?`,
@@ -110,6 +112,7 @@ async function getPostById(req, res) {
 // already on disk. req.compressedFiles holds their filenames.
 // Optional body field: groupId — scopes the post to a group.
 // The user must be a member of the group to post into it.
+// NEW: accepts isLive (boolean) and liveSessionId (string) for live posts.
 async function createPost(req, res) {
   const userId = req.actorId;
   const text   = req.body.text || '';
@@ -134,11 +137,23 @@ async function createPost(req, res) {
       return sendError(res, 403, 'You must be a member of this group to post in it.');
   }
 
+  // ── Live post fields ──────────────────────────────────────
+  const isLive = req.body.isLive === true || req.body.isLive === 'true';
+  const liveSessionId = req.body.liveSessionId || null;
+
   try {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
 
-    const postId = await PostModel.createPost(userId, text, imagePath, videoPath, groupId);
+    const postId = await PostModel.createPost(
+      userId,
+      text,
+      imagePath,
+      videoPath,
+      groupId,
+      isLive,
+      liveSessionId
+    );
 
     // ── Extract and save hashtags ──────────────────────────────
     await PostModel.savePostTopics(postId, text);
@@ -187,7 +202,11 @@ async function createPost(req, res) {
       groupId:       groupId || null,
       groupName:     groupId ? group.displayName : null,
       groupTopic:    groupId ? group.topic       : null,
-      likes: [], reposts: [], comments: [],
+      isLive,
+      liveSessionId,
+      likes: [],
+      reposts: [],
+      comments: [],
       isRepost:      false,
       createdAt:     new Date(),
     });
@@ -358,7 +377,9 @@ async function repost(req, res) {
       isRepost:       true,
       originalPostId: origId,
       originalPost:   origEmbed,
-      likes: [], reposts: [], comments: [],
+      likes: [],
+      reposts: [],
+      comments: [],
       createdAt:      new Date(),
     });
   } catch (err) {
@@ -465,15 +486,14 @@ async function getGroupPosts(req, res) {
 }
 
 // PUT /api/posts/:id
+// Updated to accept isLive and liveSessionId as optional fields
 async function updatePost(req, res) {
   const postId = Number(req.params.id);
-  const { text } = req.body;
+  const { text, isLive, liveSessionId } = req.body;
 
-  if (!text || !text.trim()) {
-    return sendError(res, 400, 'Post text cannot be empty.');
-  }
-  if (text.trim().length > 500) {
-    return sendError(res, 400, 'Post text exceeds 500 characters.');
+  // Validate that at least one field is provided
+  if (text === undefined && isLive === undefined && liveSessionId === undefined) {
+    return sendError(res, 400, 'No fields to update.');
   }
 
   try {
@@ -483,7 +503,26 @@ async function updatePost(req, res) {
       return sendError(res, 403, 'You can only edit your own posts.');
     }
 
-    await PostModel.updatePost(postId, text.trim());
+    // Build update payload
+    let updatedText = post.text;
+    let updatedIsLive = post.is_live;
+    let updatedLiveSessionId = post.live_session_id;
+
+    if (text !== undefined) {
+      if (!text.trim()) return sendError(res, 400, 'Post text cannot be empty.');
+      if (text.trim().length > 500) return sendError(res, 400, 'Post text exceeds 500 characters.');
+      updatedText = text.trim();
+    }
+
+    if (isLive !== undefined) {
+      updatedIsLive = isLive === true || isLive === 'true';
+    }
+
+    if (liveSessionId !== undefined) {
+      updatedLiveSessionId = liveSessionId || null;
+    }
+
+    await PostModel.updatePost(postId, updatedText, updatedIsLive, updatedLiveSessionId);
     return sendOk(res, 200, 'Post updated.');
   } catch (e) {
     console.error('Edit post error:', e);

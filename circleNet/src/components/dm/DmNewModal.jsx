@@ -1,4 +1,3 @@
-// src/components/dm/DmNewModal.jsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -16,7 +15,7 @@ function stringToColor(str) {
 }
 
 export default function DmNewModal() {
-  const { openConversation } = useDm();
+  const { startConversation } = useDm();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
@@ -46,19 +45,28 @@ export default function DmNewModal() {
 
   const handlePick = (u) => {
     closeModal();
-    openConversation(u.id); // or start new conversation via API
+    startConversation(u.id);
   };
 
   const closeModal = () => {
-    document.getElementById('dm-new-modal').classList.remove('open');
+    const modal = document.getElementById('dm-new-modal');
+    if (modal) modal.classList.add('hidden');
   };
 
   return (
-    <div className="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm" id="dm-new-modal">
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] w-[380px] max-w-[94vw] shadow-[var(--color-shadow)] animate-fadeUp overflow-hidden">
+    <div
+      className="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      id="dm-new-modal"
+    >
+      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] w-[380px] max-w-[94vw] shadow-[var(--color-shadow)] animate-fadeUp overflow-hidden mx-auto">
         <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[var(--color-border)]">
           <h3 className="font-head text-base font-extrabold flex-1">New Message</h3>
-          <button onClick={closeModal} className="text-2xl text-[var(--color-txt2)] hover:text-[var(--color-txt)] bg-none border-none cursor-pointer">×</button>
+          <button
+            onClick={closeModal}
+            className="text-2xl text-[var(--color-txt2)] hover:text-[var(--color-txt)] bg-none border-none cursor-pointer"
+          >
+            ×
+          </button>
         </div>
         <div className="p-4 pb-2">
           <input

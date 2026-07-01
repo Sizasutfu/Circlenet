@@ -13,6 +13,7 @@ export function DmProvider({ children }) {
   const { user } = useAuth();
   const { registerHandler, joinConversation, leaveConversation, sendTyping } = useWs();
 
+  // ── State ──
   const [inbox, setInbox] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
   const [activeOther, setActiveOther] = useState(null);
@@ -158,9 +159,37 @@ export function DmProvider({ children }) {
       );
     } catch (_) {}
 
-    // Fetch presence after opening
     fetchPresence();
   }, [joinConversation, leaveConversation, fetchPresence]);
+
+  // ── Start a new conversation ──
+  const startConversation = useCallback(async (userId) => {
+    if (!userRef.current) return;
+    // Check if conversation already exists
+    const existing = inboxRef.current.find((c) => c.other_id === userId);
+    if (existing) {
+      openConversation(existing.id);
+      return;
+    }
+    // Create new conversation
+    try {
+      const res = await apiClient('/api/dm/conversations', {
+        method: 'POST',
+        body: { recipientId: userId },
+      });
+      const data = res.data || res;
+      if (data.conversationId) {
+        await loadInbox();
+        // After load, find the new conversation
+        const newConv = inboxRef.current.find((c) => c.other_id === userId);
+        if (newConv) {
+          openConversation(newConv.id);
+        }
+      }
+    } catch (err) {
+      console.error('[DM] Failed to start conversation:', err);
+    }
+  }, [openConversation, loadInbox]);
 
   // ── Close conversation ──
   const closeConversation = useCallback(() => {
@@ -386,7 +415,7 @@ export function DmProvider({ children }) {
     };
   }, [registerHandler, wsInjectMessage, wsRefreshInbox, handleMessageSeen, handleDMRead, handleTyping]);
 
-  // ── Presence polling interval ──
+  // ── Presence polling ──
   useEffect(() => {
     if (activeConvId) {
       fetchPresence();
@@ -432,6 +461,7 @@ export function DmProvider({ children }) {
     };
   }, [user, loadInbox, sendHeartbeat, pollNewMessages]);
 
+  // ── Context value ──
   const value = {
     inbox,
     activeConvId,
@@ -444,6 +474,7 @@ export function DmProvider({ children }) {
     loadInbox,
     openConversation,
     closeConversation,
+    startConversation,   // ✅
     sendMessage,
     loadMoreMessages,
     emitTyping,

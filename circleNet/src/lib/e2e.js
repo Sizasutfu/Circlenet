@@ -1,9 +1,9 @@
 // src/lib/e2e.js
 const STORE_KEY = "circle_e2e_keypair";
-
 let _myKeyPair = null;
 let _sharedKeys = {};
 
+// ── Base64 helpers (same as old code) ──
 function _b64(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
@@ -12,6 +12,7 @@ function _unb64(b64) {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
+// ── Generate or load this device's ECDH key-pair ──
 export async function ensureMyKeys() {
   if (_myKeyPair) return _myKeyPair;
   const stored = localStorage.getItem(STORE_KEY);
@@ -34,30 +35,40 @@ export async function ensureMyKeys() {
       );
       _myKeyPair = { publicKey, privateKey };
       return _myKeyPair;
-    } catch (_) {}
+    } catch (_) {
+      // corrupted – regenerate
+    }
   }
   _myKeyPair = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
     ["deriveKey"]
   );
-  const pub = _b64(await crypto.subtle.exportKey("spki", _myKeyPair.publicKey));
-  const priv = _b64(await crypto.subtle.exportKey("pkcs8", _myKeyPair.privateKey));
+  const pub = _b64(
+    await crypto.subtle.exportKey("spki", _myKeyPair.publicKey)
+  );
+  const priv = _b64(
+    await crypto.subtle.exportKey("pkcs8", _myKeyPair.privateKey)
+  );
   localStorage.setItem(STORE_KEY, JSON.stringify({ pub, priv }));
   return _myKeyPair;
 }
 
+// ── Publish public key to server ──
 export async function publishMyPublicKey(userId, apiClient) {
   try {
     const kp = await ensureMyKeys();
     const pub = _b64(await crypto.subtle.exportKey("spki", kp.publicKey));
     await apiClient(`/api/users/${userId}/publickey`, {
       method: "PUT",
-      body: JSON.stringify({ publicKey: pub }),
+      body: { publicKey: pub },
     });
-  } catch (_) {}
+  } catch (_) {
+    // silently ignore server errors
+  }
 }
 
+// ── Fetch peer public key ──
 async function _fetchPeerKey(userId, apiClient) {
   try {
     const res = await apiClient(`/api/users/${userId}/publickey`);
@@ -75,6 +86,7 @@ async function _fetchPeerKey(userId, apiClient) {
   }
 }
 
+// ── Derive (or return cached) shared AES-GCM key ──
 async function _sharedKey(peerUserId, apiClient) {
   if (_sharedKeys[peerUserId]) return _sharedKeys[peerUserId];
   const kp = await ensureMyKeys();
@@ -91,9 +103,10 @@ async function _sharedKey(peerUserId, apiClient) {
   return key;
 }
 
+// ── Encrypt plaintext → "e2e:<b64(iv+ct)>" ──
 export async function encrypt(peerUserId, plaintext, apiClient) {
   const key = await _sharedKey(peerUserId, apiClient);
-  if (!key) return plaintext;
+  if (!key) return plaintext; // fallback to plaintext
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -106,6 +119,7 @@ export async function encrypt(peerUserId, plaintext, apiClient) {
   return "e2e:" + _b64(blob.buffer);
 }
 
+// ── Decrypt "e2e:…" → plaintext ──
 export async function decrypt(peerUserId, body, apiClient) {
   if (!body || !body.startsWith("e2e:")) return body;
   try {
@@ -121,7 +135,14 @@ export async function decrypt(peerUserId, body, apiClient) {
   }
 }
 
+// ── Clear cached shared keys (e.g. on logout) ──
 export function clearCache() {
   _sharedKeys = {};
   _myKeyPair = null;
+}
+
+// ── Check if E2E is active for a peer ──
+export async function isEnabled(peerUserId, apiClient) {
+  const key = await _sharedKey(peerUserId, apiClient);
+  return !!key;
 }

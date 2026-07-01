@@ -33,9 +33,9 @@ export default function MessagesPage() {
 
   return (
     <div className="h-[calc(100vh-60px)] min-h-0 overflow-hidden border border-[var(--color-border)] rounded-[var(--radius-radius)] bg-[var(--color-card)] flex">
-      {/* Inbox sidebar – full width on mobile, 300px on desktop */}
+      {/* Inbox – full width on mobile, 300px on desktop */}
       <div
-        className={`w-full md:w-[300px] flex-shrink-0 border-r border-[var(--color-border)] ${
+        className={`w-full max-w-full min-w-0 md:w-[300px] md:max-w-[300px] flex-shrink-0 border-r border-[var(--color-border)] overflow-hidden ${
           showInbox ? 'flex' : 'hidden md:flex'
         }`}
       >
@@ -44,7 +44,7 @@ export default function MessagesPage() {
 
       {/* Chat panel */}
       <div
-        className={`flex-1 flex flex-col min-w-0 bg-[var(--color-card)] ${
+        className={`flex-1 flex flex-col min-w-0 bg-[var(--color-card)] overflow-hidden ${
           showChat ? 'flex' : 'hidden md:flex'
         }`}
       >

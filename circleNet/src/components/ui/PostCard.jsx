@@ -38,6 +38,36 @@ function formatNumber(num) {
   return String(num);
 }
 
+// ── Time ago helper ──
+function timeAgo(dateString) {
+  const now = Date.now();
+  const then = new Date(dateString).getTime();
+  const diff = Math.max(0, now - then);
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const weeks = Math.floor(days / 7);
+  const months = Math.floor(days / 30);
+  const years = Math.floor(days / 365);
+
+  if (seconds < 60) {
+    return 'just now';
+  } else if (minutes < 60) {
+    return `${minutes}m ago`;
+  } else if (hours < 24) {
+    return `${hours}h ago`;
+  } else if (days < 7) {
+    return `${days}d ago`;
+  } else if (weeks < 4) {
+    return `${weeks}w ago`;
+  } else if (months < 12) {
+    return `${months}mo ago`;
+  } else {
+    return `${years}y ago`;
+  }
+}
+
 export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
   if (!post) return null;
 
@@ -79,15 +109,8 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const initial = displayName.charAt(0).toUpperCase();
   const avatarColor = stringToColor(displayName);
 
-  const formattedDate = new Date(createdAt).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-  const formattedTime = new Date(createdAt).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // ── Relative time ──
+  const relativeTime = createdAt ? timeAgo(createdAt) : '';
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -205,7 +228,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   };
 
   const goToPost = (e) => {
-    // Ignore clicks on interactive elements
     const target = e.target;
     if (target.closest('a') || target.closest('button') || target.closest('.dm-engagement-btn')) {
       return;
@@ -262,10 +284,10 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
   // ── Build profile URL ──
-  // ── Build profile URL ──
-const userId = post.user?.id || post.authorId || post.userId;
+  const userId = post.user?.id || post.authorId || post.userId;
+  const usernameForProfile = post.user?.username || post.authorUsername || post.username;
+  const profileUrl = usernameForProfile ? `/profile/${usernameForProfile}` : (userId ? `/profile?userId=${userId}` : null);
 
-const profileUrl = username ? `/profile/${username}` : (userId ? `/profile?userId=${userId}` : null);
   // ── If this is a live post, render the special live card ──
   if (isLive && liveSessionId) {
     return (
@@ -274,12 +296,21 @@ const profileUrl = username ? `/profile/${username}` : (userId ? `/profile?userI
         onClick={handleLiveClick}
       >
         <div className="flex items-start gap-3">
-          {/* Avatar – clickable to profile */}
-          <Link
-            href={profileUrl}
-            onClick={(e) => e.stopPropagation()}
-            className="flex-shrink-0"
-          >
+          {/* Avatar */}
+          {profileUrl ? (
+            <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="flex-shrink-0">
+              <div
+                className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  initial
+                )}
+              </div>
+            </Link>
+          ) : (
             <div
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
               style={{ background: avatarUrl ? 'transparent' : avatarColor }}
@@ -290,26 +321,34 @@ const profileUrl = username ? `/profile/${username}` : (userId ? `/profile?userI
                 initial
               )}
             </div>
-          </Link>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-                {/* Name – clickable to profile */}
-                <Link
-                  href={profileUrl}
-                  onClick={(e) => e.stopPropagation()}
-                  className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
-                >
-                  {displayName}
-                </Link>
-                <Link
-                  href={profileUrl}
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
-                >
-                  @{username}
-                </Link>
-                <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
+                {/* Name */}
+                {profileUrl ? (
+                  <Link
+                    href={profileUrl}
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                  >
+                    {displayName}
+                  </Link>
+                ) : (
+                  <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                )}
+                {profileUrl ? (
+                  <Link
+                    href={profileUrl}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                  >
+                    @{username}
+                  </Link>
+                ) : (
+                  <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                )}
+                <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
               </div>
               <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
                 <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
@@ -336,12 +375,21 @@ const profileUrl = username ? `/profile/${username}` : (userId ? `/profile?userI
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
-        {/* Avatar – clickable to profile */}
-        <Link
-          href={profileUrl}
-          className="flex-shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
+        {/* Avatar */}
+        {profileUrl ? (
+          <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                initial
+              )}
+            </div>
+          </Link>
+        ) : (
           <div
             className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
             style={{ background: avatarUrl ? 'transparent' : avatarColor }}
@@ -352,32 +400,37 @@ const profileUrl = username ? `/profile/${username}` : (userId ? `/profile?userI
               initial
             )}
           </div>
-        </Link>
+        )}
 
         <div className="flex-1 min-w-0">
           {/* Post content wrapper – clickable to post detail */}
-          <div
-            className="block cursor-pointer"
-            onClick={goToPost}
-          >
+          <div className="block cursor-pointer" onClick={goToPost}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-                {/* Name – clickable to profile */}
-                <Link
-                  href={profileUrl}
-                  className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {displayName}
-                </Link>
-                <Link
-                  href={profileUrl}
-                  className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  @{username}
-                </Link>
-                <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
+                {/* Name */}
+                {profileUrl ? (
+                  <Link
+                    href={profileUrl}
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {displayName}
+                  </Link>
+                ) : (
+                  <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                )}
+                {profileUrl ? (
+                  <Link
+                    href={profileUrl}
+                    className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    @{username}
+                  </Link>
+                ) : (
+                  <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                )}
+                <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
               </div>
 
               {/* ── Three-dot menu ── */}

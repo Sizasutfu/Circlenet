@@ -414,4 +414,22 @@ function _broadcastTyping(conversationId, typingUserId, isTyping) {
   }
 }
 
-module.exports = { attachWS, notify, notifyConversation, notifyUser, isOnline, broadcastLiveStarted, broadcastLiveEnded };
+// ── NEW: Broadcast to ALL connected clients ────────────────
+function broadcastToAll(payload) {
+  for (const sockets of userSockets.values()) {
+    for (const ws of sockets) {
+      send(ws, payload);
+    }
+  }
+}
+
+module.exports = {
+  attachWS,
+  notify,
+  notifyConversation,
+  notifyUser,
+  isOnline,
+  broadcastLiveStarted,
+  broadcastLiveEnded,
+  broadcastToAll, // ✅ added
+};

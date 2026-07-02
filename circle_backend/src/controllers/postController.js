@@ -297,37 +297,49 @@ async function addComment(req, res) {
 
     const commentId = await PostModel.addComment(postId, userId, text, parentIdInt);
 
-    if (post.user_id !== userId) {
-      await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
-
-      // ── Real-time notification ─────────────────────────────
-      notifyUser(post.user_id, 'comment', {
-        actorId:   userId,
-        actorName: user.name,
-        postId,
-      });
-    }
-
-    // ── Bump topic affinity ──────────────────────────────────
-    const topics = await TopicPreferenceModel.getPostTopics(postId);
-    await TopicPreferenceModel.recordEngagement(userId, topics, 'comment');
-
-    return sendOk(res, 201, 'Comment added.', {
+    // ── Build comment data for response & broadcast ──
+    const commentData = {
       id:            commentId,
       userId,
       parentId:      parentIdInt,
       author:        user.name,
       authorPicture: user.picture || null,
       text,
-      createdAt:     new Date(),
+      createdAt:     new Date().toISOString(),
       replies:       parentIdInt ? undefined : [],
+    };
+
+    // ── Notify post author (if not the commenter) ──
+    if (post.user_id !== userId) {
+      await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
+
+      // Real-time notification to author
+      notifyUser(post.user_id, 'comment', {
+        actorId:   userId,
+        actorName: user.name,
+        postId,
+        comment:   commentData,
+      });
+    }
+
+    // ── Bump topic affinity ──
+    const topics = await TopicPreferenceModel.getPostTopics(postId);
+    await TopicPreferenceModel.recordEngagement(userId, topics, 'comment');
+
+    // ── Broadcast new comment to ALL connected clients ──
+    // The client will filter by postId to decide whether to append it.
+    broadcastToAll({
+      type:    'new_comment',
+      postId:  post.id,
+      comment: commentData,
     });
+
+    return sendOk(res, 201, 'Comment added.', commentData);
   } catch (err) {
     console.error('addComment error:', err);
     return sendError(res, 500, 'Server error.');
   }
 }
-
 // POST /api/posts/:id/repost
 async function repost(req, res) {
   const origId  = parseInt(req.params.id);

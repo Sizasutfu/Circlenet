@@ -1,19 +1,31 @@
 // src/app/feed/FeedClient.jsx
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
+import { useFeed } from '@/contexts/FeedContext';
 import PostCard from '@/components/ui/PostCard';
 import ArticleCard from '@/components/articles/ArticleCard';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+// ── Helpers ──
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
   const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
   return `${base}${url}`;
+}
+
+function stringToColor(str) {
+  if (!str) return '#888';
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash % 360);
+  return `hsl(${hue}, 70%, 55%)`;
 }
 
 function Toast({ message, type, onClose }) {
@@ -29,95 +41,37 @@ function Toast({ message, type, onClose }) {
   );
 }
 
-function stringToColor(str) {
-  if (!str) return '#888';
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
-
 export default function FeedClient() {
   const { user } = useAuth();
   const router = useRouter();
+  const {
+    posts,
+    loading,
+    loadingMore,
+    hasMore,
+    activeTab,
+    error,
+    setActiveTab,
+    fetchPosts,
+    loadMore,
+  } = useFeed();
 
-  // ── Tab state ──
-  const [activeTab, setActiveTab] = useState('global'); // 'global' | 'following' | 'articles'
-
-  // ── Posts state ──
-  const [posts, setPosts] = useState([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
-
-  // ── Articles state ──
+  // ── Articles state (local, not in context) ──
   const [articles, setArticles] = useState([]);
   const [articlesPage, setArticlesPage] = useState(1);
   const [articlesHasMore, setArticlesHasMore] = useState(false);
   const [articlesLoading, setArticlesLoading] = useState(false);
 
-  // ── Composer state (only for logged-in users) ──
+  // ── Composer state ──
   const [composerText, setComposerText] = useState('');
   const [composerImage, setComposerImage] = useState(null);
   const [composerImagePreview, setComposerImagePreview] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-
-  const loadMoreRef = useRef(null);
   const fileInputRef = useRef(null);
+  const loadMoreRef = useRef(null);
   const [toast, setToast] = useState(null);
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
-
-  // ── Fetch posts (public or authenticated) ──
-  const fetchPosts = useCallback(async (pageNum = 1, append = false) => {
-    if (pageNum === 1) setLoading(true);
-    else setLoadingMore(true);
-    try {
-      const feedTab = activeTab === 'following' && user ? 'following' : 'global';
-      const response = await apiClient(`/api/posts?feed=${feedTab}&page=${pageNum}&limit=20`);
-      
-      let postsData = [];
-      let hasMoreData = false;
-
-      // Safely extract posts from various response shapes
-      if (response?.data?.posts) {
-        postsData = response.data.posts;
-        hasMoreData = response.data.pagination?.hasMore || postsData.length === 20;
-      } else if (Array.isArray(response?.data)) {
-        postsData = response.data;
-        hasMoreData = postsData.length === 20;
-      } else if (Array.isArray(response)) {
-        postsData = response;
-        hasMoreData = postsData.length === 20;
-      }
-      // Ensure postsData is always an array
-      if (!Array.isArray(postsData)) postsData = [];
-
-      const postsWithUser = postsData.map((p) => ({
-        ...p,
-        user: p.user || { name: p.author || 'Unknown', username: p.authorUsername || '', picture: p.authorPicture || null },
-      }));
-      setPosts((prev) => (append ? [...prev, ...postsWithUser] : postsWithUser));
-      setHasMore(hasMoreData);
-      setPage(pageNum);
-    } catch (err) {
-      console.error('Failed to fetch posts:', err);
-      setError('Could not load posts. Please try again.');
-      if (pageNum === 1) {
-        setPosts([
-          { id: 1, text: 'Welcome to Circlenet! 🎉', createdAt: new Date().toISOString(), likes: [], comments: [], user: { name: 'Circlenet', username: 'circlenet', picture: null } },
-        ]);
-        setHasMore(false);
-      }
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [activeTab, user]);
 
   // ── Fetch articles ──
   const fetchArticles = useCallback(async (pageNum = 1, append = false) => {
@@ -139,25 +93,30 @@ export default function FeedClient() {
     }
   }, [articlesLoading]);
 
-  // ── Load more (universal) ──
-  const loadMore = useCallback(() => {
-    if (activeTab === 'articles') {
-      if (!articlesHasMore || articlesLoading) return;
-      fetchArticles(articlesPage + 1, true);
-    } else {
-      if (!hasMore || loadingMore) return;
-      fetchPosts(page + 1, true);
-    }
-  }, [activeTab, articlesHasMore, articlesLoading, articlesPage, fetchArticles, hasMore, loadingMore, page, fetchPosts]);
-
   // ── Initial load ──
   useEffect(() => {
     if (activeTab === 'articles') {
       if (articles.length === 0 && !articlesLoading) fetchArticles(1, false);
     } else {
-      fetchPosts(1, false);
+      // Only fetch if we have no posts or if we just switched tab and posts are empty
+      if (!loading && posts.length === 0) {
+        fetchPosts(activeTab, 1, false);
+      }
     }
-  }, [activeTab]);
+  }, [activeTab]); // Only run when activeTab changes
+
+  // ── Handle tab switch ──
+  const handleTabChange = (tab) => {
+    if (tab === activeTab) return;
+    setActiveTab(tab);
+    // Reset articles when switching to articles tab
+    if (tab === 'articles') {
+      setArticles([]);
+      setArticlesPage(1);
+      setArticlesHasMore(false);
+    }
+    // If switching away from articles, we keep posts in context
+  };
 
   // ── Intersection Observer ──
   useEffect(() => {
@@ -165,33 +124,57 @@ export default function FeedClient() {
       (entries) => {
         if (entries[0].isIntersecting) {
           if (activeTab === 'articles') {
-            if (articlesHasMore && !articlesLoading) loadMore();
+            if (articlesHasMore && !articlesLoading) {
+              fetchArticles(articlesPage + 1, true);
+            }
           } else {
-            if (hasMore && !loadingMore) loadMore();
+            if (hasMore && !loadingMore) {
+              loadMore();
+            }
           }
         }
       },
       { threshold: 0.1 }
     );
-    if (loadMoreRef.current) {
-      observer.observe(loadMoreRef.current);
-    }
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore]);
+  }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore, fetchArticles, articlesPage]);
 
   // ── Like, comment, repost, share ──
-  const handleLike = async (postId) => { /* existing like logic */ };
+  const handleLike = async (postId) => {
+    if (!user) { showToast('Log in to like.', 'error'); return; }
+    try {
+      const res = await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
+      // Update like state in context
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id === postId) {
+            const liked = res.data?.liked ?? !p.liked;
+            const count = res.data?.likes ?? p.likes.length + (liked ? 1 : -1);
+            return { ...p, liked, likes: count > 0 ? [{ id: 'temp' }] : [] };
+          }
+          return p;
+        })
+      );
+    } catch (err) {
+      showToast('Failed to like.', 'error');
+    }
+  };
+
   const handleComment = (postId) => showToast('Comment feature coming soon!', 'success');
+
   const handleRepost = async (postId) => {
     if (!user) { showToast('Log in to repost.', 'error'); return; }
     try {
       await apiClient(`/api/posts/${postId}/repost`, { method: 'POST' });
       showToast('Reposted! 🔁', 'success');
-      fetchPosts(1, false);
+      // Refresh feed
+      fetchPosts(activeTab, 1, false);
     } catch (err) {
       showToast('Failed to repost', 'error');
     }
   };
+
   const handleShare = (postId) => {
     const url = `${window.location.origin}/post/${postId}`;
     if (navigator.share) {
@@ -201,7 +184,7 @@ export default function FeedClient() {
     }
   };
 
-  // ── Create post (only if logged in) ──
+  // ── Create post ──
   const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!user) { showToast('Please log in to post.', 'error'); return; }
@@ -214,10 +197,7 @@ export default function FeedClient() {
       const formData = new FormData();
       formData.append('text', composerText.trim());
       if (composerImage) formData.append('image', composerImage);
-      const data = await apiClient('/api/posts', {
-        method: 'POST',
-        body: formData,
-      });
+      const data = await apiClient('/api/posts', { method: 'POST', body: formData });
       const newPost = data.data || data;
       const optimisticPost = {
         id: newPost.id || Date.now(),
@@ -260,30 +240,9 @@ export default function FeedClient() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── Render states ──
-  if (loading && activeTab !== 'articles') {
-    return (
-      <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
-        <p className="mt-4">Loading feed…</p>
-      </div>
-    );
-  }
-
-  if (error && activeTab !== 'articles') {
-    return (
-      <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
-        <p className="text-[var(--color-rose)]">{error}</p>
-        <button onClick={() => fetchPosts(1, false)} className="mt-4 px-4 py-2 bg-[var(--color-accent)] text-white rounded-lg">
-          Retry
-        </button>
-      </div>
-    );
-  }
-
+  // ── Render content ──
   const renderContent = () => {
     if (activeTab === 'articles') {
-      // Articles rendering
       if (articlesLoading && articles.length === 0) {
         return (
           <div className="space-y-4">
@@ -318,6 +277,26 @@ export default function FeedClient() {
     }
 
     // ── Posts feed ──
+    if (loading && posts.length === 0) {
+      return (
+        <div className="text-center py-8">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
+          <p className="mt-4 text-[var(--color-txt2)]">Loading feed…</p>
+        </div>
+      );
+    }
+
+    if (error && posts.length === 0) {
+      return (
+        <div className="text-center py-8">
+          <p className="text-[var(--color-rose)]">{error}</p>
+          <button onClick={() => fetchPosts(activeTab, 1, false)} className="mt-4 px-4 py-2 bg-[var(--color-accent)] text-white rounded-lg">
+            Retry
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         {posts.length === 0 ? (
@@ -357,7 +336,7 @@ export default function FeedClient() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* ── Composer (only if logged in) ── */}
+      {/* ── Composer ── */}
       {user && activeTab !== 'articles' && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6 shadow-sm">
           <div className="flex items-start gap-3">
@@ -412,28 +391,27 @@ export default function FeedClient() {
       {/* ── Tabs ── */}
       <div className="flex gap-2 mb-6 border-b border-[var(--color-border)]">
         <button
-          onClick={() => setActiveTab('global')}
+          onClick={() => handleTabChange('global')}
           className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === 'global' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
         >
           Global
         </button>
         {user && (
           <button
-            onClick={() => setActiveTab('following')}
+            onClick={() => handleTabChange('following')}
             className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === 'following' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
           >
             Following
           </button>
         )}
         <button
-          onClick={() => setActiveTab('articles')}
+          onClick={() => handleTabChange('articles')}
           className={`pb-2 px-3 text-sm font-medium transition border-b-2 ${activeTab === 'articles' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-transparent text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
         >
           Articles
         </button>
       </div>
 
-      {/* ── Content ── */}
       {renderContent()}
     </div>
   );

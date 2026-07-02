@@ -108,8 +108,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const initial = displayName.charAt(0).toUpperCase();
   const avatarColor = stringToColor(displayName);
-
-  // ── Relative time ──
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
 
   useEffect(() => {
@@ -337,16 +335,19 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {profileUrl ? (
-                  <Link
-                    href={profileUrl}
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
-                  >
-                    @{username}
-                  </Link>
-                ) : (
-                  <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                {/* Username – only shown if available */}
+                {username && (
+                  profileUrl ? (
+                    <Link
+                      href={profileUrl}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                    >
+                      @{username}
+                    </Link>
+                  ) : (
+                    <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                  )
                 )}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
               </div>
@@ -419,16 +420,19 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {profileUrl ? (
-                  <Link
-                    href={profileUrl}
-                    className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    @{username}
-                  </Link>
-                ) : (
-                  <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                {/* Username – only shown if available */}
+                {username && (
+                  profileUrl ? (
+                    <Link
+                      href={profileUrl}
+                      className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      @{username}
+                    </Link>
+                  ) : (
+                    <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                  )
                 )}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
               </div>

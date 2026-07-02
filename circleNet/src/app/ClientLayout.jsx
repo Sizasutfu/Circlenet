@@ -14,6 +14,7 @@ import { LiveProvider } from '@/contexts/LiveContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { PushProvider } from '@/contexts/PushContext';
 import { LightboxProvider } from '@/hooks/useLightbox';
+import { FeedProvider } from '@/contexts/FeedContext'; // ✅ ADD
 import Lightbox from '@/components/ui/Lightbox';
 import { useLightbox } from '@/hooks/useLightbox';
 import NotificationPanel from '@/components/notification/NotificationPanel';
@@ -125,63 +126,65 @@ export default function ClientLayout({ children }) {
                     <LiveProvider>
                       <NotificationProvider>
                         <LightboxProvider>
-                          <LightboxWrapper>
-                            <div className="flex min-h-screen">
-                              {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
-                              <div
-                                className={`flex-1 flex flex-col min-h-screen ${
-                                  !isLanding ? 'md:ml-[260px]' : ''
-                                }`}
-                              >
-                                <Suspense fallback={<div className="h-14" />}>
-                                  <Header
-                                    onMenuClick={toggleSidebar}
-                                    hideMenu={isLanding}
-                                  />
-                                </Suspense>
-                                <main
-                                  className={`flex-1 px-2 sm:px-6 py-4 ${
-                                    isLanding
-                                      ? 'p-0'
-                                      : shouldHideFooter
-                                      ? 'pb-4'
-                                      : 'pb-20 md:pb-4'
+                          <FeedProvider> {/* ✅ WRAP WITH FEED PROVIDER */}
+                            <LightboxWrapper>
+                              <div className="flex min-h-screen">
+                                {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
+                                <div
+                                  className={`flex-1 flex flex-col min-h-screen ${
+                                    !isLanding ? 'md:ml-[260px]' : ''
                                   }`}
                                 >
-                                  {!shouldHideStrip && <LiveFeedStrip />}
-                                  {children}
-                                </main>
-                                {!isLanding && !shouldHideFooter && <Footer />}
-                              </div>
-                            </div>
-
-                            {!isLanding && (
-                              <>
-                                <NotificationPanel />
-                                <LiveSetupModal />
-                                <LiveOverlay />
-                                <LiveToast />
-                                {!shouldHideMobileNav && (
-                                  <>
-                                    <MobileNavbar
-                                      className={`transition-transform duration-300 ease-in-out ${
-                                        shouldHide ? 'translate-y-full' : 'translate-y-0'
-                                      }`}
+                                  <Suspense fallback={<div className="h-14" />}>
+                                    <Header
+                                      onMenuClick={toggleSidebar}
+                                      hideMenu={isLanding}
                                     />
-                                    <div
-                                      className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
-                                        shouldHide
-                                          ? 'opacity-0 scale-90 pointer-events-none'
-                                          : 'opacity-100 scale-100'
-                                      }`}
-                                    >
-                                      <FloatingComposeButton />
-                                    </div>
-                                  </>
-                                )}
-                              </>
-                            )}
-                          </LightboxWrapper>
+                                  </Suspense>
+                                  <main
+                                    className={`flex-1 px-2 sm:px-6 py-4 ${
+                                      isLanding
+                                        ? 'p-0'
+                                        : shouldHideFooter
+                                        ? 'pb-4'
+                                        : 'pb-20 md:pb-4'
+                                    }`}
+                                  >
+                                    {!shouldHideStrip && <LiveFeedStrip />}
+                                    {children}
+                                  </main>
+                                  {!isLanding && !shouldHideFooter && <Footer />}
+                                </div>
+                              </div>
+
+                              {!isLanding && (
+                                <>
+                                  <NotificationPanel />
+                                  <LiveSetupModal />
+                                  <LiveOverlay />
+                                  <LiveToast />
+                                  {!shouldHideMobileNav && (
+                                    <>
+                                      <MobileNavbar
+                                        className={`transition-transform duration-300 ease-in-out ${
+                                          shouldHide ? 'translate-y-full' : 'translate-y-0'
+                                        }`}
+                                      />
+                                      <div
+                                        className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
+                                          shouldHide
+                                            ? 'opacity-0 scale-90 pointer-events-none'
+                                            : 'opacity-100 scale-100'
+                                        }`}
+                                      >
+                                        <FloatingComposeButton />
+                                      </div>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                            </LightboxWrapper>
+                          </FeedProvider>
                         </LightboxProvider>
                       </NotificationProvider>
                     </LiveProvider>

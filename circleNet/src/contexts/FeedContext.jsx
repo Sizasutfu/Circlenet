@@ -6,6 +6,16 @@ import { apiClient } from '@/lib/api';
 
 const FeedContext = createContext();
 
+// ── Helper to deduplicate posts by id ──
+function dedupePosts(posts) {
+  const seen = new Set();
+  return posts.filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+}
+
 export function FeedProvider({ children }) {
   const [posts, setPosts] = useState([]);
   const [page, setPage] = useState(1);
@@ -40,7 +50,13 @@ export function FeedProvider({ children }) {
         ...p,
         user: p.user || { name: p.author || 'Unknown', username: p.authorUsername || '', picture: p.authorPicture || null },
       }));
-      setPosts((prev) => (append ? [...prev, ...postsWithUser] : postsWithUser));
+
+      // ✅ Deduplicate before storing
+      setPosts((prev) => {
+        const combined = append ? [...prev, ...postsWithUser] : postsWithUser;
+        return dedupePosts(combined);
+      });
+
       setHasMore(hasMoreData);
       setPage(pageNum);
       feedKeyRef.current = `${tab}-${pageNum}`;
@@ -78,6 +94,8 @@ export function FeedProvider({ children }) {
     fetchPosts,
     loadMore,
     resetFeed,
+    // Expose dedupe helper if needed externally
+    dedupePosts,
   };
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;

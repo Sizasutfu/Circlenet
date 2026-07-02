@@ -18,7 +18,7 @@ const GroupModel            = require('../models/GroupModel');
 const { getPostsPage }      = require('../feed/feedPipeline');
 const { db }                = require('../config/db');
 const { sendOk, sendError } = require('../middleware/response');
-const { notifyUser, isOnline } = require('../../wsServer');
+const { notifyUser, isOnline, broadcastToAll } = require('../../wsServer');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 

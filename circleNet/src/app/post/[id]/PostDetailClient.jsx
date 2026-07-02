@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import { useWs } from '@/contexts/WsContext'; // ✅ ADD
 import PostCard from '@/components/ui/PostCard';
 import Link from 'next/link';
 
@@ -71,6 +72,7 @@ function getCommentUser(comment) {
 export default function PostDetailClient({ postId }) {
   const { user } = useAuth();
   const router = useRouter();
+  const { registerHandler } = useWs(); // ✅ Get WS handler
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +104,6 @@ export default function PostDetailClient({ postId }) {
         const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
         if (userInfo && userInfo.id) {
           setCreator(userInfo);
-          // Fetch full profile for bio and stats
           try {
             const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
             const profile = profileRes.data || profileRes;
@@ -123,6 +124,23 @@ export default function PostDetailClient({ postId }) {
     };
     fetchPost();
   }, [postId]);
+
+  // ── WebSocket: listen for new comments ──
+  useEffect(() => {
+    const unregister = registerHandler('new_comment', (msg) => {
+      // Only update if this comment belongs to the current post
+      if (msg.postId === parseInt(postId)) {
+        setComments((prev) => {
+          // Prevent duplicates (in case optimistic update already added it)
+          if (prev.some(c => c.id === msg.comment.id)) return prev;
+          // Prepend new comment (latest first)
+          return [msg.comment, ...prev];
+        });
+      }
+    });
+
+    return () => unregister();
+  }, [postId, registerHandler]);
 
   // ── Show toast ──
   const showToast = (msg, type = 'success') => {
@@ -204,6 +222,7 @@ export default function PostDetailClient({ postId }) {
         body: { text },
       });
       const newComment = res.data || res;
+      // Optimistically add comment (will be deduplicated by WS listener if broadcast arrives)
       setComments((prev) => [newComment, ...prev]);
       setCommentText('');
       showToast('Comment added!', 'success');
@@ -310,7 +329,6 @@ export default function PostDetailClient({ postId }) {
 
       {/* ── Main post ── */}
       <div className="mb-6">
-        {/* ✅ Extra safety: only render PostCard if post exists */}
         {post && (
           <PostCard
             post={post}
@@ -322,7 +340,7 @@ export default function PostDetailClient({ postId }) {
         )}
       </div>
 
-      {/* Comment form */}
+      {/* ── Comment form ── */}
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6">
         <form onSubmit={handleComment} className="flex gap-3">
           <div
@@ -361,7 +379,7 @@ export default function PostDetailClient({ postId }) {
         )}
       </div>
 
-      {/* Comments list */}
+      {/* ── Comments list ── */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-[var(--color-txt2)]">Comments ({comments.length})</h3>
         {comments.length === 0 ? (

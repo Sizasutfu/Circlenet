@@ -8,6 +8,7 @@ import { useLightbox } from '@/hooks/useLightbox';
 import { useAuth } from '@/lib/auth';
 import { generatePostCard } from '@/lib/postCardGenerator';
 import { useLive } from '@/contexts/LiveContext';
+import { formatPostText } from '@/lib/formatText'; // ✅
 import LikeButton from './LikeButton';
 import CommentButton from './CommentButton';
 import RepostButton from './RepostButton';
@@ -78,7 +79,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     viewCount = 0,
     isLive = false,
     liveSessionId = null,
-    // New fields for counts
     commentCount,
     repostCount,
   } = post;
@@ -331,7 +331,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 LIVE
               </span>
             </div>
-            <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">{text}</div>
+            <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
+              <span dangerouslySetInnerHTML={{ __html: formatPostText(text) }} />
+            </div>
             <div className="mt-2 flex items-center justify-center gap-2 bg-black/10 dark:bg-white/10 rounded-lg p-3">
               <svg className="w-8 h-8 text-[var(--color-rose)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="10" />
@@ -475,8 +477,13 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </div>
             </div>
 
+            {/* ── Text with clickable links, hashtags, mentions ── */}
             <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {shouldTruncate ? text.slice(0, 200) + '…' : text}
+              {shouldTruncate ? (
+                <span dangerouslySetInnerHTML={{ __html: formatPostText(text.slice(0, 200) + '…') }} />
+              ) : (
+                <span dangerouslySetInnerHTML={{ __html: formatPostText(text) }} />
+              )}
               {text?.length > 200 && (
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(); }}

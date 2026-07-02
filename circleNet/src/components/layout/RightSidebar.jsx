@@ -46,12 +46,18 @@ export default function RightSidebar() {
     loadNewMembers,
   } = useExplore();
 
-  // ── Post detail detection ──
+  // ── Detect routes ──
   const isPostDetail = /^\/post\/\d+$/.test(pathname);
-  const postId = isPostDetail ? pathname.split('/')[2] : null;
+  const isArticles = pathname.startsWith('/articles');
 
+  // ── Post detail author ──
+  const postId = isPostDetail ? pathname.split('/')[2] : null;
   const [author, setAuthor] = useState(null);
   const [authorLoading, setAuthorLoading] = useState(false);
+
+  // ── Top articles ──
+  const [topArticles, setTopArticles] = useState([]);
+  const [topArticlesLoading, setTopArticlesLoading] = useState(false);
 
   // ── Fetch author info if on post detail ──
   useEffect(() => {
@@ -63,7 +69,6 @@ export default function RightSidebar() {
         const post = res.data || res;
         const userInfo = post.user || { name: post.author, picture: post.authorPicture, id: post.authorId };
         if (userInfo && userInfo.id) {
-          // Get full profile with stats
           const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
           const profile = profileRes.data || profileRes;
           setAuthor({ ...userInfo, ...profile });
@@ -79,6 +84,26 @@ export default function RightSidebar() {
     fetchAuthor();
   }, [isPostDetail, postId]);
 
+  // ── Fetch top articles if on articles page ──
+  useEffect(() => {
+    if (!isArticles) return;
+    setTopArticlesLoading(true);
+    const fetchTopArticles = async () => {
+      try {
+        const res = await apiClient('/api/articles/top?limit=5');
+        const data = res.data || res;
+        const articles = data.articles || data || [];
+        setTopArticles(articles);
+      } catch (err) {
+        console.warn('Failed to fetch top articles:', err);
+        setTopArticles([]);
+      } finally {
+        setTopArticlesLoading(false);
+      }
+    };
+    fetchTopArticles();
+  }, [isArticles]);
+
   // ── Load topics & suggestions ──
   useEffect(() => {
     loadTopics();
@@ -91,9 +116,7 @@ export default function RightSidebar() {
   const handleFollow = async (userId) => {
     try {
       await apiClient(`/api/follow/${userId}`, { method: 'POST' });
-      // Refresh suggestions
       loadPeople();
-      // Also update author's follower count locally if it's the author
       if (author && author.id === userId) {
         setAuthor(prev => ({ ...prev, isFollowing: true, followerCount: (prev.followerCount || 0) + 1 }));
       }
@@ -172,6 +195,44 @@ export default function RightSidebar() {
         </Link>
       </div>
 
+      {/* ── Top Articles (only on articles page) ── */}
+      {isArticles && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">📰 Top Articles</h3>
+          {topArticlesLoading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-4 bg-[var(--color-surface)] rounded animate-pulse mb-2" />
+            ))
+          ) : topArticles.length === 0 ? (
+            <p className="text-xs text-[var(--color-txt3)]">No top articles</p>
+          ) : (
+            <ul className="space-y-2">
+              {topArticles.slice(0, 5).map((article) => (
+                <li key={article.id}>
+                  <Link
+                    href={`/articles/${article.slug || article.id}`}
+                    className="block text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
+                  >
+                    {article.title}
+                    {article.tags && article.tags.length > 0 && (
+                      <span className="text-xs text-[var(--color-txt3)] ml-1">
+                        #{article.tags[0]}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link
+            href="/articles"
+            className="block text-xs text-[var(--color-accent)] hover:underline mt-2"
+          >
+            Browse all →
+          </Link>
+        </div>
+      )}
+
       {/* ── Author Profile (on post detail) ── */}
       {isPostDetail && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
@@ -239,8 +300,8 @@ export default function RightSidebar() {
         </div>
       )}
 
-      {/* ── People to Follow (only if not on post detail) ── */}
-      {!isPostDetail && user && (
+      {/* ── People to Follow (only if not on post detail and not on articles) ── */}
+      {!isPostDetail && !isArticles && user && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
           <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">👥 Who to Follow</h3>
           {peopleLoading ? (

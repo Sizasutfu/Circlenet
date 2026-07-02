@@ -237,7 +237,7 @@ export async function generatePostCard(post, username) {
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(255,255,255,0.15)';
   ctx.font = `400 12px Inter, system-ui, sans-serif`;
-  ctx.fillText('circlenet.social', CARD_W - PAD, footerY);
+  ctx.fillText('www.circlenet.social', CARD_W - PAD, footerY);
 
   return canvas;
 }

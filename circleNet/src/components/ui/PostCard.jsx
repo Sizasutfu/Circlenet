@@ -60,6 +60,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     liveSessionId = null,
   } = post;
 
+  // ── Extract user info ──
   const displayName = post.user?.name || post.author || 'Anonymous';
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
@@ -112,6 +113,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const handleImageClick = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     if (postImageUrl) {
       openLightbox([postImageUrl], 0);
     }
@@ -202,6 +204,15 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     }
   };
 
+  const goToPost = (e) => {
+    // Ignore clicks on interactive elements
+    const target = e.target;
+    if (target.closest('a') || target.closest('button') || target.closest('.dm-engagement-btn')) {
+      return;
+    }
+    router.push(`/post/${id}`);
+  };
+
   const renderMedia = () => {
     if (postVideoUrl) {
       return (
@@ -250,6 +261,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
+  // ── Build profile URL ──
+  // ── Build profile URL ──
+const userId = post.user?.id || post.authorId || post.userId;
+
+const profileUrl = username ? `/profile/${username}` : (userId ? `/profile?userId=${userId}` : null);
   // ── If this is a live post, render the special live card ──
   if (isLive && liveSessionId) {
     return (
@@ -258,21 +274,41 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
         onClick={handleLiveClick}
       >
         <div className="flex items-start gap-3">
-          <div
-            className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-            style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+          {/* Avatar – clickable to profile */}
+          <Link
+            href={profileUrl}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-shrink-0"
           >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-            ) : (
-              initial
-            )}
-          </div>
+            <div
+              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                initial
+              )}
+            </div>
+          </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-                <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
-                <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                {/* Name – clickable to profile */}
+                <Link
+                  href={profileUrl}
+                  onClick={(e) => e.stopPropagation()}
+                  className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                >
+                  {displayName}
+                </Link>
+                <Link
+                  href={profileUrl}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                >
+                  @{username}
+                </Link>
                 <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
               </div>
               <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
@@ -300,30 +336,56 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
-        <div
-          className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-          style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+        {/* Avatar – clickable to profile */}
+        <Link
+          href={profileUrl}
+          className="flex-shrink-0"
+          onClick={(e) => e.stopPropagation()}
         >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-          ) : (
-            initial
-          )}
-        </div>
+          <div
+            className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+            style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+          >
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+            ) : (
+              initial
+            )}
+          </div>
+        </Link>
 
         <div className="flex-1 min-w-0">
-          <Link href={`/post/${id}`} className="block">
+          {/* Post content wrapper – clickable to post detail */}
+          <div
+            className="block cursor-pointer"
+            onClick={goToPost}
+          >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-                <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
-                <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                {/* Name – clickable to profile */}
+                <Link
+                  href={profileUrl}
+                  className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {displayName}
+                </Link>
+                <Link
+                  href={profileUrl}
+                  className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  @{username}
+                </Link>
                 <span className="text-[var(--color-txt3)] text-xs">· {formattedDate} at {formattedTime}</span>
               </div>
 
+              {/* ── Three-dot menu ── */}
               <div className="relative flex-shrink-0" ref={dropdownRef}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     setIsDropdownOpen(!isDropdownOpen);
                   }}
                   className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
@@ -396,11 +458,12 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </div>
             </div>
 
+            {/* ── Text ── */}
             <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
               {shouldTruncate ? text.slice(0, 200) + '…' : text}
               {text?.length > 200 && (
                 <button
-                  onClick={(e) => { e.preventDefault(); toggleExpand(); }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(); }}
                   className="ml-1 text-[var(--color-accent)] hover:underline text-xs font-medium"
                 >
                   {isExpanded ? 'Show less' : 'Show more'}
@@ -408,9 +471,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               )}
             </div>
 
+            {/* ── Media ── */}
             {renderMedia()}
-          </Link>
+          </div>
 
+          {/* ── Engagement bar ── */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <LikeButton
               count={likeCount}

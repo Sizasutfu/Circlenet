@@ -119,11 +119,11 @@ export async function generateWhisperCard(message, username) {
   const bottomY = totalH - PAD - 6;
   ctx.fillStyle = 'rgba(167,139,250,0.5)';
   ctx.font = `500 20px Inter, system-ui, sans-serif`;
-  ctx.fillText('circlenet.social', PAD, bottomY);
+  ctx.fillText('www.circlenet.social', PAD, bottomY);
 
   if (username) {
     ctx.textAlign = 'right';
-    ctx.fillStyle = 'rgba(167,139,250,0.5)';
+    ctx.fillStyle = 'rgba(244, 243, 248, 0.5)';
     ctx.fillText(`@${username}`, CARD_W - PAD, bottomY);
     ctx.textAlign = 'left';
   }

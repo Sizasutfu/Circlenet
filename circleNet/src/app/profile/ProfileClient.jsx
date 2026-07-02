@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
 import { useLightbox } from '@/hooks/useLightbox';
 
@@ -40,8 +40,10 @@ function UserListModal({ title, users, onClose, isLoading }) {
     onClose();
     if (user.id === currentUser?.id) {
       router.push('/profile');
-    } else {
+    } else if (user.username) {
       router.push(`/profile/${user.username}`);
+    } else {
+      router.push(`/profile?userId=${user.id}`);
     }
   };
 
@@ -106,7 +108,15 @@ function Toast({ message, type }) {
 export default function ProfileClient({ username = null, initialUser = null }) {
   const { user: currentUser, logout } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { openLightbox } = useLightbox();
+
+  // ── Read userId from query params ──
+  const userIdParam = searchParams?.get('userId') ? parseInt(searchParams.get('userId')) : null;
+
+  // ── Determine if viewing own profile ──
+  // Own profile if: no username, no userIdParam, or userIdParam matches currentUser.id
+  const isOwnProfile = !username && !userIdParam && currentUser;
 
   // ── State ──
   const [profile, setProfile] = useState(initialUser);
@@ -124,23 +134,30 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   // ── Followers/Following modal state ──
   const [listModal, setListModal] = useState({ open: false, type: '', users: [], isLoading: false });
 
-  // ── Determine if viewing own profile ──
-  const isOwnProfile = !username || (currentUser && profile?.id === currentUser.id);
-
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // ── Fetch profile (only if initialUser not provided or if we need to refresh) ──
+  // ── Fetch profile ──
   useEffect(() => {
+    // If initialUser provided, use it and skip fetch
     if (initialUser) {
       setProfile(initialUser);
       setLoading(false);
       return;
     }
 
-    if (!currentUser && !username) {
+    // Determine endpoint
+    let endpoint;
+    if (username) {
+      endpoint = `/api/users/by-username/${username}`;
+    } else if (userIdParam) {
+      endpoint = `/api/users/${userIdParam}/profile`;
+    } else if (currentUser) {
+      endpoint = `/api/users/${currentUser.id}/profile`;
+    } else {
+      // No user logged in, redirect to login
       router.push('/login');
       return;
     }
@@ -149,18 +166,13 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       setLoading(true);
       setError(null);
       try {
-        let endpoint;
-        if (username) {
-          endpoint = `/api/users/by-username/${username}`;
-        } else {
-          endpoint = `/api/users/${currentUser.id}/profile`;
-        }
         const res = await apiClient(endpoint);
         setProfile(res.data || res);
       } catch (err) {
         console.error('[Profile] Error:', err);
         setError(err.message || 'Failed to load profile');
         if (err.message?.includes('404') && username) {
+          // User not found, redirect to feed
           router.push('/feed');
         }
       } finally {
@@ -168,14 +180,16 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       }
     };
 
-    // Avoid re‑fetching if we already have the correct profile
-    if (profile && (profile.id === currentUser?.id || profile.username === username)) {
+    // Avoid re-fetching if we already have the correct profile
+    const profileId = profile?.id;
+    const targetId = userIdParam || currentUser?.id;
+    if (profileId && (profileId === targetId || profile.username === username)) {
       setLoading(false);
       return;
     }
 
     fetchProfile();
-  }, [username, currentUser, initialUser, router]);
+  }, [username, userIdParam, currentUser, initialUser, router]);
 
   // ── Fetch posts ──
   const fetchPosts = useCallback(async (page = 1, append = false) => {
@@ -538,7 +552,13 @@ export default function ProfileClient({ username = null, initialUser = null }) {
                 >
                   {isFollowing ? 'Following' : 'Follow'}
                 </button>
-                <button className="px-4 py-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition text-sm font-medium flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    // Start DM with this user
+                    router.push(`/messages?userId=${profile.id}`);
+                  }}
+                  className="px-4 py-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition text-sm font-medium flex items-center gap-1.5"
+                >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
                   </svg>

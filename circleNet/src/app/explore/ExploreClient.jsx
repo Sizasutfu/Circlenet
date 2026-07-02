@@ -1,4 +1,3 @@
-// src/app/explore/ExploreClient.jsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -42,8 +41,21 @@ function PeopleCard({ user, onFollow }) {
   const initial = (user.name || '?').charAt(0).toUpperCase();
   const avatarUrl = user.picture;
 
+  const handleClick = () => {
+    // ✅ If username exists, go to /profile/username
+    if (user.username) {
+      window.location.href = `/profile/${user.username}`;
+    } else if (user.id) {
+      // Fallback: use userId as query param
+      window.location.href = `/profile?userId=${user.id}`;
+    } else {
+      // Should never happen
+      console.warn('User has no username or id:', user);
+    }
+  };
+
   return (
-    <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer" onClick={() => window.location.href = `/profile?userId=${user.id}`}>
+    <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer" onClick={handleClick}>
       <div
         className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base overflow-hidden"
         style={{ background: avatarUrl ? 'transparent' : color }}
@@ -120,8 +132,12 @@ export default function ExploreClient() {
   const filteredTrending = getFilteredTrending();
 
   const handleFollow = async (userId) => {
-    // Follow logic here – implement via API
+    // Implement follow logic
     setFollowing((prev) => new Set(prev).add(userId));
+    // Call API here
+    try {
+      await apiClient(`/api/follow/${userId}`, { method: 'POST' });
+    } catch (_) {}
   };
 
   const categories = [
@@ -275,11 +291,19 @@ export default function ExploreClient() {
               const initial = (u.name || '?').charAt(0).toUpperCase();
               const avatarUrl = u.picture;
 
+              const handleClick = () => {
+                if (u.username) {
+                  window.location.href = `/profile/${u.username}`;
+                } else if (u.id) {
+                  window.location.href = `/profile?userId=${u.id}`;
+                }
+              };
+
               return (
                 <div
                   key={u.id}
                   className="relative p-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:shadow-[var(--color-shadow)] transition cursor-pointer"
-                  onClick={() => router.push(`/profile?userId=${u.id}`)}
+                  onClick={handleClick}
                 >
                   <span className="absolute -top-2 -right-2 bg-[var(--color-green)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">NEW</span>
                   <div className="flex items-center gap-3">

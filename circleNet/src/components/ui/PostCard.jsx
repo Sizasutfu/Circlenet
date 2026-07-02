@@ -51,21 +51,13 @@ function timeAgo(dateString) {
   const months = Math.floor(days / 30);
   const years = Math.floor(days / 365);
 
-  if (seconds < 60) {
-    return 'just now';
-  } else if (minutes < 60) {
-    return `${minutes}m ago`;
-  } else if (hours < 24) {
-    return `${hours}h ago`;
-  } else if (days < 7) {
-    return `${days}d ago`;
-  } else if (weeks < 4) {
-    return `${weeks}w ago`;
-  } else if (months < 12) {
-    return `${months}mo ago`;
-  } else {
-    return `${years}y ago`;
-  }
+  if (seconds < 60) return 'just now';
+  else if (minutes < 60) return `${minutes}m ago`;
+  else if (hours < 24) return `${hours}h ago`;
+  else if (days < 7) return `${days}d ago`;
+  else if (weeks < 4) return `${weeks}w ago`;
+  else if (months < 12) return `${months}mo ago`;
+  else return `${years}y ago`;
 }
 
 export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
@@ -95,7 +87,12 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
-  const [isLiked, setIsLiked] = useState(false);
+  // ✅ Fix: initialize liked state based on likes array
+  const initialLiked = currentUser && likes.length > 0
+    ? likes.some(id => id === currentUser.id)
+    : false;
+
+  const [isLiked, setIsLiked] = useState(initialLiked);
   const [likeCount, setLikeCount] = useState(likes.length || 0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -294,18 +291,13 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
         onClick={handleLiveClick}
       >
         <div className="flex items-start gap-3">
-          {/* Avatar */}
           {profileUrl ? (
             <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="flex-shrink-0">
               <div
                 className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
                 style={{ background: avatarUrl ? 'transparent' : avatarColor }}
               >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-                ) : (
-                  initial
-                )}
+                {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
               </div>
             </Link>
           ) : (
@@ -313,36 +305,22 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
               style={{ background: avatarUrl ? 'transparent' : avatarColor }}
             >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-              ) : (
-                initial
-              )}
+              {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
             </div>
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-                {/* Name */}
                 {profileUrl ? (
-                  <Link
-                    href={profileUrl}
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
-                  >
+                  <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition">
                     {displayName}
                   </Link>
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {/* Username – only shown if available */}
                 {username && (
                   profileUrl ? (
-                    <Link
-                      href={profileUrl}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
-                    >
+                    <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition">
                       @{username}
                     </Link>
                   ) : (
@@ -356,9 +334,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 LIVE
               </span>
             </div>
-            <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {text}
-            </div>
+            <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">{text}</div>
             <div className="mt-2 flex items-center justify-center gap-2 bg-black/10 dark:bg-white/10 rounded-lg p-3">
               <svg className="w-8 h-8 text-[var(--color-rose)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="10" />
@@ -376,18 +352,13 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
-        {/* Avatar */}
         {profileUrl ? (
           <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             <div
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
               style={{ background: avatarUrl ? 'transparent' : avatarColor }}
             >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-              ) : (
-                initial
-              )}
+              {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
             </div>
           </Link>
         ) : (
@@ -395,20 +366,14 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
             className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
             style={{ background: avatarUrl ? 'transparent' : avatarColor }}
           >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-            ) : (
-              initial
-            )}
+            {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
           </div>
         )}
 
         <div className="flex-1 min-w-0">
-          {/* Post content wrapper – clickable to post detail */}
           <div className="block cursor-pointer" onClick={goToPost}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-                {/* Name */}
                 {profileUrl ? (
                   <Link
                     href={profileUrl}
@@ -420,7 +385,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {/* Username – only shown if available */}
                 {username && (
                   profileUrl ? (
                     <Link

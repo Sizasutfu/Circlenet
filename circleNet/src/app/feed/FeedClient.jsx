@@ -161,7 +161,13 @@ export default function FeedClient() {
     }
   };
 
-  const handleComment = (postId) => showToast('Comment feature coming soon!', 'success');
+   const handleComment = (postId) => {
+    if (!user) {
+      showToast('Please log in to comment.', 'error');
+      return;
+    }
+    router.push(`/post/${postId}`);
+  };
 
   const handleRepost = async (postId) => {
     if (!user) { showToast('Log in to repost.', 'error'); return; }

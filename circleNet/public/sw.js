@@ -1,10 +1,11 @@
-// public/sw.js
-const CACHE_NAME = 'circlenet-v1';
+const CACHE_NAME = 'circlenet-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/icon.png',
   '/icon-maskable.png',
+  '/favicon.ico',
+  '/offline.html', // optional
 ];
 
 // ── Install: cache static assets ──
@@ -12,7 +13,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        // Use allSettled so a single failing asset doesn't break the whole install
+        // Pre-cache static assets (including /)
         return Promise.allSettled(
           STATIC_ASSETS.map((url) =>
             cache.add(url).catch((err) => {
@@ -45,17 +46,25 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
-  // For navigation (HTML) – try network first, fallback to cache
+  // For navigation (HTML) – try network first, fallback to cache, then offline page
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
+          // Cache the fresh response
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           return response;
         })
-        .catch(() => {
-          return caches.match(request).then((cached) => cached || caches.match('/'));
+        .catch(async () => {
+          // Try cache
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          // Fallback to offline page
+          const offline = await caches.match('/offline.html');
+          if (offline) return offline;
+          // Ultimate fallback: return a simple offline message
+          return new Response('Offline', { status: 503 });
         })
     );
     return;
@@ -68,8 +77,11 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         return fetch(request)
           .then((response) => {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            // Cache successful responses
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            }
             return response;
           })
           .catch(() => new Response('Offline', { status: 503 }));

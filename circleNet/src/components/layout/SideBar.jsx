@@ -276,7 +276,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen w-[260px] flex-col bg-[var(--color-card)] border-r border-[var(--color-border)] shadow-[var(--color-shadow)] transform transition-transform duration-300 ease-in-out ${
+        className={`fixed left-0 top-0 z-50 flex h-screen w-[280px] flex-col bg-[var(--color-card)] border-r border-[var(--color-border)] shadow-[var(--color-shadow)] transform transition-transform duration-300 ease-in-out ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >

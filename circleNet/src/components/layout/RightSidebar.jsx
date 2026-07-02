@@ -1,0 +1,338 @@
+// src/components/layout/RightSidebar.jsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { useExplore } from '@/contexts/ExploreContext';
+import { useAuth } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+
+function stringToColor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash % 360);
+  return `hsl(${hue}, 70%, 55%)`;
+}
+
+function resolveMediaUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+  return `${base}${url}`;
+}
+
+function fmtNum(n) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(n || 0);
+}
+
+export default function RightSidebar() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const {
+    topics,
+    topicsLoading,
+    people,
+    peopleLoading,
+    loadTopics,
+    loadPeople,
+    newMembers,
+    newMembersLoading,
+    loadNewMembers,
+  } = useExplore();
+
+  // ── Post detail detection ──
+  const isPostDetail = /^\/post\/\d+$/.test(pathname);
+  const postId = isPostDetail ? pathname.split('/')[2] : null;
+
+  const [author, setAuthor] = useState(null);
+  const [authorLoading, setAuthorLoading] = useState(false);
+
+  // ── Fetch author info if on post detail ──
+  useEffect(() => {
+    if (!isPostDetail || !postId) return;
+    setAuthorLoading(true);
+    const fetchAuthor = async () => {
+      try {
+        const res = await apiClient(`/api/posts/${postId}`);
+        const post = res.data || res;
+        const userInfo = post.user || { name: post.author, picture: post.authorPicture, id: post.authorId };
+        if (userInfo && userInfo.id) {
+          // Get full profile with stats
+          const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
+          const profile = profileRes.data || profileRes;
+          setAuthor({ ...userInfo, ...profile });
+        } else {
+          setAuthor(userInfo);
+        }
+      } catch (err) {
+        console.error('Failed to fetch author:', err);
+      } finally {
+        setAuthorLoading(false);
+      }
+    };
+    fetchAuthor();
+  }, [isPostDetail, postId]);
+
+  // ── Load topics & suggestions ──
+  useEffect(() => {
+    loadTopics();
+    if (user) {
+      loadPeople();
+      loadNewMembers();
+    }
+  }, [user]);
+
+  const handleFollow = async (userId) => {
+    try {
+      await apiClient(`/api/follow/${userId}`, { method: 'POST' });
+      // Refresh suggestions
+      loadPeople();
+      // Also update author's follower count locally if it's the author
+      if (author && author.id === userId) {
+        setAuthor(prev => ({ ...prev, isFollowing: true, followerCount: (prev.followerCount || 0) + 1 }));
+      }
+    } catch (_) {}
+  };
+
+  const handleUnfollow = async (userId) => {
+    try {
+      await apiClient(`/api/unfollow/${userId}`, { method: 'DELETE' });
+      loadPeople();
+      if (author && author.id === userId) {
+        setAuthor(prev => ({ ...prev, isFollowing: false, followerCount: Math.max(0, (prev.followerCount || 0) - 1) }));
+      }
+    } catch (_) {}
+  };
+
+  return (
+    <aside className="hidden lg:block flex-shrink-0 space-y-6 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-y-auto scrollbar-hide pb-6">
+      {/* ── Search ── */}
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="Search Circlenet"
+          className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full py-2.5 pl-10 pr-4 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition"
+          onFocus={(e) => e.target.select()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const query = e.target.value.trim();
+              if (query) router.push(`/search?q=${encodeURIComponent(query)}`);
+            }
+          }}
+        />
+        <svg
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-txt3)]"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4.35-4.35" />
+        </svg>
+      </div>
+
+      {/* ── Trending Topics ── */}
+      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+        <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">🔥 Trending Topics</h3>
+        {topicsLoading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-4 bg-[var(--color-surface)] rounded animate-pulse mb-2" />
+          ))
+        ) : topics.length === 0 ? (
+          <p className="text-xs text-[var(--color-txt3)]">No trending topics</p>
+        ) : (
+          <ul className="space-y-2">
+            {topics.slice(0, 5).map((topic) => (
+              <li key={topic.topic}>
+                <Link
+                  href={`/topic/${encodeURIComponent(topic.topic)}`}
+                  className="block text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
+                >
+                  #{topic.topic}
+                  <span className="text-xs text-[var(--color-txt3)] ml-1">
+                    {topic.post_count} posts
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Link
+          href="/explore"
+          className="block text-xs text-[var(--color-accent)] hover:underline mt-2"
+        >
+          See more →
+        </Link>
+      </div>
+
+      {/* ── Author Profile (on post detail) ── */}
+      {isPostDetail && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">📝 Author</h3>
+          {authorLoading ? (
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-[var(--color-surface)] animate-pulse" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-1/2 bg-[var(--color-surface)] animate-pulse rounded" />
+                <div className="h-3 w-3/4 bg-[var(--color-surface)] animate-pulse rounded" />
+              </div>
+            </div>
+          ) : author ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Link href={`/profile/${author.username}`} className="flex-shrink-0">
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg overflow-hidden"
+                    style={{
+                      background: author.picture ? 'transparent' : stringToColor(author.name || ''),
+                    }}
+                  >
+                    {author.picture ? (
+                      <img src={resolveMediaUrl(author.picture)} alt={author.name} className="w-full h-full object-cover" />
+                    ) : (
+                      (author.name?.charAt(0)?.toUpperCase() || '?')
+                    )}
+                  </div>
+                </Link>
+                <div className="flex-1 min-w-0">
+                  <Link href={`/profile/${author.username}`} className="font-head font-bold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition text-sm">
+                    {author.name}
+                  </Link>
+                  <p className="text-xs text-[var(--color-txt2)] truncate">@{author.username}</p>
+                  {author.bio && <p className="text-xs text-[var(--color-txt3)] mt-1 line-clamp-2">{author.bio}</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-[var(--color-txt3)]">
+                <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(author.postCount || 0)}</span> posts</span>
+                <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(author.followerCount || 0)}</span> followers</span>
+                <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(author.followingCount || 0)}</span> following</span>
+              </div>
+              {user && user.id !== author.id && (
+                <button
+                  onClick={() => {
+                    if (author.isFollowing) {
+                      handleUnfollow(author.id);
+                    } else {
+                      handleFollow(author.id);
+                    }
+                  }}
+                  className={`w-full py-1.5 rounded-full text-sm font-medium transition ${
+                    author.isFollowing
+                      ? 'border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)]'
+                      : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)]'
+                  }`}
+                >
+                  {author.isFollowing ? 'Following' : 'Follow'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-[var(--color-txt3)]">Could not load author.</p>
+          )}
+        </div>
+      )}
+
+      {/* ── People to Follow (only if not on post detail) ── */}
+      {!isPostDetail && user && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">👥 Who to Follow</h3>
+          {peopleLoading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-full bg-[var(--color-surface)] animate-pulse" />
+                <div className="flex-1 h-3 bg-[var(--color-surface)] animate-pulse rounded" />
+              </div>
+            ))
+          ) : people.length === 0 ? (
+            <p className="text-xs text-[var(--color-txt3)]">No suggestions</p>
+          ) : (
+            <ul className="space-y-3">
+              {people.slice(0, 4).map((p) => {
+                const avatarUrl = resolveMediaUrl(p.picture);
+                const initial = (p.name || '?').charAt(0).toUpperCase();
+                const color = stringToColor(p.name || '');
+                return (
+                  <li key={p.id} className="flex items-center gap-2">
+                    <Link
+                      href={`/profile/${p.username}`}
+                      className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+                      style={{ background: avatarUrl ? 'transparent' : color }}
+                    >
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
+                      ) : (
+                        initial
+                      )}
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link
+                        href={`/profile/${p.username}`}
+                        className="text-sm font-semibold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
+                      >
+                        {p.name}
+                      </Link>
+                      <p className="text-xs text-[var(--color-txt3)] truncate">@{p.username}</p>
+                    </div>
+                    <button
+                      onClick={() => handleFollow(p.id)}
+                      className="px-3 py-1 text-xs font-medium bg-[var(--color-accent)] text-white rounded-full hover:bg-[var(--color-accent-h)] transition"
+                    >
+                      Follow
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Link
+            href="/explore"
+            className="block text-xs text-[var(--color-accent)] hover:underline mt-2"
+          >
+            Explore more →
+          </Link>
+        </div>
+      )}
+
+      {/* ── New Members ── */}
+      {user && newMembers.length > 0 && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">✨ New Members</h3>
+          <ul className="space-y-2">
+            {newMembers.slice(0, 4).map((u) => {
+              const avatarUrl = resolveMediaUrl(u.picture);
+              const initial = (u.name || '?').charAt(0).toUpperCase();
+              const color = stringToColor(u.name || '');
+              return (
+                <li key={u.id}>
+                  <Link
+                    href={`/profile/${u.username}`}
+                    className="flex items-center gap-2 text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition"
+                  >
+                    <div
+                      className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+                      style={{ background: avatarUrl ? 'transparent' : color }}
+                    >
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
+                      ) : (
+                        initial
+                      )}
+                    </div>
+                    <span className="truncate">{u.name}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </aside>
+  );
+}

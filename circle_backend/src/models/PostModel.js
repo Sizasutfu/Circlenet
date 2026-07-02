@@ -44,6 +44,22 @@ function nestComments(flatComments) {
   return roots;
 }
 
+async function getCommentCount(postId) {
+  const [[{ total }]] = await db.query(
+    'SELECT COUNT(*) AS total FROM comments WHERE post_id = ?',
+    [postId]
+  );
+  return total;
+}
+
+async function getRepostCount(postId) {
+  const [[{ total }]] = await db.query(
+    'SELECT COUNT(*) AS total FROM reposts WHERE original_post_id = ?',
+    [postId]
+  );
+  return total;
+}
+
 // ── Hydrate raw post rows with engagement data ─────────────
 async function hydratePosts(posts) {
   if (!posts.length) return posts;
@@ -702,4 +718,6 @@ module.exports = {
   getGroupPosts,
   recordView,
   getViewCount,
+  getCommentCount,
+  getRepostCount,
 };

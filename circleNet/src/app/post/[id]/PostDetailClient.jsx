@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { useWs } from '@/contexts/WsContext'; // ✅ ADD
+import { useWs } from '@/contexts/WsContext';
 import PostCard from '@/components/ui/PostCard';
 import Link from 'next/link';
 
@@ -32,7 +32,16 @@ function fmtNum(n) {
   return String(n || 0);
 }
 
-// ── Toast ──
+// ── Deduplicate comments by id ──
+function dedupeComments(comments) {
+  const seen = new Set();
+  return comments.filter((c) => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+}
+
 function Toast({ message, type, onClose }) {
   useEffect(() => {
     const timer = setTimeout(onClose, 4000);
@@ -46,7 +55,6 @@ function Toast({ message, type, onClose }) {
   );
 }
 
-// ── Helper to get comment user info ──
 function getCommentUser(comment) {
   if (comment.user) {
     return {
@@ -72,7 +80,7 @@ function getCommentUser(comment) {
 export default function PostDetailClient({ postId }) {
   const { user } = useAuth();
   const router = useRouter();
-  const { registerHandler } = useWs(); // ✅ Get WS handler
+  const { registerHandler } = useWs();
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -98,21 +106,18 @@ export default function PostDetailClient({ postId }) {
         const response = await apiClient(`/api/posts/${postId}`);
         const data = response.data || response;
         setPost(data);
-        setComments(data.comments || []);
+        setComments(dedupeComments(data.comments || []));
 
-        // Extract creator info
         const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
         if (userInfo && userInfo.id) {
           setCreator(userInfo);
           try {
             const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
             const profile = profileRes.data || profileRes;
-            setCreator(prev => ({ ...prev, ...profile }));
+            setCreator((prev) => ({ ...prev, ...profile }));
             setIsFollowing(profile.isFollowing || false);
             setFollowerCount(profile.followerCount || 0);
-          } catch (_) {
-            // fallback – use what we have
-          }
+          } catch (_) {}
         }
         setCreatorLoading(false);
       } catch (err) {
@@ -127,27 +132,45 @@ export default function PostDetailClient({ postId }) {
 
   // ── WebSocket: listen for new comments ──
   useEffect(() => {
-    const unregister = registerHandler('new_comment', (msg) => {
-      // Only update if this comment belongs to the current post
+    const unregisterNewComment = registerHandler('new_comment', (msg) => {
       if (msg.postId === parseInt(postId)) {
         setComments((prev) => {
-          // Prevent duplicates (in case optimistic update already added it)
-          if (prev.some(c => c.id === msg.comment.id)) return prev;
-          // Prepend new comment (latest first)
-          return [msg.comment, ...prev];
+          // Prevent duplicates
+          if (prev.some((c) => c.id === msg.comment.id)) return dedupeComments(prev);
+          return dedupeComments([msg.comment, ...prev]);
         });
       }
     });
-
-    return () => unregister();
+    return () => unregisterNewComment();
   }, [postId, registerHandler]);
 
-  // ── Show toast ──
+  // ── WebSocket: listen for post_counts updates ──
+  useEffect(() => {
+    const unregisterCounts = registerHandler('post_counts', (msg) => {
+      if (msg.postId === parseInt(postId)) {
+        setPost((prev) => {
+          if (!prev) return prev;
+          const isLiked = prev.likes && user && prev.likes.some((id) => id === user.id);
+          const newLikes = [];
+          if (isLiked) newLikes.push(user.id);
+          const dummyCount = msg.likes - newLikes.length;
+          for (let i = 0; i < dummyCount; i++) newLikes.push(-1);
+          return {
+            ...prev,
+            likes: newLikes,
+            commentCount: msg.comments,
+            repostCount: msg.reposts,
+          };
+        });
+      }
+    });
+    return () => unregisterCounts();
+  }, [postId, registerHandler, user]);
+
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
   };
 
-  // ── Follow/Unfollow ──
   const handleFollowToggle = async () => {
     if (!user) {
       showToast('Log in to follow.', 'error');
@@ -160,17 +183,19 @@ export default function PostDetailClient({ postId }) {
     try {
       await apiClient(endpoint, { method });
       setIsFollowing(!following);
-      setFollowerCount(prev => following ? prev - 1 : prev + 1);
+      setFollowerCount((prev) => (following ? prev - 1 : prev + 1));
       showToast(following ? 'Unfollowed.' : 'Following! 🎉');
     } catch (err) {
       showToast('Action failed.', 'error');
     }
   };
 
-  // ── Like post ──
   const handleLike = async (id) => {
-    if (!user) { showToast('Log in to like.', 'error'); return; }
-    const isLiked = post?.likes?.includes(user.id) || false;
+    if (!user) {
+      showToast('Log in to like.', 'error');
+      return;
+    }
+    const isLiked = post?.likes?.some((uid) => uid === user.id) || false;
     const newLikes = isLiked
       ? post.likes.filter((uid) => uid !== user.id)
       : [...(post.likes || []), user.id];
@@ -178,14 +203,19 @@ export default function PostDetailClient({ postId }) {
     try {
       await apiClient(`/api/posts/${id}/like`, { method: 'POST' });
     } catch (err) {
-      setPost({ ...post, likes: isLiked ? [...post.likes, user.id] : post.likes.filter((uid) => uid !== user.id) });
+      setPost({
+        ...post,
+        likes: isLiked ? [...post.likes, user.id] : post.likes.filter((uid) => uid !== user.id),
+      });
       showToast('Failed to like post', 'error');
     }
   };
 
-  // ── Repost ──
   const handleRepost = async (id) => {
-    if (!user) { showToast('Log in to repost.', 'error'); return; }
+    if (!user) {
+      showToast('Log in to repost.', 'error');
+      return;
+    }
     try {
       await apiClient(`/api/posts/${id}/repost`, { method: 'POST' });
       showToast('Reposted! 🔁', 'success');
@@ -194,7 +224,6 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
-  // ── Share ──
   const handleShare = () => {
     const url = window.location.href;
     if (navigator.share) {
@@ -206,7 +235,6 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
-  // ── Comment ──
   const handleComment = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -222,8 +250,7 @@ export default function PostDetailClient({ postId }) {
         body: { text },
       });
       const newComment = res.data || res;
-      // Optimistically add comment (will be deduplicated by WS listener if broadcast arrives)
-      setComments((prev) => [newComment, ...prev]);
+      setComments((prev) => dedupeComments([newComment, ...prev]));
       setCommentText('');
       showToast('Comment added!', 'success');
     } catch (err) {
@@ -233,7 +260,6 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
-  // ── Render states ──
   if (loading) {
     return (
       <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
@@ -257,7 +283,6 @@ export default function PostDetailClient({ postId }) {
     );
   }
 
-  // ── Creator profile ──
   const creatorName = creator?.name || post.author || 'Anonymous';
   const creatorUsername = creator?.username || post.authorUsername || post.username || '';
   const creatorAvatar = creator?.picture || post.authorPicture || null;
@@ -270,7 +295,6 @@ export default function PostDetailClient({ postId }) {
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Back button */}
       <button
         onClick={() => router.back()}
         className="flex items-center gap-1 text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition mb-4"
@@ -281,7 +305,6 @@ export default function PostDetailClient({ postId }) {
         Back
       </button>
 
-      {/* ── Creator Profile Section ── */}
       {creator && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6 flex items-start gap-4">
           <Link href={`/profile/${creatorUsername}`} className="flex-shrink-0">
@@ -298,7 +321,10 @@ export default function PostDetailClient({ postId }) {
           </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <Link href={`/profile/${creatorUsername}`} className="font-head font-bold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition">
+              <Link
+                href={`/profile/${creatorUsername}`}
+                className="font-head font-bold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition"
+              >
                 {creatorName}
               </Link>
               <span className="text-xs text-[var(--color-txt2)]">@{creatorUsername}</span>
@@ -307,9 +333,15 @@ export default function PostDetailClient({ postId }) {
               <p className="text-sm text-[var(--color-txt2)] mt-1 line-clamp-2">{creatorBio}</p>
             )}
             <div className="flex items-center gap-4 mt-2 text-xs text-[var(--color-txt3)]">
-              <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(post.user?.postCount || 0)}</span> posts</span>
-              <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(followerCount)}</span> followers</span>
-              <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(creator.followingCount || 0)}</span> following</span>
+              <span>
+                <span className="font-bold text-[var(--color-txt)]">{fmtNum(post.user?.postCount || 0)}</span> posts
+              </span>
+              <span>
+                <span className="font-bold text-[var(--color-txt)]">{fmtNum(followerCount)}</span> followers
+              </span>
+              <span>
+                <span className="font-bold text-[var(--color-txt)]">{fmtNum(creator.followingCount || 0)}</span> following
+              </span>
             </div>
           </div>
           {user && user.id !== creator.id && (
@@ -327,7 +359,6 @@ export default function PostDetailClient({ postId }) {
         </div>
       )}
 
-      {/* ── Main post ── */}
       <div className="mb-6">
         {post && (
           <PostCard
@@ -340,7 +371,6 @@ export default function PostDetailClient({ postId }) {
         )}
       </div>
 
-      {/* ── Comment form ── */}
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6">
         <form onSubmit={handleComment} className="flex gap-3">
           <div
@@ -350,7 +380,11 @@ export default function PostDetailClient({ postId }) {
             }}
           >
             {user?.picture ? (
-              <img src={resolveMediaUrl(user.picture)} alt={user?.name} className="w-full h-full rounded-full object-cover" />
+              <img
+                src={resolveMediaUrl(user.picture)}
+                alt={user?.name}
+                className="w-full h-full rounded-full object-cover"
+              />
             ) : (
               user?.name?.charAt(0)?.toUpperCase() || '?'
             )}
@@ -360,7 +394,7 @@ export default function PostDetailClient({ postId }) {
             type="text"
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
-            placeholder={user ? "Write a comment…" : "Log in to comment"}
+            placeholder={user ? 'Write a comment…' : 'Log in to comment'}
             className="flex-1 bg-[var(--color-surface)] rounded-[var(--radius-radius-sm)] px-4 py-2 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:outline-none"
             disabled={!user || submitting}
           />
@@ -374,12 +408,14 @@ export default function PostDetailClient({ postId }) {
         </form>
         {!user && (
           <p className="text-xs text-[var(--color-txt3)] mt-2">
-            <Link href="/login" className="text-[var(--color-accent)] hover:underline">Log in</Link> to join the conversation.
+            <Link href="/login" className="text-[var(--color-accent)] hover:underline">
+              Log in
+            </Link>{' '}
+            to join the conversation.
           </p>
         )}
       </div>
 
-      {/* ── Comments list ── */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-[var(--color-txt2)]">Comments ({comments.length})</h3>
         {comments.length === 0 ? (
@@ -390,15 +426,21 @@ export default function PostDetailClient({ postId }) {
             const avatarUrlComment = resolveMediaUrl(picture);
             const initial = name.charAt(0).toUpperCase();
             const color = stringToColor(name);
-
             return (
-              <div key={comment.id} className="flex gap-3 border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
+              <div
+                key={comment.id}
+                className="flex gap-3 border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow"
+              >
                 <div
                   className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
                   style={{ background: avatarUrlComment ? 'transparent' : color }}
                 >
                   {avatarUrlComment ? (
-                    <img src={avatarUrlComment} alt={name} className="w-full h-full object-cover rounded-full" />
+                    <img
+                      src={avatarUrlComment}
+                      alt={name}
+                      className="w-full h-full object-cover rounded-full"
+                    />
                   ) : (
                     initial
                   )}
@@ -407,7 +449,9 @@ export default function PostDetailClient({ postId }) {
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>
                     <span className="text-xs text-[var(--color-txt3)]">@{username}</span>
-                    <span className="text-xs text-[var(--color-txt3)]">· {new Date(comment.createdAt).toLocaleString()}</span>
+                    <span className="text-xs text-[var(--color-txt3)]">
+                      · {new Date(comment.createdAt).toLocaleString()}
+                    </span>
                   </div>
                   <p className="text-sm text-[var(--color-txt)] mt-0.5">{comment.text}</p>
                 </div>

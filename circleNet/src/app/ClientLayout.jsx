@@ -14,7 +14,7 @@ import { LiveProvider } from '@/contexts/LiveContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { PushProvider } from '@/contexts/PushContext';
 import { LightboxProvider } from '@/hooks/useLightbox';
-import { FeedProvider } from '@/contexts/FeedContext'; // ✅ ADD
+import { FeedProvider } from '@/contexts/FeedContext';
 import Lightbox from '@/components/ui/Lightbox';
 import { useLightbox } from '@/hooks/useLightbox';
 import NotificationPanel from '@/components/notification/NotificationPanel';
@@ -26,6 +26,7 @@ import LiveSetupModal from '@/components/live/LiveSetupModal';
 import LiveOverlay from '@/components/live/LiveOverlay';
 import LiveFeedStrip from '@/components/live/LiveFeedStrip';
 import LiveToast from '@/components/live/LiveToast';
+import RightSidebar from '@/components/layout/RightSidebar';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
 
 function LightboxWrapper({ children }) {
@@ -72,7 +73,6 @@ export default function ClientLayout({ children }) {
 
   const isLanding = pathname === '/';
 
-  // ── Routes where footer should be hidden ──
   const hideFooterRoutes = [
     '/messages',
     '/live',
@@ -82,15 +82,9 @@ export default function ClientLayout({ children }) {
     '/reset-password',
     '/whisper/inbox',
   ];
-
-  // ── Routes where LiveFeedStrip should be hidden ──
-  const hideStripRoutes = [
-    ...hideFooterRoutes,
-    // Add more if needed
-  ];
-
-  // ── Routes where mobile nav and floating button should be hidden ──
-  const hideMobileNavRoutes = [
+  const hideStripRoutes = [...hideFooterRoutes];
+  const hideMobileNavRoutes = [...hideFooterRoutes];
+  const hideSidebarRoutes = [
     '/messages',
     '/live',
     '/compose',
@@ -98,13 +92,15 @@ export default function ClientLayout({ children }) {
     '/register',
     '/reset-password',
     '/whisper/inbox',
+    '/profile',
+    '/settings',
   ];
 
   const shouldHideFooter = hideFooterRoutes.includes(pathname);
   const shouldHideStrip = isLanding || hideStripRoutes.includes(pathname);
   const shouldHideMobileNav = isLanding || hideMobileNavRoutes.includes(pathname);
+  const shouldHideSidebar = isLanding || hideSidebarRoutes.includes(pathname);
 
-  // ── Register service worker ──
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
@@ -126,33 +122,37 @@ export default function ClientLayout({ children }) {
                     <LiveProvider>
                       <NotificationProvider>
                         <LightboxProvider>
-                          <FeedProvider> {/* ✅ WRAP WITH FEED PROVIDER */}
+                          <FeedProvider>
                             <LightboxWrapper>
                               <div className="flex min-h-screen">
                                 {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
                                 <div
                                   className={`flex-1 flex flex-col min-h-screen ${
-                                    !isLanding ? 'md:ml-[260px]' : ''
+                                    !isLanding ? 'md:ml-[280px]' : ''
                                   }`}
                                 >
                                   <Suspense fallback={<div className="h-14" />}>
-                                    <Header
-                                      onMenuClick={toggleSidebar}
-                                      hideMenu={isLanding}
-                                    />
+                                    <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
                                   </Suspense>
-                                  <main
-                                    className={`flex-1 px-2 sm:px-6 py-4 ${
-                                      isLanding
-                                        ? 'p-0'
-                                        : shouldHideFooter
-                                        ? 'pb-4'
-                                        : 'pb-20 md:pb-4'
-                                    }`}
-                                  >
-                                    {!shouldHideStrip && <LiveFeedStrip />}
-                                    {children}
-                                  </main>
+                                  <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center">
+                                    <main
+                                      className={`flex-1 max-w-2xl min-w-0 ${
+                                        isLanding
+                                          ? 'p-0'
+                                          : shouldHideFooter
+                                          ? 'pb-4'
+                                          : 'pb-20 md:pb-4'
+                                      }`}
+                                    >
+                                      {!shouldHideStrip && <LiveFeedStrip />}
+                                      {children}
+                                    </main>
+                                    {!isLanding && !shouldHideSidebar && (
+                                      <div className="hidden lg:block w-[320px] flex-shrink-0">
+                                        <RightSidebar />
+                                      </div>
+                                    )}
+                                  </div>
                                   {!isLanding && !shouldHideFooter && <Footer />}
                                 </div>
                               </div>

@@ -13,7 +13,6 @@ import CommentButton from './CommentButton';
 import RepostButton from './RepostButton';
 import ShareButton from './ShareButton';
 
-// ── Helpers ──
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -38,7 +37,6 @@ function formatNumber(num) {
   return String(num);
 }
 
-// ── Time ago helper ──
 function timeAgo(dateString) {
   const now = Date.now();
   const then = new Date(dateString).getTime();
@@ -80,14 +78,15 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     viewCount = 0,
     isLive = false,
     liveSessionId = null,
+    // New fields for counts
+    commentCount,
+    repostCount,
   } = post;
 
-  // ── Extract user info ──
   const displayName = post.user?.name || post.author || 'Anonymous';
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
-  // ✅ Fix: initialize liked state based on likes array
   const initialLiked = currentUser && likes.length > 0
     ? likes.some(id => id === currentUser.id)
     : false;
@@ -278,12 +277,10 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
 
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
-  // ── Build profile URL ──
   const userId = post.user?.id || post.authorId || post.userId;
   const usernameForProfile = post.user?.username || post.authorUsername || post.username;
   const profileUrl = usernameForProfile ? `/profile/${usernameForProfile}` : (userId ? `/profile?userId=${userId}` : null);
 
-  // ── If this is a live post, render the special live card ──
   if (isLive && liveSessionId) {
     return (
       <div
@@ -348,7 +345,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     );
   }
 
-  // ── Regular post rendering ──
+  // ── Regular post ──
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
@@ -401,7 +398,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
               </div>
 
-              {/* ── Three-dot menu ── */}
               <div className="relative flex-shrink-0" ref={dropdownRef}>
                 <button
                   onClick={(e) => {
@@ -479,7 +475,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </div>
             </div>
 
-            {/* ── Text ── */}
             <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
               {shouldTruncate ? text.slice(0, 200) + '…' : text}
               {text?.length > 200 && (
@@ -492,11 +487,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               )}
             </div>
 
-            {/* ── Media ── */}
             {renderMedia()}
           </div>
 
-          {/* ── Engagement bar ── */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <LikeButton
               count={likeCount}
@@ -504,11 +497,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               onToggle={handleLike}
             />
             <CommentButton
-              count={comments.length}
+              count={commentCount ?? comments.length}
               onClick={() => onComment && onComment(id)}
             />
             <RepostButton
-              count={reposts.length}
+              count={repostCount ?? reposts.length}
               onClick={() => onRepost && onRepost(id)}
             />
             <ShareButton

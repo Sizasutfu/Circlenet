@@ -3,10 +3,10 @@
 
 import { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { apiClient } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 const FeedContext = createContext();
 
-// ── Helper to deduplicate posts by id ──
 function dedupePosts(posts) {
   const seen = new Set();
   return posts.filter((p) => {
@@ -17,6 +17,7 @@ function dedupePosts(posts) {
 }
 
 export function FeedProvider({ children }) {
+  const { user: currentUser } = useAuth();
   const [posts, setPosts] = useState([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -24,7 +25,6 @@ export function FeedProvider({ children }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState('global');
   const [error, setError] = useState(null);
-  const feedKeyRef = useRef(null);
 
   const fetchPosts = useCallback(async (tab, pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
@@ -49,17 +49,15 @@ export function FeedProvider({ children }) {
       const postsWithUser = postsData.map((p) => ({
         ...p,
         user: p.user || { name: p.author || 'Unknown', username: p.authorUsername || '', picture: p.authorPicture || null },
+        commentCount: p.commentCount ?? (p.comments ? p.comments.length : 0),
+        repostCount: p.repostCount ?? (p.reposts ? p.reposts.length : 0),
       }));
-
-      // ✅ Deduplicate before storing
       setPosts((prev) => {
         const combined = append ? [...prev, ...postsWithUser] : postsWithUser;
         return dedupePosts(combined);
       });
-
       setHasMore(hasMoreData);
       setPage(pageNum);
-      feedKeyRef.current = `${tab}-${pageNum}`;
     } catch (err) {
       console.error('Failed to fetch posts:', err);
       setError('Could not load posts. Please try again.');
@@ -78,6 +76,43 @@ export function FeedProvider({ children }) {
     fetchPosts(activeTab, page + 1, true);
   }, [activeTab, hasMore, loadingMore, page, fetchPosts]);
 
+  const updatePostCounts = useCallback((postId, { likes, comments, reposts }) => {
+    setPosts((prev) => {
+      const updated = prev.map((p) => {
+        if (p.id !== postId) return p;
+        const isLiked = p.likes && currentUser && p.likes.some(id => id === currentUser.id);
+        const newLikes = [];
+        if (isLiked) newLikes.push(currentUser.id);
+        const dummyCount = likes - newLikes.length;
+        for (let i = 0; i < dummyCount; i++) newLikes.push(-1);
+        return {
+          ...p,
+          likes: newLikes,
+          commentCount: comments,
+          repostCount: reposts,
+        };
+      });
+      return updated;
+    });
+  }, [currentUser]);
+
+  const toggleLike = useCallback((postId) => {
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id !== postId) return p;
+        const isLiked = p.likes && currentUser && p.likes.some((id) => id === currentUser.id);
+        const newLikes = isLiked
+          ? p.likes.filter((id) => id !== currentUser.id)
+          : [...(p.likes || []), currentUser.id];
+        return { ...p, likes: newLikes };
+      })
+    );
+  }, [currentUser]);
+
+  const addPost = useCallback((newPost) => {
+    setPosts((prev) => dedupePosts([newPost, ...prev]));
+  }, []);
+
   const resetFeed = useCallback((tab) => {
     if (tab !== undefined) setActiveTab(tab);
   }, []);
@@ -94,8 +129,9 @@ export function FeedProvider({ children }) {
     fetchPosts,
     loadMore,
     resetFeed,
-    // Expose dedupe helper if needed externally
-    dedupePosts,
+    updatePostCounts,
+    addPost,
+    toggleLike,
   };
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;

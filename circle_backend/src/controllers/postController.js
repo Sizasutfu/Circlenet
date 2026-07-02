@@ -399,7 +399,20 @@ async function repost(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
-
+async function broadcastPostCounts(postId) {
+  const [likes, comments, reposts] = await Promise.all([
+    PostModel.getLikeCount(postId),
+    PostModel.getCommentCount(postId),
+    PostModel.getRepostCount(postId),
+  ]);
+  broadcastToAll({
+    type: 'post_counts',
+    postId,
+    likes,
+    comments,
+    reposts,
+  });
+}
 // POST /api/posts/:id/view
 // Body: { fingerprint?: string, dwellMs?: number }
 // Auth is optional — logged-in users identified by actorId,

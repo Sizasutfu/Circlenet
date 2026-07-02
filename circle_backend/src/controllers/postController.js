@@ -45,6 +45,25 @@ function resolveFileUrl(compressed, req) {
   return { path: relativePath, url: `${baseUrl}${relativePath}` };
 }
 
+/**
+ * Extract YouTube video ID from text.
+ * Supports: youtube.com/watch?v=, youtu.be/, youtube.com/embed/, youtube.com/v/
+ */
+function extractYouTubeId(text) {
+  if (!text) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})(?:[&?]|$)/,
+    /youtube\.com\/embed\/([\w-]{11})/,
+    /youtube\.com\/v\/([\w-]{11})/,
+    /youtube\.com\/shorts\/([\w-]{11})/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
 // GET /api/posts?userId=<id>&feed=global|following&page=<n>&limit=<n>&media=video
 async function getPosts(req, res) {
   const profileUserId = req.query.userId ? parseInt(req.query.userId) : null;
@@ -90,7 +109,8 @@ async function getPostById(req, res) {
          p.original_post_id AS originalPostId,
          p.created_at       AS createdAt,
          p.is_live,
-         p.live_session_id
+         p.live_session_id,
+         p.youtube_id       AS youtubeId  -- ✅ added
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id = ?`,
@@ -141,6 +161,9 @@ async function createPost(req, res) {
   const isLive = req.body.isLive === true || req.body.isLive === 'true';
   const liveSessionId = req.body.liveSessionId || null;
 
+  // ── YouTube ID extraction ─────────────────────────────────
+  const youtubeId = extractYouTubeId(text);
+
   try {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
@@ -152,7 +175,8 @@ async function createPost(req, res) {
       videoPath,
       groupId,
       isLive,
-      liveSessionId
+      liveSessionId,
+      youtubeId  // ✅ pass youtubeId
     );
 
     // ── Extract and save hashtags ──────────────────────────────
@@ -191,6 +215,9 @@ async function createPost(req, res) {
       })
     );
 
+    // ── Broadcast post counts (initial) ──────────────────────
+    await broadcastPostCounts(postId);
+
     return sendOk(res, 201, 'Posted.', {
       id:            postId,
       userId,
@@ -204,6 +231,7 @@ async function createPost(req, res) {
       groupTopic:    groupId ? group.topic       : null,
       isLive,
       liveSessionId,
+      youtubeId,     // ✅ include in response
       likes: [],
       reposts: [],
       comments: [],
@@ -244,6 +272,7 @@ async function toggleLike(req, res) {
     if (existing) {
       await PostModel.removeLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
+      await broadcastPostCounts(postId);
       return sendOk(res, 200, 'Unliked.', { likes: total, liked: false });
     } else {
       await PostModel.addLike(userId, postId);
@@ -267,6 +296,7 @@ async function toggleLike(req, res) {
         });
       }
 
+      await broadcastPostCounts(postId);
       return sendOk(res, 200, 'Liked.', { likes: total, liked: true });
     }
   } catch (err) {
@@ -327,12 +357,14 @@ async function addComment(req, res) {
     await TopicPreferenceModel.recordEngagement(userId, topics, 'comment');
 
     // ── Broadcast new comment to ALL connected clients ──
-    // The client will filter by postId to decide whether to append it.
     broadcastToAll({
       type:    'new_comment',
       postId:  post.id,
       comment: commentData,
     });
+
+    // ── Broadcast updated comment count ──
+    await broadcastPostCounts(postId);
 
     return sendOk(res, 201, 'Comment added.', commentData);
   } catch (err) {
@@ -340,6 +372,7 @@ async function addComment(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
+
 // POST /api/posts/:id/repost
 async function repost(req, res) {
   const origId  = parseInt(req.params.id);
@@ -378,6 +411,9 @@ async function repost(req, res) {
     const topics = await TopicPreferenceModel.getPostTopics(origId);
     await TopicPreferenceModel.recordEngagement(userId, topics, 'repost');
 
+    // ── Broadcast updated repost count ──
+    await broadcastPostCounts(origId);
+
     return sendOk(res, 201, 'Reposted.', {
       id:             repostId,
       userId,
@@ -399,6 +435,8 @@ async function repost(req, res) {
     return sendError(res, 500, 'Server error.');
   }
 }
+
+// ── Helper to broadcast counts ──
 async function broadcastPostCounts(postId) {
   const [likes, comments, reposts] = await Promise.all([
     PostModel.getLikeCount(postId),
@@ -413,6 +451,7 @@ async function broadcastPostCounts(postId) {
     reposts,
   });
 }
+
 // POST /api/posts/:id/view
 // Body: { fingerprint?: string, dwellMs?: number }
 // Auth is optional — logged-in users identified by actorId,
@@ -511,13 +550,13 @@ async function getGroupPosts(req, res) {
 }
 
 // PUT /api/posts/:id
-// Updated to accept isLive and liveSessionId as optional fields
+// Updated to accept isLive, liveSessionId, and youtubeId as optional fields
 async function updatePost(req, res) {
   const postId = Number(req.params.id);
-  const { text, isLive, liveSessionId } = req.body;
+  const { text, isLive, liveSessionId, youtubeId } = req.body;
 
   // Validate that at least one field is provided
-  if (text === undefined && isLive === undefined && liveSessionId === undefined) {
+  if (text === undefined && isLive === undefined && liveSessionId === undefined && youtubeId === undefined) {
     return sendError(res, 400, 'No fields to update.');
   }
 
@@ -532,11 +571,16 @@ async function updatePost(req, res) {
     let updatedText = post.text;
     let updatedIsLive = post.is_live;
     let updatedLiveSessionId = post.live_session_id;
+    let updatedYoutubeId = post.youtube_id;
 
     if (text !== undefined) {
       if (!text.trim()) return sendError(res, 400, 'Post text cannot be empty.');
       if (text.trim().length > 500) return sendError(res, 400, 'Post text exceeds 500 characters.');
       updatedText = text.trim();
+      // Re-extract youtubeId from new text if not explicitly provided
+      if (youtubeId === undefined) {
+        updatedYoutubeId = extractYouTubeId(updatedText);
+      }
     }
 
     if (isLive !== undefined) {
@@ -547,7 +591,11 @@ async function updatePost(req, res) {
       updatedLiveSessionId = liveSessionId || null;
     }
 
-    await PostModel.updatePost(postId, updatedText, updatedIsLive, updatedLiveSessionId);
+    if (youtubeId !== undefined) {
+      updatedYoutubeId = youtubeId;
+    }
+
+    await PostModel.updatePost(postId, updatedText, updatedIsLive, updatedLiveSessionId, updatedYoutubeId);
     return sendOk(res, 200, 'Post updated.');
   } catch (e) {
     console.error('Edit post error:', e);

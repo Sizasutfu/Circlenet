@@ -8,7 +8,8 @@ import { useLightbox } from '@/hooks/useLightbox';
 import { useAuth } from '@/lib/auth';
 import { generatePostCard } from '@/lib/postCardGenerator';
 import { useLive } from '@/contexts/LiveContext';
-import { formatPostText } from '@/lib/formatText'; // ✅
+import { formatPostText } from '@/lib/formatText';
+import { apiClient } from '@/lib/api';
 import LikeButton from './LikeButton';
 import CommentButton from './CommentButton';
 import RepostButton from './RepostButton';
@@ -59,6 +60,13 @@ function timeAgo(dateString) {
   else return `${years}y ago`;
 }
 
+// ── Extract first URL from text ──
+function extractFirstUrl(text) {
+  if (!text) return null;
+  const match = text.match(/(https?:\/\/[^\s]+)/);
+  return match ? match[0] : null;
+}
+
 export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
   if (!post) return null;
 
@@ -81,6 +89,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     liveSessionId = null,
     commentCount,
     repostCount,
+    youtubeId, // ✅ from backend
   } = post;
 
   const displayName = post.user?.name || post.author || 'Anonymous';
@@ -99,12 +108,45 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // ── Link preview state ──
+  const [previewData, setPreviewData] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+
   const { openLightbox } = useLightbox();
   const videoRef = useRef(null);
 
   const initial = displayName.charAt(0).toUpperCase();
   const avatarColor = stringToColor(displayName);
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
+
+  // ── Fetch link preview when post loads (only if no media and no youtubeId) ──
+  useEffect(() => {
+    // Don't fetch if there's already image, video, or youtubeId
+    if (image || video || youtubeId) return;
+    if (!text) return;
+    const url = extractFirstUrl(text);
+    if (!url) return;
+
+    setPreviewLoading(true);
+    setPreviewError(false);
+
+    apiClient(`/api/link-preview?url=${encodeURIComponent(url)}`)
+      .then((res) => {
+        const data = res.data || res;
+        if (data && (data.title || data.description || data.image)) {
+          setPreviewData(data);
+        } else {
+          setPreviewError(true);
+        }
+      })
+      .catch(() => {
+        setPreviewError(true);
+      })
+      .finally(() => {
+        setPreviewLoading(false);
+      });
+  }, [id, text, image, video, youtubeId]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -229,7 +271,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     router.push(`/post/${id}`);
   };
 
+  // ── Render media (image/video/youtube) ──
   const renderMedia = () => {
+    // 1. Uploaded video file takes highest priority
     if (postVideoUrl) {
       return (
         <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5">
@@ -259,6 +303,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
       );
     }
 
+    // 2. Uploaded image
     if (postImageUrl) {
       return (
         <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)]">
@@ -272,7 +317,74 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
       );
     }
 
+    // 3. YouTube embed (if youtubeId exists)
+    if (youtubeId) {
+      return (
+        <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative" style={{ paddingBottom: '56.25%', height: 0 }}>
+          <iframe
+            src={`https://www.youtube.com/embed/${youtubeId}`}
+            className="absolute inset-0 w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            loading="lazy"
+            title="YouTube video"
+          />
+        </div>
+      );
+    }
+
+    // 4. No media
     return null;
+  };
+
+  // ── Render link preview (only if no media and no youtubeId) ──
+  const renderLinkPreview = () => {
+    if (postImageUrl || postVideoUrl || youtubeId) return null;
+    if (previewLoading) {
+      return (
+        <div className="mt-3 p-3 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface)] animate-pulse">
+          <div className="h-4 w-3/4 bg-[var(--color-border)] rounded" />
+          <div className="h-3 w-1/2 bg-[var(--color-border)] rounded mt-2" />
+        </div>
+      );
+    }
+    if (previewError || !previewData || !previewData.title) return null;
+    const { title, description, image: previewImage, siteName } = previewData;
+    const imgUrl = resolveMediaUrl(previewImage);
+    const url = extractFirstUrl(text);
+
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 block border border-[var(--color-border)] rounded-lg overflow-hidden hover:shadow-[var(--color-shadow)] transition-shadow cursor-pointer group"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col sm:flex-row">
+          {imgUrl && (
+            <div className="sm:w-36 h-24 sm:h-auto flex-shrink-0 bg-[var(--color-surface)]">
+              <img src={imgUrl} alt={title} className="w-full h-full object-cover" loading="lazy" />
+            </div>
+          )}
+          <div className="flex-1 p-3 min-w-0">
+            <div className="text-sm font-semibold text-[var(--color-txt)] group-hover:text-[var(--color-accent)] transition line-clamp-2">
+              {title}
+            </div>
+            {description && (
+              <div className="text-xs text-[var(--color-txt2)] mt-1 line-clamp-2">
+                {description}
+              </div>
+            )}
+            {siteName && (
+              <div className="text-xs text-[var(--color-txt3)] mt-2">
+                {siteName}
+              </div>
+            )}
+          </div>
+        </div>
+      </a>
+    );
   };
 
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
@@ -494,7 +606,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               )}
             </div>
 
+            {/* ── Media (image/video/youtube) ── */}
             {renderMedia()}
+
+            {/* ── Link Preview (if no media and no youtubeId) ── */}
+            {renderLinkPreview()}
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">

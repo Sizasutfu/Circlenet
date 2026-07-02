@@ -110,7 +110,7 @@ async function hydratePosts(posts) {
     const [origRows] = await db.query(
       `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
               p.text, p.image, p.video, p.created_at AS createdAt,
-              p.is_live, p.live_session_id
+              p.is_live, p.live_session_id, p.youtube_id
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id IN (${oph})`,
@@ -226,7 +226,8 @@ async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) 
        p.group_id         AS groupId,
        p.created_at       AS createdAt,
        p.is_live,
-       p.live_session_id
+       p.live_session_id,
+       p.youtube_id
      FROM posts p
      JOIN users u ON u.id = p.user_id
      WHERE p.user_id = ?
@@ -245,11 +246,11 @@ async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) 
 // ── Create a post ──────────────────────────────────────────
 // groupId (optional) scopes the post to a group.
 // isLive and liveSessionId are optional for live posts.
-async function createPost(userId, text, image, video, groupId = null, isLive = false, liveSessionId = null) {
+async function createPost(userId, text, image, video, groupId = null, isLive = false, liveSessionId = null, youtubeId = null) {
   const [result] = await db.query(
-    `INSERT INTO posts (user_id, text, image, video, group_id, is_live, live_session_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [userId, text || null, image || null, video || null, groupId || null, isLive ? 1 : 0, liveSessionId || null]
+    `INSERT INTO posts (user_id, text, image, video, group_id, is_live, live_session_id, youtube_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, text || null, image || null, video || null, groupId || null, isLive ? 1 : 0, liveSessionId || null, youtubeId || null]
   );
   return result.insertId;
 }
@@ -273,7 +274,8 @@ async function getGroupPosts(groupId, page = 1, limit = 20) {
        p.group_id         AS groupId,
        p.created_at       AS createdAt,
        p.is_live,
-       p.live_session_id
+       p.live_session_id,
+       p.youtube_id
      FROM posts p
      JOIN users u ON u.id = p.user_id
      WHERE p.group_id = ?
@@ -293,8 +295,8 @@ async function deletePost(postId) {
 }
 
 // ── Update a post's text ───────────────────────────────────
-// Also updates is_live and live_session_id if provided.
-async function updatePost(postId, text, isLive = null, liveSessionId = null) {
+// Also updates is_live, live_session_id, and youtube_id if provided.
+async function updatePost(postId, text, isLive = null, liveSessionId = null, youtubeId = null) {
   let query = 'UPDATE posts SET text = ?, edited = 1, updated_at = NOW()';
   const params = [text];
   if (isLive !== null) {
@@ -304,6 +306,10 @@ async function updatePost(postId, text, isLive = null, liveSessionId = null) {
   if (liveSessionId !== undefined) {
     query += ', live_session_id = ?';
     params.push(liveSessionId);
+  }
+  if (youtubeId !== undefined) {
+    query += ', youtube_id = ?';
+    params.push(youtubeId);
   }
   query += ' WHERE id = ?';
   params.push(postId);
@@ -322,7 +328,7 @@ async function updatePost(postId, text, isLive = null, liveSessionId = null) {
 async function findById(postId) {
   const [rows] = await db.query(
     `SELECT p.*, u.name AS author, u.picture AS authorPicture,
-            p.is_live, p.live_session_id
+            p.is_live, p.live_session_id, p.youtube_id
      FROM posts p
      JOIN users u ON u.id = p.user_id
      WHERE p.id=?`,
@@ -432,7 +438,7 @@ async function getOriginalPostEmbed(originalPostId) {
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
             p.text, p.image, p.video, p.created_at AS createdAt,
-            p.is_live, p.live_session_id
+            p.is_live, p.live_session_id, p.youtube_id
      FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?`,
     [originalPostId]
   );
@@ -455,6 +461,7 @@ async function getTrendingPosts(limit = 20) {
        p.created_at       AS createdAt,
        p.is_live,
        p.live_session_id,
+       p.youtube_id,
        (
          (SELECT COUNT(*) FROM likes    WHERE post_id = p.id) * 1 +
          (SELECT COUNT(*) FROM comments WHERE post_id = p.id) * 2 +
@@ -479,7 +486,7 @@ async function searchPosts(query, { limit = 20, offset = 0 } = {}) {
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
             p.text, p.image, p.video, p.is_repost AS isRepost, p.created_at AS createdAt,
-            p.is_live, p.live_session_id,
+            p.is_live, p.live_session_id, p.youtube_id,
             (SELECT COUNT(*) FROM likes    WHERE post_id=p.id)           AS likeCount,
             (SELECT COUNT(*) FROM comments WHERE post_id=p.id)           AS commentCount,
             (SELECT COUNT(*) FROM reposts  WHERE original_post_id=p.id)  AS repostCount
@@ -674,7 +681,8 @@ async function getPostsByTopic(topic, page = 1, limit = 20) {
        p.original_post_id AS originalPostId,
        p.created_at       AS createdAt,
        p.is_live,
-       p.live_session_id
+       p.live_session_id,
+       p.youtube_id
      FROM post_topics pt
      JOIN posts p ON p.id = pt.post_id
      JOIN users u ON u.id = p.user_id

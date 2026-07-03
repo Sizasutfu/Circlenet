@@ -14,7 +14,7 @@ function decodeHtmlEntities(str) {
 /**
  * Convert plain text with links, hashtags, and mentions to safe HTML.
  * - Decodes HTML entities (like &#39; → ')
- * - Escapes HTML to prevent XSS.
+ * - Escapes HTML to prevent XSS (but NOT apostrophes, they are safe).
  * - Detects http/https URLs and wraps in <a>.
  * - Detects #hashtag and wraps in <a href="/topic/hashtag">.
  * - Detects @username and wraps in <a href="/profile/username">.
@@ -26,13 +26,12 @@ export function formatPostText(text) {
   // 1. Decode any HTML entities (so &#39; becomes ')
   let html = decodeHtmlEntities(text);
 
-  // 2. Escape HTML to prevent XSS
+  // 2. Escape HTML to prevent XSS (but don't escape apostrophes)
   html = html
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/"/g, '&quot;');
 
   // 3. Convert newlines to <br>
   html = html.replace(/\n/g, '<br>');

@@ -88,7 +88,8 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
     liveSessionId = null,
     commentCount,
     repostCount,
-    youtubeId,
+    isRepost = false,
+    originalPost = null,
   } = post;
 
   const displayName = post.user?.name || post.author || 'Anonymous';
@@ -118,8 +119,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
   const avatarColor = stringToColor(displayName);
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
 
+  // ── Fetch link preview ──
   useEffect(() => {
-    if (image || video || youtubeId) return;
+    if (image || video) return;
     if (!text) return;
     const url = extractFirstUrl(text);
     if (!url) return;
@@ -138,8 +140,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
       })
       .catch(() => setPreviewError(true))
       .finally(() => setPreviewLoading(false));
-  }, [id, text, image, video, youtubeId]);
+  }, [id, text, image, video]);
 
+  // ── Close dropdown on outside click ──
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -306,26 +309,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
       );
     }
 
-    if (youtubeId) {
-      return (
-        <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative" style={{ paddingBottom: '56.25%', height: 0 }}>
-          <iframe
-            src={`https://www.youtube.com/embed/${youtubeId}`}
-            className="absolute inset-0 w-full h-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            loading="lazy"
-            title="YouTube video"
-          />
-        </div>
-      );
-    }
-
     return null;
   };
 
   const renderLinkPreview = () => {
-    if (postImageUrl || postVideoUrl || youtubeId) return null;
+    if (postImageUrl || postVideoUrl) return null;
     if (previewLoading) {
       return (
         <div className="mt-3 p-3 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface)] animate-pulse">
@@ -379,6 +367,241 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
   const usernameForProfile = post.user?.username || post.authorUsername || post.username;
   const profileUrl = usernameForProfile ? `/profile/${usernameForProfile}` : (userId ? `/profile?userId=${userId}` : null);
 
+  // ── Render original post as embedded card ──
+  const renderOriginalPost = () => {
+    if (!originalPost) return null;
+    const origAuthor = originalPost.author || 'Unknown';
+    const origUsername = originalPost.username || '';
+    const origAvatar = originalPost.authorPicture || '';
+    const origText = originalPost.text || '';
+    const origImage = originalPost.image || '';
+    const origVideo = originalPost.video || '';
+    const origCreated = originalPost.createdAt || new Date().toISOString();
+
+    const origInitial = origAuthor.charAt(0).toUpperCase();
+    const origColor = stringToColor(origAuthor);
+    const origAvatarUrl = resolveMediaUrl(origAvatar);
+    const origRelativeTime = timeAgo(origCreated);
+    const origImageUrl = resolveMediaUrl(origImage);
+    const origVideoUrl = resolveMediaUrl(origVideo);
+
+    return (
+      <div
+        className="mt-2 border-l-4 border-l-[var(--color-accent)] pl-3 bg-[var(--color-surface)] rounded-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-3">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+              style={{ background: origAvatarUrl ? 'transparent' : origColor }}
+            >
+              {origAvatarUrl ? (
+                <img src={origAvatarUrl} alt={origInitial} className="w-full h-full object-cover" />
+              ) : (
+                origInitial
+              )}
+            </div>
+            <span className="font-semibold text-xs text-[var(--color-txt)]">
+              {origAuthor}
+            </span>
+            {origUsername && (
+              <span className="text-xs text-[var(--color-txt2)]">@{origUsername}</span>
+            )}
+            <span className="text-xs text-[var(--color-txt3)]">· {origRelativeTime}</span>
+          </div>
+          {origText && (
+            <div className="text-sm text-[var(--color-txt)] mt-1 break-words line-clamp-3">
+              <span dangerouslySetInnerHTML={{ __html: formatPostText(origText) }} />
+            </div>
+          )}
+          {(origImageUrl || origVideoUrl) && (
+            <div className="mt-2 rounded-lg overflow-hidden border border-[var(--color-border)] max-h-40">
+              {origVideoUrl ? (
+                <video src={origVideoUrl} controls playsInline className="w-full h-auto max-h-32 object-contain" />
+              ) : (
+                <img src={origImageUrl} alt="Original post image" className="w-full h-auto max-h-32 object-cover" />
+              )}
+            </div>
+          )}
+          <Link
+            href={`/post/${originalPost.id}`}
+            className="text-xs text-[var(--color-accent)] hover:underline mt-1 block"
+            onClick={(e) => e.stopPropagation()}
+          >
+            View original post →
+          </Link>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Repost / Quote layout ──
+  if (isRepost && originalPost) {
+    return (
+      <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
+        <div className="flex items-start gap-3">
+          {profileUrl ? (
+            <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+              >
+                {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+              </div>
+            </Link>
+          ) : (
+            <div
+              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
+            >
+              {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                {profileUrl ? (
+                  <Link
+                    href={profileUrl}
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {displayName}
+                  </Link>
+                ) : (
+                  <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                )}
+                {username && (
+                  profileUrl ? (
+                    <Link
+                      href={profileUrl}
+                      className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      @{username}
+                    </Link>
+                  ) : (
+                    <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
+                  )
+                )}
+                <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
+                <span className="text-[10px] text-[var(--color-accent)] bg-[var(--color-accent-bg)] px-2 py-0.5 rounded-full">Quote</span>
+              </div>
+
+              <div className="relative flex-shrink-0" ref={dropdownRef}>
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                  className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
+                  title="More actions"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="6" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="12" cy="18" r="2" />
+                  </svg>
+                </button>
+                {isDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
+                    <button
+                      onClick={handleDownloadPostImage}
+                      disabled={imageLoading}
+                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                      </svg>
+                      {imageLoading ? 'Generating…' : 'Download as Image'}
+                    </button>
+                    <button
+                      onClick={handleSharePostImage}
+                      disabled={imageLoading}
+                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                      </svg>
+                      Share as Image
+                    </button>
+                    {postImageUrl && (
+                      <>
+                        <div className="border-t border-[var(--color-border)] my-1" />
+                        <button
+                          onClick={handleDownloadOriginalImage}
+                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          Download Original
+                        </button>
+                      </>
+                    )}
+                    {isAuthor && (
+                      <>
+                        <div className="border-t border-[var(--color-border)] my-1" />
+                        <button
+                          onClick={handleEditPost}
+                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                          Edit Post
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {text && (
+              <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
+                <span dangerouslySetInnerHTML={{ __html: formatPostText(text) }} />
+              </div>
+            )}
+
+            {renderOriginalPost()}
+
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
+              <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
+              <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
+              <RepostButton count={repostCount ?? reposts.length} onClick={() => onRepost && onRepost(id)} />
+              <button
+                onClick={(e) => { e.stopPropagation(); if (onQuote) onQuote(id); }}
+                className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
+                title="Quote this post"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
+                </svg>
+                <span>Quote</span>
+              </button>
+              <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
+              {isAuthor && viewCount > 0 && (
+                <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  {formatNumber(viewCount)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Live post ──
   if (isLive && liveSessionId) {
     return (
       <div
@@ -445,6 +668,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
     );
   }
 
+  // ── Regular post ──
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
@@ -499,11 +723,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
 
               <div className="relative flex-shrink-0" ref={dropdownRef}>
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDropdownOpen(!isDropdownOpen);
-                  }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
                   className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
                   title="More actions"
                 >
@@ -513,7 +733,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                     <circle cx="12" cy="18" r="2" />
                   </svg>
                 </button>
-
                 {isDropdownOpen && (
                   <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
                     <button
@@ -595,24 +814,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-            <LikeButton
-              count={likeCount}
-              active={isLiked}
-              onToggle={handleLike}
-            />
-            <CommentButton
-              count={commentCount ?? comments.length}
-              onClick={() => onComment && onComment(id)}
-            />
-            <RepostButton
-              count={repostCount ?? reposts.length}
-              onClick={() => onRepost && onRepost(id)}
-            />
+            <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
+            <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
+            <RepostButton count={repostCount ?? reposts.length} onClick={() => onRepost && onRepost(id)} />
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onQuote) onQuote(id);
-              }}
+              onClick={(e) => { e.stopPropagation(); if (onQuote) onQuote(id); }}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
               title="Quote this post"
             >
@@ -621,10 +827,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
               </svg>
               <span>Quote</span>
             </button>
-            <ShareButton
-              count={shares || 0}
-              onClick={() => onShare && onShare(id)}
-            />
+            <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
             {isAuthor && viewCount > 0 && (
               <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

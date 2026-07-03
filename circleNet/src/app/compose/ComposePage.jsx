@@ -1,10 +1,11 @@
 // src/app/compose/ComposePage.jsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import PhotoEditor from '@/components/PhotoEditor';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -23,6 +24,24 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
+// ── Helper: dataURL to File ──
+function dataURLtoFile(dataUrl, filename) {
+  const arr = dataUrl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
+// ── Helper: get draft key ──
+function getDraftKey(userId, mode, groupId) {
+  return `compose_draft_${userId}_${mode}${groupId ? '_group_' + groupId : ''}`;
+}
+
 export default function ComposePage({ groupId = null }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -37,6 +56,10 @@ export default function ComposePage({ groupId = null }) {
   const [postImage, setPostImage] = useState(null);
   const [postImagePreview, setPostImagePreview] = useState(null);
 
+  // Photo editor state
+  const [showEditor, setShowEditor] = useState(false);
+  const [editorImageSrc, setEditorImageSrc] = useState(null);
+
   // Article state
   const [articleTitle, setArticleTitle] = useState('');
   const [articleExcerpt, setArticleExcerpt] = useState('');
@@ -48,12 +71,79 @@ export default function ComposePage({ groupId = null }) {
   const [articleCoverPreview, setArticleCoverPreview] = useState(null);
 
   const textareaRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const draftKey = user ? getDraftKey(user.id, mode, groupId) : null;
+
+  // ── Load draft from localStorage on mount ──
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const stored = localStorage.getItem(draftKey);
+      if (stored) {
+        const draft = JSON.parse(stored);
+        if (mode === 'post') {
+          if (draft.postText) setPostText(draft.postText);
+          if (draft.postImage) {
+            // Restore image from data URL
+            try {
+              const file = dataURLtoFile(draft.postImage, 'draft-image.png');
+              setPostImage(file);
+              setPostImagePreview(draft.postImage);
+            } catch (_) {
+              // If invalid, ignore
+            }
+          }
+        } else {
+          if (draft.articleTitle) setArticleTitle(draft.articleTitle);
+          if (draft.articleExcerpt) setArticleExcerpt(draft.articleExcerpt);
+          if (draft.articleContent) setArticleContent(draft.articleContent);
+          if (draft.articleTags) setArticleTags(draft.articleTags);
+          if (draft.articlePublished !== undefined) setArticlePublished(draft.articlePublished);
+          if (draft.articleCover) {
+            try {
+              const file = dataURLtoFile(draft.articleCover, 'draft-cover.png');
+              setArticleCover(file);
+              setArticleCoverPreview(draft.articleCover);
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }, [user, draftKey, mode]);
+
+  // ── Save draft with debounce ──
+  const saveDraft = useCallback(() => {
+    if (!user) return;
+    const draft = {};
+    if (mode === 'post') {
+      draft.postText = postText;
+      if (postImagePreview) draft.postImage = postImagePreview;
+    } else {
+      draft.articleTitle = articleTitle;
+      draft.articleExcerpt = articleExcerpt;
+      draft.articleContent = articleContent;
+      draft.articleTags = articleTags;
+      draft.articlePublished = articlePublished;
+      if (articleCoverPreview) draft.articleCover = articleCoverPreview;
+    }
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch (_) {}
+  }, [user, draftKey, mode, postText, postImagePreview, articleTitle, articleExcerpt, articleContent, articleTags, articlePublished, articleCoverPreview]);
 
   useEffect(() => {
-    if (user === null) {
-      router.push('/login?redirect=/compose');
-    }
-  }, [user, router]);
+    if (!user) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(saveDraft, 500);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [saveDraft]);
+
+  // ── Clear draft on submit ──
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (_) {}
+  };
 
   // ── Tag handlers ──
   const addTag = () => {
@@ -81,12 +171,36 @@ export default function ComposePage({ groupId = null }) {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       setError('Image must be under 5MB.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
     setPostImage(file);
     const reader = new FileReader();
-    reader.onload = (ev) => setPostImagePreview(ev.target.result);
+    reader.onload = (ev) => {
+      setPostImagePreview(ev.target.result);
+    };
     reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const openEditor = () => {
+    if (!postImagePreview) return;
+    setEditorImageSrc(postImagePreview);
+    setShowEditor(true);
+  };
+
+  const handleEditorSave = (editedFile) => {
+    setPostImage(editedFile);
+    const reader = new FileReader();
+    reader.onload = (ev) => setPostImagePreview(ev.target.result);
+    reader.readAsDataURL(editedFile);
+    setShowEditor(false);
+    setEditorImageSrc(null);
+  };
+
+  const handleEditorCancel = () => {
+    setShowEditor(false);
+    setEditorImageSrc(null);
   };
 
   const removePostImage = () => {
@@ -141,6 +255,7 @@ export default function ComposePage({ groupId = null }) {
           body: formData,
         });
 
+        clearDraft();
         if (groupId) {
           router.push(`/groups/${groupId}`);
         } else {
@@ -178,6 +293,7 @@ export default function ComposePage({ groupId = null }) {
         body: formData,
       });
 
+      clearDraft();
       router.push('/articles');
       router.refresh();
     } catch (err) {
@@ -191,6 +307,15 @@ export default function ComposePage({ groupId = null }) {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Photo Editor Modal */}
+      {showEditor && (
+        <PhotoEditor
+          image={editorImageSrc}
+          onSave={handleEditorSave}
+          onCancel={handleEditorCancel}
+        />
+      )}
+
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => router.back()}
@@ -208,6 +333,7 @@ export default function ComposePage({ groupId = null }) {
             in group
           </span>
         )}
+        <span className="ml-auto text-xs text-[var(--color-txt3)]">💾 Draft saved</span>
       </div>
 
       {/* Mode toggle */}
@@ -267,17 +393,22 @@ export default function ComposePage({ groupId = null }) {
               rows={4}
             />
             {postImagePreview && (
-              <div className="relative inline-block">
+              <div className="relative inline-block group">
                 <img src={postImagePreview} alt="Preview" className="max-h-48 rounded-lg border border-[var(--color-border)]" />
-                <button
-                  onClick={removePostImage}
-                  className="absolute -top-2 -right-2 bg-[var(--color-rose)] text-white rounded-full p-1 hover:bg-[var(--color-rose)]/80 transition"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition bg-black/40 rounded-lg">
+                  <button
+                    onClick={openEditor}
+                    className="px-3 py-1.5 bg-[var(--color-accent)] text-white rounded-md text-xs font-semibold hover:bg-[var(--color-accent-h)] transition"
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={removePostImage}
+                    className="px-3 py-1.5 bg-[var(--color-rose)] text-white rounded-md text-xs font-semibold hover:bg-[var(--color-rose)]/80 transition"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -300,6 +431,11 @@ export default function ComposePage({ groupId = null }) {
                   onChange={handlePostImageSelect}
                 />
               </button>
+              {postImagePreview && (
+                <span className="text-xs text-[var(--color-txt2)]">
+                  (Hover image to edit/remove)
+                </span>
+              )}
             </div>
           </>
         )}

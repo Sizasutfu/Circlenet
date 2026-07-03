@@ -1,12 +1,12 @@
 // ============================================================
 //  controllers/whisperController.js
 //  Handles all Anonymous Whisper HTTP requests.
-//  Real-time delivery (if needed) can be added via wsServer.
 // ============================================================
 
+const crypto = require('crypto');
+const { db } = require('../config/db');
 const WhisperModel = require('../models/whisperModel');
 const { sendOk, sendError } = require('../middleware/response');
-// const { notifyUser } = require('../../wsServer'); // optional for future
 
 // ─── GET /api/whisper/profile/:username ─────────────────────────
 async function getProfile(req, res) {
@@ -25,6 +25,73 @@ async function getProfile(req, res) {
   } catch (err) {
     console.error('[Whisper] getProfile error:', err);
     return sendError(res, 500, 'Failed to fetch profile.');
+  }
+}
+
+// ─── GET /api/whisper/profile-by-slug/:slug ─────────────────────
+async function getProfileBySlug(req, res) {
+  try {
+    const { slug } = req.params;
+    const [rows] = await db.query(
+      `SELECT u.id, u.username, u.name, u.picture AS avatar,
+              COALESCE(ws.enabled, 0) AS whisperEnabled
+       FROM user_whisper_settings ws
+       JOIN users u ON u.id = ws.user_id
+       WHERE ws.link_slug = ?
+       LIMIT 1`,
+      [slug]
+    );
+    if (!rows.length) {
+      return sendError(res, 404, 'User not found.');
+    }
+    const user = rows[0];
+    return sendOk(res, 200, 'Profile fetched.', {
+      username: user.username,
+      name: user.name,
+      avatar: user.avatar || null,
+      whisperEnabled: !!user.whisperEnabled,
+    });
+  } catch (err) {
+    console.error('[Whisper] getProfileBySlug error:', err);
+    return sendError(res, 500, 'Failed to fetch profile.');
+  }
+}
+
+// ─── POST /api/whisper/send-by-slug/:slug ────────────────────────
+async function sendMessageBySlug(req, res) {
+  try {
+    const { slug } = req.params;
+    let { message } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      return sendError(res, 400, 'Message is required.');
+    }
+    message = message.trim();
+    if (message.length < 1) {
+      return sendError(res, 400, 'Message cannot be empty.');
+    }
+    if (message.length > 500) {
+      return sendError(res, 400, 'Message too long (max 500 characters).');
+    }
+
+    const [rows] = await db.query(
+      `SELECT ws.user_id
+       FROM user_whisper_settings ws
+       WHERE ws.link_slug = ? AND ws.enabled = 1
+       LIMIT 1`,
+      [slug]
+    );
+    if (!rows.length) {
+      return sendError(res, 404, 'User not found or not accepting messages.');
+    }
+    const recipientId = rows[0].user_id;
+
+    const senderIp = req.ip;
+    await WhisperModel.insertAnonymousMessage(recipientId, message, senderIp);
+    return sendOk(res, 200, 'Message sent.');
+  } catch (err) {
+    console.error('[Whisper] sendMessageBySlug error:', err);
+    return sendError(res, 500, 'Failed to send message.');
   }
 }
 
@@ -64,10 +131,22 @@ async function getSettings(req, res) {
   try {
     const userId = req.actorId;
     let settings = await WhisperModel.getUserSettings(userId);
+
     if (!settings) {
-      await WhisperModel.upsertSettings(userId, false);
+      // No settings row – create one with a new UUID slug
+      const newSlug = crypto.randomUUID();
+      await WhisperModel.upsertSettings(userId, false, newSlug);
       settings = await WhisperModel.getUserSettings(userId);
+    } else if (!settings.link_slug) {
+      // Row exists but slug is null – generate and update
+      const newSlug = crypto.randomUUID();
+      await db.query(
+        `UPDATE user_whisper_settings SET link_slug = ? WHERE user_id = ?`,
+        [newSlug, userId]
+      );
+      settings.link_slug = newSlug;
     }
+
     return sendOk(res, 200, 'Settings fetched.', {
       enabled: !!settings.enabled,
       link_slug: settings.link_slug,
@@ -88,6 +167,37 @@ async function updateSettings(req, res) {
   } catch (err) {
     console.error('[Whisper] updateSettings error:', err);
     return sendError(res, 500, 'Failed to update settings.');
+  }
+}
+
+// ─── POST /api/whisper/settings/regenerate-slug ──────────────────────
+async function regenerateSlug(req, res) {
+  try {
+    const userId = req.actorId;
+    if (!userId) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    const newSlug = crypto.randomUUID();
+
+    const [updateResult] = await db.query(
+      `UPDATE user_whisper_settings SET link_slug = ?, updated_at = NOW() WHERE user_id = ?`,
+      [newSlug, userId]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      // No row existed – insert one (enabled default false)
+      await db.query(
+        `INSERT INTO user_whisper_settings (user_id, enabled, link_slug, updated_at)
+         VALUES (?, 0, ?, NOW())`,
+        [userId, newSlug]
+      );
+    }
+
+    return sendOk(res, 200, 'Slug regenerated.', { link_slug: newSlug });
+  } catch (err) {
+    console.error('[Whisper] regenerateSlug error:', err);
+    return sendError(res, 500, 'Failed to regenerate slug.');
   }
 }
 
@@ -153,10 +263,8 @@ async function reportMessage(req, res) {
 }
 
 // ─── POST /api/whisper/:id/post ─────────────────────────────────
-// Accepts multipart image + text; creates a post from the whisper.
 async function createPostFromWhisper(req, res) {
   try {
-    // 🔧 FIX: Fallback to req.userId if actorId is not set
     const userId = req.actorId || req.userId;
     console.log('[Whisper] createPostFromWhisper - userId:', userId);
     console.log('[Whisper] req.file:', req.file);
@@ -204,8 +312,11 @@ module.exports = {
   sendMessage,
   getSettings,
   updateSettings,
+  regenerateSlug,
   getInbox,
   deleteMessage,
   reportMessage,
   createPostFromWhisper,
+  getProfileBySlug,
+  sendMessageBySlug,
 };

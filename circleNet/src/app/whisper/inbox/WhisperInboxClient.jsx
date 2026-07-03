@@ -35,54 +35,31 @@ export default function WhisperInboxClient() {
     settings,
     fetchSettings,
     updateSettings,
+    regenerateSlug,
   } = useWhisper();
 
   const [replyTarget, setReplyTarget] = useState(null);
   const [cursor, setCursor] = useState(null);
-  const [whisperSlug, setWhisperSlug] = useState(null);
   const [slugLoading, setSlugLoading] = useState(true);
 
+  // ── Fetch settings and slug ──
   useEffect(() => {
     if (!user) return;
-
-    const fetchSlug = async () => {
-      try {
-        if (settings?.link_slug) {
-          setWhisperSlug(settings.link_slug);
-          setSlugLoading(false);
-          return;
-        }
-        if (user.username) {
-          setWhisperSlug(user.username);
-          setSlugLoading(false);
-          return;
-        }
-        const res = await apiClient(`/api/users/${user.id}/profile`);
-        const profile = res.data || res;
-        if (profile.username) {
-          setWhisperSlug(profile.username);
-        } else {
-          setWhisperSlug(user.name || 'user');
-        }
-        setSlugLoading(false);
-      } catch (err) {
-        console.warn('Failed to fetch whisper slug:', err);
-        setWhisperSlug(user.username || user.name || 'user');
-        setSlugLoading(false);
-      }
+    const load = async () => {
+      await fetchSettings();
+      setSlugLoading(false);
     };
+    load();
+  }, [user, fetchSettings]);
 
-    fetchSlug();
-  }, [user, settings]);
-
+  // ── Auth check and initial inbox load ──
   useEffect(() => {
     if (!user) {
       router.push('/login');
       return;
     }
-    fetchSettings();
     fetchInbox();
-  }, [user]);
+  }, [user, fetchInbox, router]);
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this message? This cannot be undone.')) return;
@@ -97,6 +74,16 @@ export default function WhisperInboxClient() {
   const loadMore = () => {
     if (hasMore && !loading) {
       fetchInbox(cursor);
+    }
+  };
+
+  const handleRegenerateSlug = async () => {
+    if (!confirm('This will generate a new link for your Whisper page. Your old link will stop working. Continue?')) return;
+    try {
+      await regenerateSlug();
+      alert('New link generated! 🔗');
+    } catch {
+      alert('Failed to generate new link.');
     }
   };
 
@@ -119,7 +106,7 @@ export default function WhisperInboxClient() {
     }
   };
 
-  // ── Share Whisper Card (Web Share API) ──
+  // ── Share Whisper Card ──
   const handleShareWhisper = async (msg) => {
     try {
       const canvas = await generateWhisperCard(msg.message, user.username);
@@ -132,7 +119,6 @@ export default function WhisperInboxClient() {
           files: [file],
         });
       } else {
-        // Fallback to download
         await handleDownloadWhisper(msg);
       }
     } catch (err) {
@@ -145,7 +131,7 @@ export default function WhisperInboxClient() {
 
   if (!user) return null;
 
-  const publicLink = `${window.location.origin}/whisper/send/${whisperSlug || 'user'}`;
+  const publicLink = `${window.location.origin}/whisper/send/${settings.link_slug || ''}`;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
@@ -179,22 +165,32 @@ export default function WhisperInboxClient() {
           <div className="text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wider">Your Whisper link</div>
           {slugLoading ? (
             <div className="text-sm font-mono text-[var(--color-txt2)] animate-pulse">Loading…</div>
-          ) : (
+          ) : settings.link_slug ? (
             <div className="text-sm font-mono text-[var(--color-accent)] break-all">{publicLink}</div>
+          ) : (
+            <div className="text-sm text-[var(--color-txt2)]">No link generated yet.</div>
           )}
         </div>
-        <button
-          onClick={() => {
-            if (whisperSlug) {
-              navigator.clipboard.writeText(publicLink);
-              alert('Link copied! 🔗');
-            }
-          }}
-          disabled={!whisperSlug}
-          className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition disabled:opacity-50"
-        >
-          Copy link
-        </button>
+        <div className="flex gap-2">
+          {settings.link_slug && (
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(publicLink);
+                alert('Link copied! 🔗');
+              }}
+              className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition"
+            >
+              Copy link
+            </button>
+          )}
+          <button
+            onClick={handleRegenerateSlug}
+            className="px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-bold hover:bg-[var(--color-accent-bg)] transition"
+            title="Generate a new unique link"
+          >
+            🔄 New link
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -272,7 +268,6 @@ export default function WhisperInboxClient() {
                   </svg>
                 </button>
 
-                {/* Download */}
                 <button
                   onClick={() => handleDownloadWhisper(msg)}
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full text-xs font-bold hover:bg-[var(--color-accent-bg)] transition"
@@ -284,7 +279,6 @@ export default function WhisperInboxClient() {
                   <span className="hidden sm:inline">Download</span>
                 </button>
 
-                {/* Share */}
                 <button
                   onClick={() => handleShareWhisper(msg)}
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full text-xs font-bold hover:bg-[var(--color-accent-bg)] transition"

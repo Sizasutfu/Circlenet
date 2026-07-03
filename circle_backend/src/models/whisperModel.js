@@ -66,23 +66,27 @@ async function getUserSettings(userId) {
   return rows[0] || null;
 }
 
-async function upsertSettings(userId, enabled) {
+async function upsertSettings(userId, enabled, linkSlug = null) {
   let existing = await getUserSettings(userId);
-  let linkSlug = existing?.link_slug;
+  let finalSlug = linkSlug || existing?.link_slug;
 
-  if (!linkSlug) {
+  if (!finalSlug) {
+    // Fallback: use username or user ID
     const [userRows] = await db.query(
       "SELECT username FROM users WHERE id = ? LIMIT 1",
       [userId]
     );
-    linkSlug = userRows[0]?.username || String(userId);
+    finalSlug = userRows[0]?.username || String(userId);
   }
 
   const [result] = await db.query(
     `INSERT INTO user_whisper_settings (user_id, enabled, link_slug, updated_at)
      VALUES (?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_at = NOW()`,
-    [userId, enabled ? 1 : 0, linkSlug]
+     ON DUPLICATE KEY UPDATE 
+       enabled = VALUES(enabled), 
+       link_slug = VALUES(link_slug), 
+       updated_at = NOW()`,
+    [userId, enabled ? 1 : 0, finalSlug]
   );
   return result;
 }
@@ -149,7 +153,6 @@ async function setWhisperPostedAs(connection, messageId, postId) {
 }
 
 async function createPost(connection, userId, text, imageUrl) {
-  // ✅ Removed `post_type` – it doesn't exist in your posts table
   const [result] = await connection.query(
     `INSERT INTO posts
        (user_id, text, image, created_at)
@@ -160,7 +163,6 @@ async function createPost(connection, userId, text, imageUrl) {
 }
 
 async function getPostById(connection, postId) {
-  // ✅ Removed `post_type` – it doesn't exist in your posts table
   const [rows] = await connection.query(
     `SELECT
        p.id, p.text, p.image, p.created_at,
@@ -191,13 +193,11 @@ async function createPostFromWhisper(userId, messageId, text, imageBuffer) {
     if (!whisper) throw new Error('Message not found');
     if (whisper.posted_as) throw new Error('Already posted');
 
-    // Compress image
     const compressedBuffer = await sharp(imageBuffer)
       .resize({ width: CARD_IMAGE_WIDTH, withoutEnlargement: true })
       .png({ compressionLevel: PNG_COMPRESSION_LEVEL })
       .toBuffer();
 
-    // Upload the image using the shared function (Cloudinary or local)
     const imageUrl = await uploadImage(compressedBuffer, `whisper-${messageId}.png`);
 
     const postId = await createPost(connection, userId, text, imageUrl);

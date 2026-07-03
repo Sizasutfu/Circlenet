@@ -33,19 +33,23 @@ const authLimiter = rateLimit({
   keyGenerator: (req) => req.actorId || ipKeyGenerator(req),
 });
 
-// Public routes
+// ── Public routes ──
 router.get('/profile/:username', whisperController.getProfile);
 router.post('/send/:username', sendLimiter, whisperController.sendMessage);
-
-// Authenticated routes
+// Public routes (add after existing ones)
+router.get('/profile-by-slug/:slug', whisperController.getProfileBySlug);
+router.post('/send-by-slug/:slug', sendLimiter, whisperController.sendMessageBySlug);
+// ── Authenticated routes ──
 router.use(requireAuth);
 router.use(authLimiter);
 
 router.get('/settings', whisperController.getSettings);
 router.patch('/settings', whisperController.updateSettings);
+router.post('/settings/regenerate-slug', whisperController.regenerateSlug); // ✅ NEW
 router.get('/inbox', whisperController.getInbox);
 router.delete('/:id', whisperController.deleteMessage);
 router.post('/:id/report', whisperController.reportMessage);
 router.post('/:id/post', upload.single('image'), whisperController.createPostFromWhisper);
+
 
 module.exports = router;

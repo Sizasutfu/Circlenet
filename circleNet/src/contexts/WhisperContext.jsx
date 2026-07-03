@@ -24,7 +24,6 @@ export function WhisperProvider({ children }) {
     try {
       const url = cursorParam ? `/api/whisper/inbox?cursor=${cursorParam}` : '/api/whisper/inbox';
       const res = await apiClient(url);
-      // Extract messages from the correct path
       const msgs = res.data?.messages || res.messages || [];
       setMessages(prev => cursorParam ? [...prev, ...msgs] : msgs);
       setCursor(res.data?.nextCursor || res.nextCursor || null);
@@ -52,7 +51,12 @@ export function WhisperProvider({ children }) {
     if (!user) return;
     try {
       const res = await apiClient('/api/whisper/settings');
-      setSettings(res);
+      // Handle both nested and flat responses
+      const data = res.data || res;
+      setSettings({
+        enabled: !!data.enabled,
+        link_slug: data.link_slug || '',
+      });
     } catch (err) {
       console.error('Failed to fetch whisper settings:', err);
       setSettings({ enabled: false, link_slug: '' });
@@ -66,7 +70,8 @@ export function WhisperProvider({ children }) {
         method: 'PATCH',
         body: { enabled },
       });
-      setSettings(prev => ({ ...prev, enabled }));
+      const data = res.data || res;
+      setSettings(prev => ({ ...prev, enabled: !!data.enabled }));
       return res;
     } catch (err) {
       console.error('Whisper settings update failed:', err);
@@ -74,7 +79,25 @@ export function WhisperProvider({ children }) {
     }
   }, []);
 
-  // ── Post whisper to feed (with card image) ──
+  // ── Regenerate slug ──
+  const regenerateSlug = useCallback(async () => {
+    try {
+      const res = await apiClient('/api/whisper/settings/regenerate-slug', {
+        method: 'POST',
+      });
+      // Extract link_slug from response (flat or nested)
+      const linkSlug = res.link_slug || res.data?.link_slug;
+      if (linkSlug) {
+        setSettings(prev => ({ ...prev, link_slug: linkSlug }));
+      }
+      return linkSlug;
+    } catch (err) {
+      console.error('Failed to regenerate whisper slug:', err);
+      throw err;
+    }
+  }, []);
+
+  // ── Post whisper to feed ──
   const postWhisper = useCallback(async (whisperId, replyText) => {
     if (!user) throw new Error('Not authenticated');
 
@@ -82,31 +105,26 @@ export function WhisperProvider({ children }) {
     if (!messageObj) throw new Error('Whisper message not found');
 
     try {
-      // 1. Generate the card image
       const { generateWhisperCard } = await import('@/lib/whisperCard');
       const canvas = await generateWhisperCard(messageObj.message, user.username);
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
       const imageFile = new File([blob], `whisper-${whisperId}.png`, { type: 'image/png' });
 
-      // 2. Build FormData
       const formData = new FormData();
       formData.append('text', replyText);
       formData.append('image', imageFile);
 
-      // 3. Send to API
       const res = await apiClient(`/api/whisper/${whisperId}/post`, {
         method: 'POST',
         body: formData,
       });
 
-      // Mark message as posted locally
       setMessages(prev => prev.map(m =>
         m.id === whisperId ? { ...m, posted: true } : m
       ));
       return res;
     } catch (err) {
       console.error('Whisper post error:', err);
-      // Re-throw with a clear message
       throw new Error(err.message || 'Failed to post whisper. Please try again.');
     }
   }, [user, messages]);
@@ -122,6 +140,7 @@ export function WhisperProvider({ children }) {
     reportMessage,
     fetchSettings,
     updateSettings,
+    regenerateSlug,
     postWhisper,
   };
 

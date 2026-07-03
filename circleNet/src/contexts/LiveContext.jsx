@@ -23,7 +23,6 @@ export function LiveProvider({ children }) {
   const { user } = useAuth();
   const { sendMessage: wsSend, registerHandler } = useWs();
 
-  // ── State ──
   const [activeSessions, setActiveSessions] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [role, setRole] = useState(null);
@@ -41,17 +40,17 @@ export function LiveProvider({ children }) {
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupError, setSetupError] = useState(null);
   const [floatingReactions, setFloatingReactions] = useState([]);
+  const [likeCount, setLikeCount] = useState(0);
 
-  // ── Refs ──
   const localStreamRef = useRef(null);
-  const peersRef = useRef({}); // host: { viewerId: RTCPeerConnection }, viewer: { sessionId: { pc, hostIdRef } }
+  const peersRef = useRef({});
   const retryTimersRef = useRef({});
   const reactionTimerRef = useRef(null);
-  const livePostIdRef = useRef(null); // track the live post for updating
+  const livePostIdRef = useRef(null);
 
   const log = (msg, data) => console.log(`[Live:${role || 'none'}] ${msg}`, data || "");
 
-  // ── Add a floating reaction ──
+  // ── Floating reactions ──
   const addFloatingReaction = useCallback((emoji) => {
     const id = Date.now() + Math.random();
     const x = 5 + Math.random() * 90;
@@ -61,6 +60,13 @@ export function LiveProvider({ children }) {
       setFloatingReactions((prev) => prev.filter((r) => r.id !== id));
     }, 2500);
   }, []);
+
+  // ── Send like (tap) ──
+  const sendLike = useCallback(() => {
+    if (!sessionId) return;
+    setLikeCount((prev) => prev + 1);
+    wsSend({ type: "live:like", sessionId });
+  }, [sessionId, wsSend]);
 
   // ── Media support ──
   const isMediaSupported = useCallback(() => {
@@ -121,7 +127,7 @@ export function LiveProvider({ children }) {
     }
   }, [role]);
 
-  // ── Start live stream ──
+  // ── Start live ──
   const startLive = useCallback(
     async (titleText) => {
       if (!localStreamRef.current) {
@@ -129,7 +135,6 @@ export function LiveProvider({ children }) {
         return;
       }
       try {
-        // 1. Start live session on backend
         const res = await apiClient("/api/live/start", {
           method: "POST",
           body: { title: titleText },
@@ -149,7 +154,7 @@ export function LiveProvider({ children }) {
         if (vt) vt.enabled = true;
         setCamOff(false);
 
-        // 2. Create a live post in the feed
+        // Create live post
         try {
           const postRes = await apiClient("/api/posts", {
             method: "POST",
@@ -166,7 +171,6 @@ export function LiveProvider({ children }) {
           console.warn("[Live] Failed to create live post:", err);
         }
 
-        // 3. Notify via WebSocket
         wsSend({
           type: "live:started",
           sessionId: sid,
@@ -184,7 +188,7 @@ export function LiveProvider({ children }) {
     [user, wsSend, broadcasterName, broadcasterAvatar]
   );
 
-  // ── Watch a live session ──
+  // ── Watch session ──
   const watchSession = useCallback(
     async (sid) => {
       if (!user) {
@@ -196,6 +200,7 @@ export function LiveProvider({ children }) {
       setRole("viewer");
       setIsOverlayOpen(true);
       setRemoteStream(null);
+      setLikeCount(0);
 
       try {
         const res = await apiClient(`/api/live/${sid}`);
@@ -205,7 +210,6 @@ export function LiveProvider({ children }) {
         setTitle(data.title || "");
       } catch (_) {}
 
-      // Create peer connection for viewer
       const pc = new RTCPeerConnection(RTC_CONFIG);
       const hostIdRef = { current: null };
       peersRef.current[sid] = { pc, hostIdRef };
@@ -234,7 +238,6 @@ export function LiveProvider({ children }) {
         }
       };
 
-      // Retry if no offer arrives
       const retryTimer = setTimeout(() => {
         if (!remoteStream) {
           log("⏳ No offer received – retrying join");
@@ -263,7 +266,7 @@ export function LiveProvider({ children }) {
     [user, wsSend]
   );
 
-  // ── Close live stream ──
+  // ── Close live ──
   const closeLive = useCallback(async () => {
     if (role === "host") {
       if (!confirm("End your live stream?")) return;
@@ -274,7 +277,6 @@ export function LiveProvider({ children }) {
       peersRef.current = {};
       wsSend({ type: "live:ended", sessionId });
 
-      // Update the live post to remove live flag
       if (livePostIdRef.current) {
         try {
           await apiClient(`/api/posts/${livePostIdRef.current}`, {
@@ -311,6 +313,7 @@ export function LiveProvider({ children }) {
     setViewerCount(0);
     setRemoteStream(null);
     setFloatingReactions([]);
+    setLikeCount(0);
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       setLocalStream(null);
@@ -339,7 +342,7 @@ export function LiveProvider({ children }) {
       .forEach((t) => (t.enabled = !newState));
   }, [camOff]);
 
-  // ── Chat & Reactions ──
+  // ── Chat ──
   const sendChat = useCallback(
     (text) => {
       if (!text.trim() || !sessionId) return;
@@ -349,21 +352,25 @@ export function LiveProvider({ children }) {
         senderId: user.id,
         senderName: user.username || user.name || "You",
         text: text.trim(),
+        isSystem: false,
       };
       wsSend(msg);
       setChatMessages((prev) => [
         ...prev,
-        { senderName: msg.senderName, text: msg.text, isSelf: true },
+        { senderName: msg.senderName, text: msg.text, isSelf: true, isSystem: false },
       ]);
     },
     [sessionId, user, wsSend]
   );
 
+  // ── Reactions ──
   const sendReaction = useCallback(
     (emoji) => {
       if (!sessionId) return;
       addFloatingReaction(emoji);
       wsSend({ type: "live:reaction", sessionId, emoji });
+      setLikeCount((prev) => prev + 1);
+      wsSend({ type: "live:like", sessionId });
     },
     [sessionId, wsSend, addFloatingReaction]
   );
@@ -448,6 +455,12 @@ export function LiveProvider({ children }) {
           }
           break;
 
+        case "live:like_count":
+          if (sessionId === msg.sessionId) {
+            setLikeCount(msg.count);
+          }
+          break;
+
         case "live:offer":
           if (role === "viewer" && sessionId === msg.sessionId) {
             const hostId = msg.from;
@@ -513,10 +526,16 @@ export function LiveProvider({ children }) {
           break;
 
         case "live:chat_message":
-          if (sessionId === msg.sessionId && msg.senderId !== user?.id) {
+          if (sessionId === msg.sessionId) {
+            const isSelf = msg.senderId === user?.id;
             setChatMessages((prev) => [
               ...prev,
-              { senderName: msg.senderName, text: msg.text, isSelf: false },
+              {
+                senderName: msg.isSystem ? "" : (msg.senderName || "Anonymous"),
+                text: msg.text,
+                isSelf: isSelf && !msg.isSystem,
+                isSystem: !!msg.isSystem,
+              },
             ]);
           }
           break;
@@ -525,7 +544,7 @@ export function LiveProvider({ children }) {
           break;
       }
     },
-    [loadActiveSessions, role, sessionId, user, localStreamRef, wsSend, addFloatingReaction]
+    [loadActiveSessions, role, sessionId, user, wsSend, addFloatingReaction]
   );
 
   // ── Register WS handlers ──
@@ -536,6 +555,7 @@ export function LiveProvider({ children }) {
       "live:viewer_joined",
       "live:viewer_left",
       "live:viewer_count",
+      "live:like_count",
       "live:chat_message",
       "live:reaction",
       "live:offer",
@@ -553,7 +573,7 @@ export function LiveProvider({ children }) {
     return () => clearInterval(interval);
   }, [loadActiveSessions]);
 
-  // ── Cleanup on unmount ──
+  // ── Cleanup ──
   useEffect(() => {
     return () => {
       Object.values(peersRef.current).forEach((pc) => pc.close?.());
@@ -565,7 +585,6 @@ export function LiveProvider({ children }) {
     };
   }, []);
 
-  // ── Context value ──
   const value = {
     activeSessions,
     isLoadingSessions,
@@ -584,6 +603,7 @@ export function LiveProvider({ children }) {
     isSetupOpen,
     setupError,
     floatingReactions,
+    likeCount,
     openSetup,
     closeSetup,
     startLive,
@@ -593,6 +613,7 @@ export function LiveProvider({ children }) {
     toggleCam,
     sendChat,
     sendReaction,
+    sendLike,
     loadActiveSessions,
   };
 

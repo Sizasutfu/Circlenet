@@ -40,7 +40,7 @@ export function WsProvider({ children }) {
     return false;
   }, []);
 
-  // ── Conversation management ──
+  // ── Conversation management (for DMs) ──
   const joinConversation = useCallback((convId) => {
     sendMessage({ type: 'join_conversation', conversationId: convId });
   }, [sendMessage]);

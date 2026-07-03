@@ -8,6 +8,7 @@ import { useFeed } from '@/contexts/FeedContext';
 import { useWs } from '@/contexts/WsContext';
 import PostCard from '@/components/ui/PostCard';
 import ArticleCard from '@/components/articles/ArticleCard';
+import QuoteModal from '@/components/ui/QuoteModal';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -62,13 +63,11 @@ export default function FeedClient({ initialPosts = null }) {
     initialized,
   } = useFeed();
 
-  // ── Articles state ──
   const [articles, setArticles] = useState([]);
   const [articlesPage, setArticlesPage] = useState(1);
   const [articlesHasMore, setArticlesHasMore] = useState(false);
   const [articlesLoading, setArticlesLoading] = useState(false);
 
-  // ── Composer state ──
   const [composerText, setComposerText] = useState('');
   const [composerImage, setComposerImage] = useState(null);
   const [composerImagePreview, setComposerImagePreview] = useState(null);
@@ -77,9 +76,9 @@ export default function FeedClient({ initialPosts = null }) {
   const fileInputRef = useRef(null);
   const loadMoreRef = useRef(null);
   const [toast, setToast] = useState(null);
+  const [quoteTarget, setQuoteTarget] = useState(null);
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
-  // ── WebSocket: listen for post_counts ──
   useEffect(() => {
     const unregister = registerHandler('post_counts', (msg) => {
       updatePostCounts(msg.postId, {
@@ -91,7 +90,6 @@ export default function FeedClient({ initialPosts = null }) {
     return () => unregister();
   }, [registerHandler, updatePostCounts]);
 
-  // ── Initialize with server-side posts ──
   useEffect(() => {
     if (initialPosts && initialPosts.length > 0 && !initialized) {
       initPosts({
@@ -100,12 +98,10 @@ export default function FeedClient({ initialPosts = null }) {
         page: 1,
       });
     } else if (!initialized && !loading && posts.length === 0 && activeTab !== 'articles') {
-      // No initial posts – fetch normally
       fetchPosts(activeTab, 1, false);
     }
   }, [initialPosts, initPosts, initialized, loading, posts.length, activeTab, fetchPosts]);
 
-  // ── Fetch articles ──
   const fetchArticles = useCallback(async (pageNum = 1, append = false) => {
     if (articlesLoading) return;
     setArticlesLoading(true);
@@ -125,7 +121,6 @@ export default function FeedClient({ initialPosts = null }) {
     }
   }, [articlesLoading]);
 
-  // ── Handle tab switch ──
   const handleTabChange = (tab) => {
     if (tab === activeTab) return;
     setActiveTab(tab);
@@ -135,14 +130,12 @@ export default function FeedClient({ initialPosts = null }) {
       setArticlesHasMore(false);
       if (!articlesLoading) fetchArticles(1, false);
     } else {
-      // If switching to posts and we have no posts, fetch
       if (!initialized && posts.length === 0 && !loading) {
         fetchPosts(tab, 1, false);
       }
     }
   };
 
-  // ── Intersection Observer for infinite scroll ──
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -164,7 +157,6 @@ export default function FeedClient({ initialPosts = null }) {
     return () => observer.disconnect();
   }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore, fetchArticles, articlesPage]);
 
-  // ── Like ──
   const handleLike = async (postId) => {
     if (!user) { showToast('Log in to like.', 'error'); return; }
     toggleLike(postId);
@@ -191,6 +183,21 @@ export default function FeedClient({ initialPosts = null }) {
     }
   };
 
+  const handleQuote = (postId) => {
+    if (!user) {
+      showToast('Please log in to quote.', 'error');
+      return;
+    }
+    const post = posts.find((p) => p.id === postId);
+    if (post) setQuoteTarget(post);
+  };
+
+  const handleQuoteSuccess = () => {
+    setQuoteTarget(null);
+    showToast('Quote posted! 🎉', 'success');
+    fetchPosts(activeTab, 1, false);
+  };
+
   const handleShare = (postId) => {
     const url = `${window.location.origin}/post/${postId}`;
     if (navigator.share) {
@@ -200,7 +207,6 @@ export default function FeedClient({ initialPosts = null }) {
     }
   };
 
-  // ── Create post ──
   const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!user) { showToast('Please log in to post.', 'error'); return; }
@@ -257,7 +263,6 @@ export default function FeedClient({ initialPosts = null }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── Render content ──
   const renderContent = () => {
     if (activeTab === 'articles') {
       if (articlesLoading && articles.length === 0) {
@@ -329,6 +334,7 @@ export default function FeedClient({ initialPosts = null }) {
               onComment={handleComment}
               onRepost={handleRepost}
               onShare={handleShare}
+              onQuote={handleQuote}
             />
           ))
         )}
@@ -348,7 +354,6 @@ export default function FeedClient({ initialPosts = null }) {
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* ── Composer ── */}
       {user && activeTab !== 'articles' && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6 shadow-sm">
           <div className="flex items-start gap-3">
@@ -400,7 +405,6 @@ export default function FeedClient({ initialPosts = null }) {
         </div>
       )}
 
-      {/* ── Tabs ── */}
       <div className="flex gap-2 mb-6 border-b border-[var(--color-border)]">
         <button
           onClick={() => handleTabChange('global')}
@@ -425,6 +429,15 @@ export default function FeedClient({ initialPosts = null }) {
       </div>
 
       {renderContent()}
+
+      {/* Quote Modal */}
+      {quoteTarget && (
+        <QuoteModal
+          post={quoteTarget}
+          onClose={() => setQuoteTarget(null)}
+          onSuccess={handleQuoteSuccess}
+        />
+      )}
     </div>
   );
 }

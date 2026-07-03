@@ -7,6 +7,46 @@ import { useAuth } from '@/lib/auth';
 
 const REACTIONS = ['❤️', '🔥', '👏', '😂'];
 
+// ── Floating heart (for tap likes) ──
+function FloatingHeart({ x, y, onComplete }) {
+  const [opacity, setOpacity] = useState(1);
+  const [translateY, setTranslateY] = useState(0);
+  const [scale, setScale] = useState(0.5);
+
+  useEffect(() => {
+    const start = performance.now();
+    const duration = 1000;
+
+    const animate = (now) => {
+      const progress = Math.min((now - start) / duration, 1);
+      setTranslateY(-progress * 120);
+      setOpacity(1 - progress);
+      setScale(0.5 + progress * 0.8);
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        onComplete();
+      }
+    };
+    requestAnimationFrame(animate);
+  }, [onComplete]);
+
+  return (
+    <div
+      className="absolute pointer-events-none text-3xl"
+      style={{
+        left: x,
+        top: y,
+        transform: `translateY(${translateY}px) scale(${scale})`,
+        opacity,
+        transition: 'none',
+      }}
+    >
+      ❤️
+    </div>
+  );
+}
+
 export default function LiveOverlay() {
   const { user } = useAuth();
   const {
@@ -29,32 +69,35 @@ export default function LiveOverlay() {
     sendReaction,
     watchSession,
     floatingReactions,
+    likeCount,
+    sendLike,
   } = useLive();
 
   const [chatInput, setChatInput] = useState('');
   const [ended, setEnded] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [hearts, setHearts] = useState([]);
   const videoRef = useRef(null);
   const chatContainerRef = useRef(null);
 
   const isHost = role === 'host';
   const isViewer = role === 'viewer';
 
+  // Auto-scroll chat
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatMessages]);
 
+  // Attach stream
   useEffect(() => {
     const stream = isHost ? localStream : remoteStream;
-    console.log(`[LiveOverlay] ${isHost ? 'Host' : 'Viewer'} stream:`, stream);
     if (videoRef.current) {
       if (stream) {
         videoRef.current.srcObject = stream;
         videoRef.current
           .play()
-          .then(() => console.log('✅ Video playing'))
           .catch((err) => console.warn('⚠️ Video play error:', err));
       } else {
         videoRef.current.srcObject = null;
@@ -62,6 +105,7 @@ export default function LiveOverlay() {
     }
   }, [localStream, remoteStream, isHost]);
 
+  // Show "retry" if viewer has no stream after 5 seconds
   useEffect(() => {
     if (isViewer && !remoteStream) {
       const timer = setTimeout(() => setLoadingTimeout(true), 5000);
@@ -71,10 +115,12 @@ export default function LiveOverlay() {
     }
   }, [isViewer, remoteStream]);
 
+  // Reset ended when overlay opens
   useEffect(() => {
     if (isOverlayOpen) {
       setEnded(false);
       setLoadingTimeout(false);
+      setHearts([]);
     }
   }, [isOverlayOpen]);
 
@@ -84,6 +130,21 @@ export default function LiveOverlay() {
     if (!chatInput.trim()) return;
     sendChat(chatInput.trim());
     setChatInput('');
+  };
+
+  // ── Handle tap on video ──
+  const handleTap = (e) => {
+    if (isHost) return; // host taps don't count as likes
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX || e.touches?.[0]?.clientX || rect.width / 2) - rect.left;
+    const y = (e.clientY || e.touches?.[0]?.clientY || rect.height / 2) - rect.top;
+    const id = Date.now() + Math.random();
+    setHearts((prev) => [...prev, { id, x, y }]);
+    sendLike();
+  };
+
+  const removeHeart = (id) => {
+    setHearts((prev) => prev.filter((h) => h.id !== id));
   };
 
   const hasStream = isHost ? !!localStream : !!remoteStream;
@@ -97,25 +158,13 @@ export default function LiveOverlay() {
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black flex flex-col">
-      {/* Floating reactions layer */}
-      <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden">
-        {floatingReactions.map((r) => (
-          <div
-            key={r.id}
-            className="absolute text-5xl animate-float-up"
-            style={{
-              left: `${r.x}%`,
-              bottom: '0%',
-              animationDuration: '2.5s',
-            }}
-          >
-            {r.emoji}
-          </div>
-        ))}
-      </div>
-
-      {/* Video container */}
-      <div className="absolute inset-0 bg-black/90 flex items-center justify-center">
+      {/* ── Video container with tap detection ── */}
+      <div
+        className="absolute inset-0 bg-black/90 flex items-center justify-center"
+        onTouchStart={handleTap}
+        onMouseDown={handleTap}
+        style={{ cursor: 'pointer' }}
+      >
         {!hasStream ? (
           <div className="text-center">
             <div className="text-white/50 text-sm mb-3">
@@ -140,13 +189,46 @@ export default function LiveOverlay() {
             style={{ background: '#000' }}
           />
         )}
+
+        {/* Floating hearts (tap likes) */}
+        {hearts.map((heart) => (
+          <FloatingHeart
+            key={heart.id}
+            x={heart.x}
+            y={heart.y}
+            onComplete={() => removeHeart(heart.id)}
+          />
+        ))}
+
+        {/* Floating emoji reactions */}
+        {floatingReactions.map((r) => (
+          <div
+            key={r.id}
+            className="absolute pointer-events-none text-5xl animate-float-up"
+            style={{
+              left: `${r.x}%`,
+              bottom: '0%',
+              animationDuration: '2.5s',
+            }}
+          >
+            {r.emoji}
+          </div>
+        ))}
       </div>
 
-      {/* Gradients */}
+      {/* ── Like count ── */}
+      <div className="absolute top-20 right-4 z-20 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-sm font-bold border border-white/10">
+        <svg className="w-4 h-4 text-rose-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+        </svg>
+        <span>{likeCount}</span>
+      </div>
+
+      {/* ── Gradients ── */}
       <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/70 to-transparent pointer-events-none z-10" />
       <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-black/85 to-transparent pointer-events-none z-10" />
 
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4">
         <div className="flex items-center gap-3">
           {broadcasterAvatar ? (
@@ -180,7 +262,7 @@ export default function LiveOverlay() {
         </div>
       </div>
 
-      {/* Bottom bar */}
+      {/* ── Bottom bar ── */}
       <div className="absolute bottom-0 left-0 right-0 z-20 p-4 space-y-3">
         {isHost && (
           <div className="flex items-center justify-end gap-2">
@@ -250,14 +332,23 @@ export default function LiveOverlay() {
             ref={chatContainerRef}
             className="max-h-36 overflow-y-auto scrollbar-hide space-y-1"
           >
-            {chatMessages.map((msg, idx) => (
-              <div key={idx} className="flex items-baseline gap-1.5 text-white text-sm animate-fadeUp">
-                <span className={`font-bold text-xs ${msg.isSelf ? 'text-[var(--color-green)]' : 'text-[var(--color-accent)]'}`}>
-                  {msg.senderName}:
-                </span>
-                <span className="text-sm leading-tight">{msg.text}</span>
-              </div>
-            ))}
+            {chatMessages.map((msg, idx) => {
+              if (msg.isSystem) {
+                return (
+                  <div key={idx} className="text-center text-xs text-[var(--color-txt3)] italic py-1">
+                    {msg.text}
+                  </div>
+                );
+              }
+              return (
+                <div key={idx} className="flex items-baseline gap-1.5 text-white text-sm animate-fadeUp">
+                  <span className={`font-bold text-xs ${msg.isSelf ? 'text-[var(--color-green)]' : 'text-[var(--color-accent)]'}`}>
+                    {msg.senderName}:
+                  </span>
+                  <span className="text-sm leading-tight">{msg.text}</span>
+                </div>
+              );
+            })}
           </div>
           <div className="flex items-center gap-2">
             <input

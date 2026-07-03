@@ -60,14 +60,13 @@ function timeAgo(dateString) {
   else return `${years}y ago`;
 }
 
-// ── Extract first URL from text ──
 function extractFirstUrl(text) {
   if (!text) return null;
   const match = text.match(/(https?:\/\/[^\s]+)/);
   return match ? match[0] : null;
 }
 
-export default function PostCard({ post, onLike, onComment, onRepost, onShare }) {
+export default function PostCard({ post, onLike, onComment, onRepost, onShare, onQuote }) {
   if (!post) return null;
 
   const { user: currentUser } = useAuth();
@@ -89,7 +88,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     liveSessionId = null,
     commentCount,
     repostCount,
-    youtubeId, // ✅ from backend
+    youtubeId,
   } = post;
 
   const displayName = post.user?.name || post.author || 'Anonymous';
@@ -108,7 +107,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // ── Link preview state ──
   const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(false);
@@ -120,9 +118,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
   const avatarColor = stringToColor(displayName);
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
 
-  // ── Fetch link preview when post loads (only if no media and no youtubeId) ──
   useEffect(() => {
-    // Don't fetch if there's already image, video, or youtubeId
     if (image || video || youtubeId) return;
     if (!text) return;
     const url = extractFirstUrl(text);
@@ -140,12 +136,8 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
           setPreviewError(true);
         }
       })
-      .catch(() => {
-        setPreviewError(true);
-      })
-      .finally(() => {
-        setPreviewLoading(false);
-      });
+      .catch(() => setPreviewError(true))
+      .finally(() => setPreviewLoading(false));
   }, [id, text, image, video, youtubeId]);
 
   useEffect(() => {
@@ -271,9 +263,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     router.push(`/post/${id}`);
   };
 
-  // ── Render media (image/video/youtube) ──
   const renderMedia = () => {
-    // 1. Uploaded video file takes highest priority
     if (postVideoUrl) {
       return (
         <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5">
@@ -303,7 +293,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
       );
     }
 
-    // 2. Uploaded image
     if (postImageUrl) {
       return (
         <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)]">
@@ -317,7 +306,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
       );
     }
 
-    // 3. YouTube embed (if youtubeId exists)
     if (youtubeId) {
       return (
         <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative" style={{ paddingBottom: '56.25%', height: 0 }}>
@@ -333,11 +321,9 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
       );
     }
 
-    // 4. No media
     return null;
   };
 
-  // ── Render link preview (only if no media and no youtubeId) ──
   const renderLinkPreview = () => {
     if (postImageUrl || postVideoUrl || youtubeId) return null;
     if (previewLoading) {
@@ -459,7 +445,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
     );
   }
 
-  // ── Regular post ──
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
@@ -589,7 +574,6 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               </div>
             </div>
 
-            {/* ── Text with clickable links, hashtags, mentions ── */}
             <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
               {shouldTruncate ? (
                 <span dangerouslySetInnerHTML={{ __html: formatPostText(text.slice(0, 200) + '…') }} />
@@ -606,10 +590,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               )}
             </div>
 
-            {/* ── Media (image/video/youtube) ── */}
             {renderMedia()}
-
-            {/* ── Link Preview (if no media and no youtubeId) ── */}
             {renderLinkPreview()}
           </div>
 
@@ -627,6 +608,19 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare })
               count={repostCount ?? reposts.length}
               onClick={() => onRepost && onRepost(id)}
             />
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onQuote) onQuote(id);
+              }}
+              className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
+              title="Quote this post"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
+              </svg>
+              <span>Quote</span>
+            </button>
             <ShareButton
               count={shares || 0}
               onClick={() => onShare && onShare(id)}

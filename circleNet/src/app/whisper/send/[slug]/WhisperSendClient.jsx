@@ -1,4 +1,4 @@
-// src/app/whisper/send/[username]/WhisperSendClient.jsx
+// src/app/whisper/send/[slug]/WhisperSendClient.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -11,7 +11,7 @@ function resolveMediaUrl(url) {
   return `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}${url}`;
 }
 
-export default function WhisperSendClient({ username }) {
+export default function WhisperSendClient({ slug }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,10 +22,8 @@ export default function WhisperSendClient({ username }) {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/api/whisper/profile/${username}`);
-        if (!res.ok) throw new Error('User not found');
-        const data = await res.json();
-        setProfile(data.data || data);
+        const res = await apiClient(`/api/whisper/profile-by-slug/${slug}`);
+        setProfile(res.data || res);
       } catch (err) {
         setError(err.message || 'Failed to load profile');
       } finally {
@@ -33,24 +31,19 @@ export default function WhisperSendClient({ username }) {
       }
     };
     fetchProfile();
-  }, [username]);
+  }, [slug]);
 
   const handleSend = async () => {
     if (!message.trim()) return;
     setSending(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/api/whisper/send/${username}`, {
+      await apiClient(`/api/whisper/send-by-slug/${slug}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: message.trim() }),
+        body: { message: message.trim() },
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to send');
-      }
       setSent(true);
     } catch (err) {
-      alert(err.message);
+      alert(err.message || 'Failed to send');
     } finally {
       setSending(false);
     }
@@ -166,9 +159,7 @@ export default function WhisperSendClient({ username }) {
           {sending ? (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
           ) : (
-            <>
-              Send anonymously 🤫
-            </>
+            <>Send anonymously 🤫</>
           )}
         </button>
 

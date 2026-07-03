@@ -11,7 +11,6 @@ import ArticleCard from '@/components/articles/ArticleCard';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// ── Helpers ──
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -42,7 +41,7 @@ function Toast({ message, type, onClose }) {
   );
 }
 
-export default function FeedClient() {
+export default function FeedClient({ initialPosts = null }) {
   const { user } = useAuth();
   const router = useRouter();
   const { registerHandler } = useWs();
@@ -58,10 +57,12 @@ export default function FeedClient() {
     loadMore,
     updatePostCounts,
     addPost,
-    toggleLike, // ✅ import toggleLike
+    toggleLike,
+    initPosts,
+    initialized,
   } = useFeed();
 
-  // ── Articles state (local) ──
+  // ── Articles state ──
   const [articles, setArticles] = useState([]);
   const [articlesPage, setArticlesPage] = useState(1);
   const [articlesHasMore, setArticlesHasMore] = useState(false);
@@ -78,7 +79,7 @@ export default function FeedClient() {
   const [toast, setToast] = useState(null);
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
-  // ── WebSocket: listen for post_counts updates ──
+  // ── WebSocket: listen for post_counts ──
   useEffect(() => {
     const unregister = registerHandler('post_counts', (msg) => {
       updatePostCounts(msg.postId, {
@@ -89,6 +90,20 @@ export default function FeedClient() {
     });
     return () => unregister();
   }, [registerHandler, updatePostCounts]);
+
+  // ── Initialize with server-side posts ──
+  useEffect(() => {
+    if (initialPosts && initialPosts.length > 0 && !initialized) {
+      initPosts({
+        posts: initialPosts,
+        hasMore: initialPosts.length === 20,
+        page: 1,
+      });
+    } else if (!initialized && !loading && posts.length === 0 && activeTab !== 'articles') {
+      // No initial posts – fetch normally
+      fetchPosts(activeTab, 1, false);
+    }
+  }, [initialPosts, initPosts, initialized, loading, posts.length, activeTab, fetchPosts]);
 
   // ── Fetch articles ──
   const fetchArticles = useCallback(async (pageNum = 1, append = false) => {
@@ -110,17 +125,6 @@ export default function FeedClient() {
     }
   }, [articlesLoading]);
 
-  // ── Initial load ──
-  useEffect(() => {
-    if (activeTab === 'articles') {
-      if (articles.length === 0 && !articlesLoading) fetchArticles(1, false);
-    } else {
-      if (!loading && posts.length === 0) {
-        fetchPosts(activeTab, 1, false);
-      }
-    }
-  }, [activeTab]);
-
   // ── Handle tab switch ──
   const handleTabChange = (tab) => {
     if (tab === activeTab) return;
@@ -129,10 +133,16 @@ export default function FeedClient() {
       setArticles([]);
       setArticlesPage(1);
       setArticlesHasMore(false);
+      if (!articlesLoading) fetchArticles(1, false);
+    } else {
+      // If switching to posts and we have no posts, fetch
+      if (!initialized && posts.length === 0 && !loading) {
+        fetchPosts(tab, 1, false);
+      }
     }
   };
 
-  // ── Intersection Observer ──
+  // ── Intersection Observer for infinite scroll ──
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -157,13 +167,10 @@ export default function FeedClient() {
   // ── Like ──
   const handleLike = async (postId) => {
     if (!user) { showToast('Log in to like.', 'error'); return; }
-    // Optimistic update
     toggleLike(postId);
     try {
       await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
-      // WS will correct counts if needed
     } catch (_) {
-      // Revert optimistic update on error
       toggleLike(postId);
       showToast('Failed to like.', 'error');
     }
@@ -284,7 +291,6 @@ export default function FeedClient() {
       );
     }
 
-    // Posts feed
     if (loading && posts.length === 0) {
       return (
         <div className="text-center py-8">
@@ -342,7 +348,7 @@ export default function FeedClient() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Composer */}
+      {/* ── Composer ── */}
       {user && activeTab !== 'articles' && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6 shadow-sm">
           <div className="flex items-start gap-3">
@@ -394,7 +400,7 @@ export default function FeedClient() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* ── Tabs ── */}
       <div className="flex gap-2 mb-6 border-b border-[var(--color-border)]">
         <button
           onClick={() => handleTabChange('global')}

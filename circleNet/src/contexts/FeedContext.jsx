@@ -25,7 +25,27 @@ export function FeedProvider({ children }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState('global');
   const [error, setError] = useState(null);
+  const [initialized, setInitialized] = useState(false);
 
+  // ── Initialize posts from server (SSR) ──
+  const initPosts = useCallback(({ posts: initialPosts, hasMore: initialHasMore, page: initialPage = 1 }) => {
+    if (!initialPosts || !initialPosts.length) {
+      setInitialized(true);
+      return;
+    }
+    const postsWithUser = initialPosts.map((p) => ({
+      ...p,
+      user: p.user || { name: p.author || 'Unknown', username: p.authorUsername || '', picture: p.authorPicture || null },
+      commentCount: p.commentCount ?? (p.comments ? p.comments.length : 0),
+      repostCount: p.repostCount ?? (p.reposts ? p.reposts.length : 0),
+    }));
+    setPosts(dedupePosts(postsWithUser));
+    setHasMore(initialHasMore);
+    setPage(initialPage);
+    setInitialized(true);
+  }, []);
+
+  // ── Fetch posts (client-side) ──
   const fetchPosts = useCallback(async (tab, pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
@@ -76,6 +96,7 @@ export function FeedProvider({ children }) {
     fetchPosts(activeTab, page + 1, true);
   }, [activeTab, hasMore, loadingMore, page, fetchPosts]);
 
+  // ── Update counts via WebSocket ──
   const updatePostCounts = useCallback((postId, { likes, comments, reposts }) => {
     setPosts((prev) => {
       const updated = prev.map((p) => {
@@ -125,6 +146,7 @@ export function FeedProvider({ children }) {
     loadingMore,
     activeTab,
     error,
+    initialized,
     setActiveTab,
     fetchPosts,
     loadMore,
@@ -132,6 +154,7 @@ export function FeedProvider({ children }) {
     updatePostCounts,
     addPost,
     toggleLike,
+    initPosts,
   };
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;

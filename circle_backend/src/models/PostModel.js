@@ -384,6 +384,21 @@ async function addComment(postId, userId, text, parentId = null) {
   return result.insertId;
 }
 
+async function getCommentsOnUserPosts(userId, limit = 3) {
+  const [rows] = await db.query(
+    `SELECT c.id, c.post_id, c.text, c.created_at,
+            u.name AS commenterName
+     FROM comments c
+     JOIN posts p ON p.id = c.post_id
+     JOIN users u ON u.id = c.user_id
+     WHERE p.user_id = ?
+     ORDER BY c.created_at DESC
+     LIMIT ?`,
+    [userId, limit]
+  );
+  return rows;
+}
+
 // ── Repost ─────────────────────────────────────────────────
 async function getExistingRepost(userId, originalPostId) {
   const [rows] = await db.query(
@@ -714,6 +729,7 @@ module.exports = {
   removeLike,
   getLikeCount,
   addComment,
+  getCommentsOnUserPosts,
   getExistingRepost,
   createRepost,
   deleteRepost,

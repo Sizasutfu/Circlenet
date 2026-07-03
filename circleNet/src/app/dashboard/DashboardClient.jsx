@@ -8,7 +8,6 @@ import { useDm } from '@/contexts/DmContext';
 import { useWhisper } from '@/contexts/WhisperContext';
 import { useGroups } from '@/contexts/GroupsContext';
 import { useLive } from '@/contexts/LiveContext';
-import { useExplore } from '@/contexts/ExploreContext';
 import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -40,12 +39,18 @@ export default function DashboardClient() {
   const { messages: whisperMessages } = useWhisper();
   const { myGroups } = useGroups();
   const { activeSessions } = useLive();
-  const { topics } = useExplore();
 
   const [totalPosts, setTotalPosts] = useState(0);
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  const [recentComments, setRecentComments] = useState([]);
+  const [recentCommentsLoading, setRecentCommentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+
+  // ── Monetization state (placeholder) ──
+  const [earnings, setEarnings] = useState(0);
+  const [pending, setPending] = useState(0);
+  const [withdrawals, setWithdrawals] = useState(0);
 
   // ── Fetch profile stats ──
   useEffect(() => {
@@ -53,27 +58,82 @@ export default function DashboardClient() {
       router.push('/login');
       return;
     }
-    const fetchStats = async () => {
+
+    let isMounted = true;
+    let timeoutId = null;
+
+    const fetchData = async () => {
       try {
+        // Fetch profile stats
         const res = await apiClient(`/api/users/${user.id}/profile`);
-        const profile = res.data || res;
-        setTotalPosts(profile.postCount || 0);
-        setFollowerCount(profile.followerCount || 0);
-        setFollowingCount(profile.followingCount || 0);
-      } catch (_) {
-        // fallback
+        if (isMounted) {
+          const profile = res.data || res;
+          setTotalPosts(profile.postCount || 0);
+          setFollowerCount(profile.followerCount || 0);
+          setFollowingCount(profile.followingCount || 0);
+        }
+      } catch (err) {
+        console.error('Failed to fetch profile stats:', err);
+        if (isMounted) {
+          setTotalPosts(0);
+          setFollowerCount(0);
+          setFollowingCount(0);
+        }
+      }
+
+      // Fetch recent comments (on the user's own posts)
+      try {
+        // Use the correct endpoint: /api/users/:id/comments?limit=3
+      const res = await apiClient(`/api/posts/comments-on-posts/${user.id}?limit=3`);
+        if (isMounted) {
+          const comments = res.data || [];
+          setRecentComments(comments);
+        }
+      } catch (err) {
+        console.error('Failed to fetch recent comments:', err);
+        if (isMounted) {
+          setRecentComments([]);
+        }
       } finally {
+        if (isMounted) {
+          setRecentCommentsLoading(false);
+        }
+      }
+
+      // ── Monetization data (placeholder) ──
+      if (isMounted) {
+        setEarnings(0);
+        setPending(0);
+        setWithdrawals(0);
+      }
+
+      if (isMounted) {
         setLoading(false);
       }
     };
-    fetchStats();
+
+    fetchData();
+
+    // Safety timeout
+    timeoutId = setTimeout(() => {
+      if (isMounted && loading) {
+        setLoading(false);
+        setRecentCommentsLoading(false);
+        console.warn('Dashboard loading timed out – forced render.');
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [user, router]);
 
   // ── Unread whispers ──
-  const unreadWhispers = whisperMessages.filter((m) => !m.read).length;
+  const unreadWhispers = whisperMessages?.filter((m) => !m.read).length || 0;
 
   // ── Unread DMs ──
-  const unreadDMs = inbox.reduce((acc, conv) => acc + (conv.unread_count || 0), 0);
+  const unreadDMs = inbox?.reduce((acc, conv) => acc + (conv.unread_count || 0), 0) || 0;
 
   // ── Stats ──
   const stats = [
@@ -118,7 +178,7 @@ export default function DashboardClient() {
     },
     {
       label: 'Notifications',
-      value: unreadCount,
+      value: unreadCount || 0,
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -130,11 +190,25 @@ export default function DashboardClient() {
     },
   ];
 
-  if (loading) {
+  if (loading && user) {
     return (
       <div className="max-w-6xl mx-auto p-8 text-center text-[var(--color-txt2)]">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
         <p className="mt-4">Loading dashboard…</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="max-w-6xl mx-auto p-8 text-center text-[var(--color-txt2)]">
+        <p>Please log in to view your dashboard.</p>
+        <button
+          onClick={() => router.push('/login')}
+          className="mt-4 px-4 py-2 bg-[var(--color-accent)] text-white rounded-lg"
+        >
+          Log in
+        </button>
       </div>
     );
   }
@@ -194,14 +268,82 @@ export default function DashboardClient() {
         </button>
       </div>
 
-      {/* ── Two-column layout ── */}
+      {/* ── Monetization Section ── */}
+      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-5 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-head font-bold text-[var(--color-txt)]">💰 Monetization</h2>
+          <Link
+            href="/settings/monetization"
+            className="text-sm text-[var(--color-accent)] hover:underline"
+          >
+            Manage
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-green-500/20 text-green-500">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M8 12h8" />
+                <path d="M12 8v8" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-2xl font-head font-bold text-[var(--color-txt)]">${earnings.toFixed(2)}</div>
+              <div className="text-sm text-[var(--color-txt2)]">Total Earnings</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-blue-500/20 text-blue-500">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                <line x1="16" y1="21" x2="16" y2="23" />
+                <line x1="8" y1="21" x2="8" y2="23" />
+                <line x1="12" y1="15" x2="12" y2="18" />
+                <path d="M2 12h20" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-2xl font-head font-bold text-[var(--color-txt)]">${pending.toFixed(2)}</div>
+              <div className="text-sm text-[var(--color-txt2)]">Pending Balance</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-purple-500/20 text-purple-500">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M12 2v4M12 22v-4M4 12H2M22 12h-2M4 4l2 2M20 4l-2 2M4 20l2-2M20 20l-2-2" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-2xl font-head font-bold text-[var(--color-txt)]">{withdrawals}</div>
+              <div className="text-sm text-[var(--color-txt2)]">Withdrawals</div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 pt-4 border-t border-[var(--color-border)] flex flex-wrap gap-3">
+          <button
+            onClick={() => router.push('/settings/monetization/withdraw')}
+            className="px-4 py-2 bg-[var(--color-accent)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--color-accent-h)] transition"
+          >
+            Withdraw Funds
+          </button>
+          <button
+            onClick={() => router.push('/settings/monetization')}
+            className="px-4 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-lg text-sm font-medium hover:bg-[var(--color-surface)] transition"
+          >
+            Setup Payment Method
+          </button>
+        </div>
+      </div>
+
+      {/* ── Two-column layout: Live streams + Groups (left) / Recent Comments (right) ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Left: Live streams + Groups */}
+        {/* Left column: Live streams + Groups */}
         <div className="space-y-6">
           {/* Live streams */}
           <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
             <h2 className="font-head font-bold text-[var(--color-txt)] mb-3">🔴 Live Streams</h2>
-            {activeSessions.length === 0 ? (
+            {!activeSessions || activeSessions.length === 0 ? (
               <p className="text-sm text-[var(--color-txt2)]">No one is live right now.</p>
             ) : (
               <div className="space-y-2">
@@ -240,7 +382,7 @@ export default function DashboardClient() {
                 View all
               </Link>
             </div>
-            {myGroups.length === 0 ? (
+            {!myGroups || myGroups.length === 0 ? (
               <p className="text-sm text-[var(--color-txt2)]">You haven't joined any groups yet.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -258,27 +400,37 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* Right: Trending topics */}
+        {/* Right column: Recent Comments on your posts */}
         <div className="space-y-6">
           <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-head font-bold text-[var(--color-txt)]">🔥 Trending Topics</h2>
-              <Link href="/explore" className="text-xs text-[var(--color-accent)] hover:underline">
-                Explore
+              <h2 className="font-head font-bold text-[var(--color-txt)]">💬 Recent Comments on Your Posts</h2>
+              <Link href="/profile" className="text-xs text-[var(--color-accent)] hover:underline">
+                View all
               </Link>
             </div>
-            {topics.length === 0 ? (
-              <p className="text-sm text-[var(--color-txt2)]">No trending topics yet.</p>
-            ) : (
+            {recentCommentsLoading ? (
               <div className="space-y-2">
-                {topics.slice(0, 5).map((topic) => (
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-[var(--color-surface)] animate-pulse rounded-lg" />
+                ))}
+              </div>
+            ) : recentComments.length === 0 ? (
+              <p className="text-sm text-[var(--color-txt2)]">No comments on your posts yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {recentComments.map((comment) => (
                   <Link
-                    key={topic.topic}
-                    href={`/topic/${encodeURIComponent(topic.topic)}`}
-                    className="flex items-center justify-between p-2 hover:bg-[var(--color-surface)] rounded-lg transition"
+                    key={comment.id}
+                    href={`/post/${comment.post_id}`}
+                    className="block p-2 hover:bg-[var(--color-surface)] rounded-lg transition"
                   >
-                    <span className="text-sm text-[var(--color-txt)]">#{topic.topic}</span>
-                    <span className="text-xs text-[var(--color-txt2)]">{topic.post_count} posts</span>
+                    <p className="text-sm text-[var(--color-txt)] line-clamp-2">
+                      {comment.text}
+                    </p>
+                    <p className="text-xs text-[var(--color-txt3)] mt-1">
+                      by <span className="text-[var(--color-accent)]">{comment.commenterName || 'Someone'}</span> · {new Date(comment.created_at).toLocaleDateString()}
+                    </p>
                   </Link>
                 ))}
               </div>

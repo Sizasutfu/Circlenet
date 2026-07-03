@@ -407,6 +407,8 @@ async function repost(req, res) {
       });
     }
 
+   
+
     // ── Bump topic affinity ──────────────────────────────────
     const topics = await TopicPreferenceModel.getPostTopics(origId);
     await TopicPreferenceModel.recordEngagement(userId, topics, 'repost');
@@ -450,6 +452,19 @@ async function broadcastPostCounts(postId) {
     comments,
     reposts,
   });
+}
+
+
+ async function getCommentsOnUserPosts(req, res) {
+  const userId = parseInt(req.params.id);
+  const limit = Math.min(50, parseInt(req.query.limit) || 3);
+  if (!userId) return sendError(res, 400, 'Invalid user ID.');
+  try {
+    const comments = await PostModel.getCommentsOnUserPosts(userId, limit);
+    return sendOk(res, 200, 'Comments fetched.', comments);
+  } catch (err) {
+    return sendError(res, 500, 'Server error.');
+  }
 }
 
 // POST /api/posts/:id/view
@@ -617,4 +632,6 @@ module.exports = {
   getPostsByTopic,
   getGroupPosts,
   updatePost,
+  getCommentsOnUserPosts, // ✅ export the new function
+
 };

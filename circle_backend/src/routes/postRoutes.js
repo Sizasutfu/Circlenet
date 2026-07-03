@@ -27,6 +27,7 @@ router.delete('/:id', requireAuth, postController.deletePost);
 router.post('/:id/like',    requireAuth, postController.toggleLike);
 router.post('/:id/comment', requireAuth, postController.addComment);
 router.post('/:id/repost',   requireAuth, postController.repost);
+router.get('/:id/comments-on-posts', requireAuth, postController.getCommentsOnUserPosts);
 //router.delete('/:id/repost', requireAuth, postController.unrepost);
 
 // View count — auth optional (guests tracked by fingerprint)

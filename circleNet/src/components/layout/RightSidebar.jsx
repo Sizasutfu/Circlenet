@@ -59,16 +59,18 @@ export default function RightSidebar() {
   const [topArticles, setTopArticles] = useState([]);
   const [topArticlesLoading, setTopArticlesLoading] = useState(false);
 
-  // ── Fetch author info if on post detail ──
+  // ── Fetch author info with stats ──
   useEffect(() => {
     if (!isPostDetail || !postId) return;
     setAuthorLoading(true);
     const fetchAuthor = async () => {
       try {
+        // First get the post to find the author ID
         const res = await apiClient(`/api/posts/${postId}`);
         const post = res.data || res;
         const userInfo = post.user || { name: post.author, picture: post.authorPicture, id: post.authorId };
         if (userInfo && userInfo.id) {
+          // Fetch full profile with stats
           const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
           const profile = profileRes.data || profileRes;
           setAuthor({ ...userInfo, ...profile });
@@ -77,6 +79,7 @@ export default function RightSidebar() {
         }
       } catch (err) {
         console.error('Failed to fetch author:', err);
+        setAuthor(null);
       } finally {
         setAuthorLoading(false);
       }
@@ -90,7 +93,7 @@ export default function RightSidebar() {
     setTopArticlesLoading(true);
     const fetchTopArticles = async () => {
       try {
-        const res = await apiClient('/api/articles/top?limit=5');
+        const res = await apiClient('/api/articles/top?limit=4');
         const data = res.data || res;
         const articles = data.articles || data || [];
         setTopArticles(articles);
@@ -270,10 +273,17 @@ export default function RightSidebar() {
                   {author.bio && <p className="text-xs text-[var(--color-txt3)] mt-1 line-clamp-2">{author.bio}</p>}
                 </div>
               </div>
+              {/* ── Stats ── */}
               <div className="flex items-center gap-4 text-xs text-[var(--color-txt3)]">
-                <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(author.postCount || 0)}</span> posts</span>
-                <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(author.followerCount || 0)}</span> followers</span>
-                <span><span className="font-bold text-[var(--color-txt)]">{fmtNum(author.followingCount || 0)}</span> following</span>
+                <span>
+                  <span className="font-bold text-[var(--color-txt)]">{fmtNum(author.postCount || 0)}</span> posts
+                </span>
+                <span>
+                  <span className="font-bold text-[var(--color-txt)]">{fmtNum(author.followerCount || 0)}</span> followers
+                </span>
+                <span>
+                  <span className="font-bold text-[var(--color-txt)]">{fmtNum(author.followingCount || 0)}</span> following
+                </span>
               </div>
               {user && user.id !== author.id && (
                 <button

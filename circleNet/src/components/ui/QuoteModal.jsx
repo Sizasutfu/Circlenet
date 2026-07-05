@@ -80,6 +80,7 @@ export default function QuoteModal({ post, onClose, onSuccess }) {
                 type="button"
                 onClick={onClose}
                 className="px-4 py-2 text-sm text-[var(--color-txt2)] hover:bg-[var(--color-surface)] rounded-lg transition"
+                title='Close'
               >
                 Cancel
               </button>

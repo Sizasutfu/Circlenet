@@ -459,6 +459,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
                 onClick={handleLogout}
                 className="rounded-lg p-2 text-[var(--color-txt3)] transition-colors hover:bg-[var(--color-rose-bg)] hover:text-[var(--color-rose)]"
                 aria-label="Logout"
+                title="Logout"
               >
                 <svg
                   className="h-4 w-4"

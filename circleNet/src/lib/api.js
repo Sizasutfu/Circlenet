@@ -3,7 +3,7 @@ const getBaseURL = () => {
   if (process.env.NODE_ENV === 'production') {
     return process.env.NEXT_PUBLIC_API_BASE_URL || '';
   }
-  return 'http://localhost:5000';
+  return ' http://localhost:5000';
 };
 
 export async function apiClient(endpoint, options = {}) {

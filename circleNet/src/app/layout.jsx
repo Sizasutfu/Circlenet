@@ -1,7 +1,7 @@
 // src/app/layout.jsx
 import './globals.css';
 import Providers from './Providers';
-import ClientLayout from './ClientLayout'; // 👈 import the client layout
+import ClientLayout from './ClientLayout';
 
 export const metadata = {
   title: {
@@ -9,12 +9,12 @@ export const metadata = {
     template: '%s | Circlenet',
   },
   description:
-    'Circlenet Articles is a modern blog for community stories, tutorials, and insights about social publishing.',
+    'Circlenet is a modern platform for articles, live streams, and real‑time conversations. Join the community today.',
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://www.circlenet.social'),
   openGraph: {
     title: 'Circlenet',
     description:
-      'Circlenet Articles is a modern blog for community stories, tutorials, and insights about social publishing.',
+      'Circlenet is a modern platform for articles, live streams, and real‑time conversations. Join the community today.',
     siteName: 'Circlenet',
     type: 'website',
     locale: 'en_US',
@@ -23,7 +23,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Circlenet',
     description:
-      'Circlenet Articles is a modern blog for community stories, tutorials, and insights about social publishing.',
+      'Circlenet is a modern platform for articles, live streams, and real‑time conversations. Join the community today.',
   },
   robots: {
     index: true,

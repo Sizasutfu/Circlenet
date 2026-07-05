@@ -8,6 +8,7 @@ export default function LikeButton({ count = 0, active = false, onToggle }) {
       className={`flex items-center gap-1 transition hover:text-[var(--color-rose)] ${
         active ? 'text-[var(--color-rose)]' : ''
       }`}
+      title="Like"
     >
       <svg
         className="w-4 h-4"

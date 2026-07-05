@@ -51,7 +51,7 @@ export default function DmChat() {
     typing,
     emitTyping,
     closeConversation,
-    otherOnline, // ✅ new
+    otherOnline,
   } = useDm();
 
   const [input, setInput] = useState('');
@@ -218,7 +218,7 @@ export default function DmChat() {
               <div className="text-[11px] font-medium text-[var(--color-txt3)] text-right mt-1 mr-0.5">Seen</div>
             ) : null;
 
-          // ✅ Unique key to prevent duplicate warnings
+          // Unique key to prevent duplicate warnings
           const key = `${msg.id}-${msg.created_at}-${msg.sender_id}-${isTmp ? 'tmp' : 'real'}`;
 
           return (

@@ -58,7 +58,7 @@ body {
   font-family: var(--font-family-body);
   -webkit-font-smoothing: antialiased;
   line-height: 1.7;
-  margin: 0; /* ✅ fixed: removed 20px margin */
+  margin: 0; 
 }
 
 /* Keyframe for animations */
@@ -81,6 +81,8 @@ body {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* live emojies */
 
 @keyframes floatUp {
   0% {

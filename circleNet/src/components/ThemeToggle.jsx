@@ -1,22 +1,29 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
-const THEME_STORAGE_KEY = 'theme-preference';
+const THEME_STORAGE_KEY = "theme-preference";
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState("dark");
 
   useEffect(() => {
-    const storedTheme = typeof window !== 'undefined' ? localStorage.getItem(THEME_STORAGE_KEY) : null;
-    const defaultTheme = storedTheme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    const storedTheme =
+      typeof window !== "undefined"
+        ? localStorage.getItem(THEME_STORAGE_KEY)
+        : null;
+    const defaultTheme =
+      storedTheme ||
+      (window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark");
 
     document.documentElement.dataset.theme = defaultTheme;
     setTheme(defaultTheme);
   }, []);
 
   const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    const nextTheme = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nextTheme;
     setTheme(nextTheme);
     localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
@@ -28,8 +35,9 @@ export default function ThemeToggle() {
       onClick={toggleTheme}
       className="inline-flex h-10 w-10 items-center justify-center rounded-radius-sm border border-border bg-transparent text-txt transition hover:border-accent hover:text-accent"
       aria-label="Toggle color mode"
+      title="Toogle theme"
     >
-      {theme === 'dark' ? (
+      {theme === "dark" ? (
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 24 24"
@@ -37,6 +45,7 @@ export default function ThemeToggle() {
           stroke="currentColor"
           strokeWidth="2.5"
           className="h-5 w-5"
+          
         >
           <circle cx="12" cy="12" r="5" />
           <path d="M12 1v2" />

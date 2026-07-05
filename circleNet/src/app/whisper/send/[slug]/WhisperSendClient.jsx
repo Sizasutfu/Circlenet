@@ -105,6 +105,7 @@ export default function WhisperSendClient({ slug }) {
         <Link
           href="/"
           className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-txt2)] bg-[var(--color-card)] border border-[var(--color-border)] px-3 py-1.5 rounded-full"
+          title='Back to circle'
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <path d="M19 12H5M12 5l-7 7 7 7" />

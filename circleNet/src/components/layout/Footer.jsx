@@ -173,6 +173,7 @@ export default function Footer() {
                 rel="noopener noreferrer"
                 className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
                 aria-label="Twitter"
+                title='Follow us on X'
               >
                 <TwitterIcon />
               </a>
@@ -182,6 +183,7 @@ export default function Footer() {
                 rel="noopener noreferrer"
                 className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
                 aria-label="GitHub"
+                title='Follow us on Github'
               >
                 <GitHubIcon />
               </a>
@@ -191,6 +193,7 @@ export default function Footer() {
                 rel="noopener noreferrer"
                 className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
                 aria-label="YouTube"
+                title='Subscribe on our youtube channel'
               >
                 <YouTubeIcon />
               </a>
@@ -207,6 +210,8 @@ export default function Footer() {
                   <option value="fr">Français</option>
                   <option value="es">Español</option>
                   <option value="de">Deutsch</option>
+                  <option value="si">Siswati</option>
+                  <option value="zu">IsiZulu</option>
                 </select>
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-txt3)]"><GlobeIcon /></span>
               </div>
@@ -257,7 +262,7 @@ export default function Footer() {
                 type="submit"
                 className="px-4 py-1.5 bg-[var(--color-accent)] text-white rounded text-sm font-medium hover:bg-[var(--color-accent-h)] transition whitespace-nowrap"
               >
-                {subscribed ? '✅ Subscribed!' : 'Subscribe'}
+                {subscribed ? ' Subscribed! ✅' : 'Subscribe'}
               </button>
             </form>
           </div>

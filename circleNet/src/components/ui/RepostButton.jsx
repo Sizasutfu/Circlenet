@@ -6,6 +6,7 @@ export default function RepostButton({ count = 0, onClick }) {
     <button
       onClick={onClick}
       className="flex items-center gap-1 transition hover:text-[var(--color-green)]"
+      title="Repost"
     >
       <svg
         className="w-4 h-4"

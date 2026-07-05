@@ -6,6 +6,7 @@ export default function ShareButton({ count = 0, onClick }) {
     <button
       onClick={onClick}
       className="flex items-center gap-1 transition hover:text-[var(--color-accent)]"
+      title="Share this post"
     >
       <svg
         className="w-4 h-4"

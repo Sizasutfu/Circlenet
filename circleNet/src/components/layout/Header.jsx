@@ -92,6 +92,7 @@ export default function Header({ onMenuClick }) {
               onClick={goBack}
               className="inline-flex items-center justify-center text-[var(--color-txt2)] text-sm font-semibold p-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-transparent hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-bg)] transition-all"
               aria-label="Go back"
+              title='Back'
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
                 <path d="M15 18l-6-6 6-6" />

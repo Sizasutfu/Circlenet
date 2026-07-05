@@ -467,6 +467,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                     href={profileUrl}
                     className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
                     onClick={(e) => e.stopPropagation()}
+                    title='View profile'
                   >
                     {displayName}
                   </Link>
@@ -518,6 +519,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                       onClick={handleSharePostImage}
                       disabled={imageLoading}
                       className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                     
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <circle cx="18" cy="5" r="3" />
@@ -582,7 +584,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
                 </svg>
-                <span>Quote</span>
+            
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
               {isAuthor && viewCount > 0 && (
@@ -825,7 +827,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
               </svg>
-              <span>Quote</span>
+             
             </button>
             <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
             {isAuthor && viewCount > 0 && (

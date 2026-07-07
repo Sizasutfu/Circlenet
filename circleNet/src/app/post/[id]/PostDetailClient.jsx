@@ -93,49 +93,53 @@ export default function PostDetailClient({ postId }) {
   const [creator, setCreator] = useState(null);
   const [creatorLoading, setCreatorLoading] = useState(true);
 
+  // ── Reply states ──
+  const [replyTexts, setReplyTexts] = useState({}); // { commentId: text }
+  const [replySubmitting, setReplySubmitting] = useState({}); // { commentId: boolean }
+  const [replyingTo, setReplyingTo] = useState(null); // commentId or null
+
   // ── Fetch post and comments ──
-  useEffect(() => {
+  const fetchPostData = async () => {
     if (!postId) {
       setError('Post ID missing.');
       setLoading(false);
       return;
     }
+    try {
+      const response = await apiClient(`/api/posts/${postId}`);
+      const data = response.data || response;
+      setPost(data);
+      setComments(dedupeComments(data.comments || []));
 
-    const fetchPost = async () => {
-      try {
-        const response = await apiClient(`/api/posts/${postId}`);
-        const data = response.data || response;
-        setPost(data);
-        setComments(dedupeComments(data.comments || []));
-
-        const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
-        if (userInfo && userInfo.id) {
-          setCreator(userInfo);
-          try {
-            const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
-            const profile = profileRes.data || profileRes;
-            setCreator((prev) => ({ ...prev, ...profile }));
-            setIsFollowing(profile.isFollowing || false);
-            setFollowerCount(profile.followerCount || 0);
-          } catch (_) {}
-        }
-        setCreatorLoading(false);
-      } catch (err) {
-        console.error('Error fetching post:', err);
-        setError(err.message || 'Failed to load post.');
-      } finally {
-        setLoading(false);
+      const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
+      if (userInfo && userInfo.id) {
+        setCreator(userInfo);
+        try {
+          const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
+          const profile = profileRes.data || profileRes;
+          setCreator((prev) => ({ ...prev, ...profile }));
+          setIsFollowing(profile.isFollowing || false);
+          setFollowerCount(profile.followerCount || 0);
+        } catch (_) {}
       }
-    };
-    fetchPost();
+      setCreatorLoading(false);
+    } catch (err) {
+      console.error('Error fetching post:', err);
+      setError(err.message || 'Failed to load post.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPostData();
   }, [postId]);
 
-  // ── WebSocket: listen for new comments ──
+  // ── WebSocket: listen for new comments (including replies) ──
   useEffect(() => {
     const unregisterNewComment = registerHandler('new_comment', (msg) => {
       if (msg.postId === parseInt(postId)) {
         setComments((prev) => {
-          // Prevent duplicates
           if (prev.some((c) => c.id === msg.comment.id)) return dedupeComments(prev);
           return dedupeComments([msg.comment, ...prev]);
         });
@@ -260,6 +264,129 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
+  // ── Reply handlers ──
+  const toggleReply = (commentId) => {
+    if (replyingTo === commentId) {
+      setReplyingTo(null);
+      setReplyTexts((prev) => ({ ...prev, [commentId]: '' }));
+    } else {
+      setReplyingTo(commentId);
+      if (!replyTexts[commentId]) {
+        setReplyTexts((prev) => ({ ...prev, [commentId]: '' }));
+      }
+    }
+  };
+
+  const handleReplySubmit = async (commentId) => {
+    if (!user) {
+      showToast('Please log in to reply.', 'error');
+      return;
+    }
+    const text = replyTexts[commentId]?.trim();
+    if (!text) return;
+    setReplySubmitting((prev) => ({ ...prev, [commentId]: true }));
+    try {
+      const res = await apiClient(`/api/posts/${postId}/comment`, {
+        method: 'POST',
+        body: { text, parentId: commentId },
+      });
+      const newComment = res.data || res;
+      // 🔁 Optimistically add the reply to the comments list
+      setComments((prev) => dedupeComments([...prev, newComment]));
+      // Clear the reply input and close the reply box
+      setReplyTexts((prev) => ({ ...prev, [commentId]: '' }));
+      setReplyingTo(null);
+      showToast('Reply added!', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to add reply.', 'error');
+    } finally {
+      setReplySubmitting((prev) => ({ ...prev, [commentId]: false }));
+    }
+  };
+
+  // ── Recursive comment renderer ──
+  const renderComment = (comment, depth = 0) => {
+    const { name, username, picture } = getCommentUser(comment);
+    const avatarUrl = resolveMediaUrl(picture);
+    const initial = name.charAt(0).toUpperCase();
+    const color = stringToColor(name);
+    const isReplying = replyingTo === comment.id;
+    const replyText = replyTexts[comment.id] || '';
+    const isSubmittingReply = replySubmitting[comment.id] || false;
+
+    // Get replies (comments that have this comment as parentId)
+    const replies = comments.filter((c) => c.parentId === comment.id);
+
+    return (
+      <div key={comment.id} className="border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
+        <div className="flex gap-3">
+          <div
+            className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+            style={{ background: avatarUrl ? 'transparent' : color }}
+          >
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={name} className="w-full h-full object-cover rounded-full" />
+            ) : (
+              initial
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>
+              <span className="text-xs text-[var(--color-txt3)]">@{username}</span>
+              <span className="text-xs text-[var(--color-txt3)]">
+                · {new Date(comment.createdAt).toLocaleString()}
+              </span>
+            </div>
+            <p className="text-sm text-[var(--color-txt)] mt-0.5">{comment.text}</p>
+            <div className="flex items-center gap-3 mt-1">
+              <button
+                onClick={() => toggleReply(comment.id)}
+                className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition"
+              >
+                {isReplying ? 'Cancel' : 'Reply'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Reply input (shown when replying to this comment) */}
+        {isReplying && (
+          <div className="mt-3 ml-11 flex gap-2">
+            <input
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyTexts((prev) => ({ ...prev, [comment.id]: e.target.value }))}
+              placeholder="Write a reply…"
+              className="flex-1 bg-[var(--color-surface)] rounded-[var(--radius-radius-sm)] px-3 py-1.5 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:outline-none"
+              disabled={isSubmittingReply}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleReplySubmit(comment.id);
+                }
+              }}
+            />
+            <button
+              onClick={() => handleReplySubmit(comment.id)}
+              disabled={isSubmittingReply || !replyText.trim()}
+              className="px-3 py-1.5 bg-[var(--color-accent)] text-white rounded-[var(--radius-radius-sm)] text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+            >
+              {isSubmittingReply ? '…' : 'Reply'}
+            </button>
+          </div>
+        )}
+
+        {/* Render replies recursively */}
+        {replies.length > 0 && (
+          <div className="ml-11 mt-3 space-y-3 border-l-2 border-[var(--color-border)] pl-4">
+            {replies.map((reply) => renderComment(reply, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="max-w-2xl mx-auto p-8 text-center text-[var(--color-txt2)]">
@@ -291,6 +418,9 @@ export default function PostDetailClient({ postId }) {
   const creatorColor = stringToColor(creatorName);
   const avatarUrl = resolveMediaUrl(creatorAvatar);
 
+  // ── Separate top-level comments (parentId = null or undefined) ──
+  const topLevelComments = comments.filter((c) => !c.parentId);
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -298,7 +428,7 @@ export default function PostDetailClient({ postId }) {
       <button
         onClick={() => router.back()}
         className="flex items-center gap-1 text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition mb-4"
-        title='Click to go back'
+        title="Click to go back"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -418,47 +548,13 @@ export default function PostDetailClient({ postId }) {
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-[var(--color-txt2)]">Comments ({comments.length})</h3>
-        {comments.length === 0 ? (
+        <h3 className="text-sm font-semibold text-[var(--color-txt2)]">
+          Comments ({topLevelComments.length})
+        </h3>
+        {topLevelComments.length === 0 ? (
           <p className="text-sm text-[var(--color-txt3)]">No comments yet. Be the first!</p>
         ) : (
-          comments.map((comment) => {
-            const { name, username, picture } = getCommentUser(comment);
-            const avatarUrlComment = resolveMediaUrl(picture);
-            const initial = name.charAt(0).toUpperCase();
-            const color = stringToColor(name);
-            return (
-              <div
-                key={comment.id}
-                className="flex gap-3 border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow"
-              >
-                <div
-                  className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                  style={{ background: avatarUrlComment ? 'transparent' : color }}
-                >
-                  {avatarUrlComment ? (
-                    <img
-                      src={avatarUrlComment}
-                      alt={name}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    initial
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>
-                    <span className="text-xs text-[var(--color-txt3)]">@{username}</span>
-                    <span className="text-xs text-[var(--color-txt3)]">
-                      · {new Date(comment.createdAt).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-sm text-[var(--color-txt)] mt-0.5">{comment.text}</p>
-                </div>
-              </div>
-            );
-          })
+          topLevelComments.map((comment) => renderComment(comment))
         )}
       </div>
     </div>

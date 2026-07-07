@@ -31,6 +31,31 @@ function fmtNum(n) {
   return String(n || 0);
 }
 
+// ── Profile cache ──
+const profileCache = new Map();
+
+function getCacheKey(username, userId) {
+  return username || `user-${userId}`;
+}
+
+function getCachedProfile(key) {
+  const entry = profileCache.get(key);
+  if (!entry) return null;
+  // Cache expires after 60 seconds (longer to preserve scroll position)
+  if (Date.now() - entry.timestamp > 60000) {
+    profileCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedProfile(key, data) {
+  profileCache.set(key, {
+    data,
+    timestamp: Date.now(),
+  });
+}
+
 // ── User list modal ──
 function UserListModal({ title, users, onClose, isLoading }) {
   const { user: currentUser } = useAuth();
@@ -113,14 +138,18 @@ export default function ProfileClient({ username = null, initialUser = null }) {
 
   const userIdParam = searchParams?.get('userId') ? parseInt(searchParams.get('userId')) : null;
   const isOwnProfile = !username && !userIdParam && currentUser;
+  const profileKey = getCacheKey(username, userIdParam || currentUser?.id);
 
-  const [profile, setProfile] = useState(initialUser);
-  const [loading, setLoading] = useState(!initialUser);
+  // ── State (initialized from cache if available) ──
+  const cached = getCachedProfile(profileKey);
+
+  const [profile, setProfile] = useState(cached?.profile || initialUser || null);
+  const [loading, setLoading] = useState(!profile && !initialUser);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('posts');
-  const [posts, setPosts] = useState([]);
-  const [postsPage, setPostsPage] = useState(1);
-  const [postsHasMore, setPostsHasMore] = useState(false);
+  const [posts, setPosts] = useState(cached?.posts || []);
+  const [postsPage, setPostsPage] = useState(cached?.page || 1);
+  const [postsHasMore, setPostsHasMore] = useState(cached?.hasMore || false);
   const [postsLoading, setPostsLoading] = useState(false);
   const postsLoadMoreRef = useRef(null);
   const [toast, setToast] = useState(null);
@@ -133,13 +162,32 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     setTimeout(() => setToast(null), 4000);
   };
 
+  // ── Refs ──
+  const profileRef = useRef(profile);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
+
+  // ── Fetch profile ──
   useEffect(() => {
+    // If initialUser provided, use it and skip fetch
     if (initialUser) {
       setProfile(initialUser);
+      setLoading(false);
+      // Cache it
+      setCachedProfile(profileKey, { profile: initialUser, posts, page: postsPage, hasMore: postsHasMore });
+      return;
+    }
+
+    // If we have cached data, use it
+    if (cached && cached.profile) {
+      setProfile(cached.profile);
+      setPosts(cached.posts || []);
+      setPostsPage(cached.page || 1);
+      setPostsHasMore(cached.hasMore || false);
       setLoading(false);
       return;
     }
 
+    // Determine endpoint
     let endpoint;
     if (username) {
       endpoint = `/api/users/by-username/${username}`;
@@ -157,7 +205,10 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       setError(null);
       try {
         const res = await apiClient(endpoint);
-        setProfile(res.data || res);
+        const profileData = res.data || res;
+        setProfile(profileData);
+        // Cache profile data (posts will be cached separately)
+        setCachedProfile(profileKey, { profile: profileData, posts: [], page: 1, hasMore: false });
       } catch (err) {
         console.error('[Profile] Error:', err);
         setError(err.message || 'Failed to load profile');
@@ -169,6 +220,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       }
     };
 
+    // Avoid re-fetching if we already have the correct profile
     const profileId = profile?.id;
     const targetId = userIdParam || currentUser?.id;
     if (profileId && (profileId === targetId || profile.username === username)) {
@@ -177,31 +229,44 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
 
     fetchProfile();
-  }, [username, userIdParam, currentUser, initialUser, router]);
+  }, [username, userIdParam, currentUser, initialUser, router, profileKey, cached]);
 
+  // ── Fetch posts ──
   const fetchPosts = useCallback(async (page = 1, append = false) => {
-    if (!profile || postsLoading) return;
+    const currentProfile = profileRef.current;
+    if (!currentProfile || postsLoading) return;
     setPostsLoading(true);
     try {
-      const res = await apiClient(`/api/posts?userId=${profile.id}&page=${page}&limit=20`);
+      const res = await apiClient(`/api/posts?userId=${currentProfile.id}&page=${page}&limit=20`);
       const postsData = res.data?.posts || [];
       const hasMore = res.data?.hasMore || postsData.length === 20;
-      setPosts((prev) => (append ? [...prev, ...postsData] : postsData));
+      const newPosts = append ? [...posts, ...postsData] : postsData;
+      setPosts(newPosts);
       setPostsHasMore(hasMore);
       setPostsPage(page);
+      // Update cache with the current profile and new posts
+      const currentCache = getCachedProfile(profileKey) || { profile: currentProfile };
+      setCachedProfile(profileKey, {
+        profile: currentCache.profile || currentProfile,
+        posts: newPosts,
+        page,
+        hasMore,
+      });
     } catch (err) {
       console.error('Failed to fetch posts:', err);
     } finally {
       setPostsLoading(false);
     }
-  }, [profile, postsLoading]);
+  }, [postsLoading, posts, profileKey]);
 
+  // ── Initial load ──
   useEffect(() => {
-    if (profile) {
+    if (profile && !cached?.posts && !posts.length) {
       fetchPosts(1, false);
     }
-  }, [profile]);
+  }, [profile, fetchPosts, cached, posts.length]);
 
+  // ── Infinite scroll ──
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -217,6 +282,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     return () => observer.disconnect();
   }, [postsHasMore, postsLoading, postsPage, fetchPosts]);
 
+  // ── Follow/Unfollow ──
   const handleFollowToggle = async () => {
     if (!currentUser || !profile) return;
     const following = profile.isFollowing;
@@ -224,17 +290,25 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     const endpoint = following ? `/api/unfollow/${profile.id}` : `/api/follow/${profile.id}`;
     try {
       await apiClient(endpoint, { method });
-      setProfile((prev) => ({
-        ...prev,
-        isFollowing: !prev?.isFollowing,
-        followerCount: prev?.isFollowing ? (prev.followerCount || 0) - 1 : (prev.followerCount || 0) + 1,
-      }));
+      const newProfile = {
+        ...profile,
+        isFollowing: !profile.isFollowing,
+        followerCount: profile.isFollowing ? (profile.followerCount || 0) - 1 : (profile.followerCount || 0) + 1,
+      };
+      setProfile(newProfile);
+      // Update cache
+      const currentCache = getCachedProfile(profileKey) || {};
+      setCachedProfile(profileKey, {
+        ...currentCache,
+        profile: newProfile,
+      });
     } catch (err) {
       console.error('Follow action failed:', err);
       showToast('Failed to follow/unfollow.', 'error');
     }
   };
 
+  // ── Avatar upload ──
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !currentUser || !isOwnProfile) {
@@ -254,7 +328,14 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         body: formData,
       });
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
-      setProfile(refetch.data || refetch);
+      const newProfile = refetch.data || refetch;
+      setProfile(newProfile);
+      // Update cache
+      const currentCache = getCachedProfile(profileKey) || {};
+      setCachedProfile(profileKey, {
+        ...currentCache,
+        profile: newProfile,
+      });
       showToast('Avatar updated! 📸');
     } catch (err) {
       console.error('Avatar upload error:', err);
@@ -265,6 +346,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
+  // ── Cover upload ──
   const handleCoverUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !currentUser || !isOwnProfile) return;
@@ -281,7 +363,14 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         body: formData,
       });
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
-      setProfile(refetch.data || refetch);
+      const newProfile = refetch.data || refetch;
+      setProfile(newProfile);
+      // Update cache
+      const currentCache = getCachedProfile(profileKey) || {};
+      setCachedProfile(profileKey, {
+        ...currentCache,
+        profile: newProfile,
+      });
       showToast('Cover updated! 🖼️');
     } catch (err) {
       console.error('Cover upload error:', err);
@@ -292,6 +381,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
+  // ── Open followers/following modal ──
   const openUserList = async (type) => {
     if (!profile) return;
     setListModal({ open: true, type, users: [], isLoading: true });
@@ -310,6 +400,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     setListModal({ open: false, type: '', users: [], isLoading: false });
   };
 
+  // ── Render states ──
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-8 text-center text-[var(--color-txt2)]">
@@ -333,6 +424,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     );
   }
 
+  // ── Profile data ──
   const {
     name,
     username: profileUsername,
@@ -381,6 +473,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     </div>
   );
 
+  // ── UI ──
   return (
     <div className="max-w-4xl mx-auto">
       {toast && <ToastComponent message={toast.message} type={toast.type} />}

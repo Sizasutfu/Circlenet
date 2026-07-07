@@ -65,18 +65,36 @@ export default function RightSidebar() {
     setAuthorLoading(true);
     const fetchAuthor = async () => {
       try {
-        // First get the post to find the author ID
         const res = await apiClient(`/api/posts/${postId}`);
         const post = res.data || res;
-        const userInfo = post.user || { name: post.author, picture: post.authorPicture, id: post.authorId };
-        if (userInfo && userInfo.id) {
-          // Fetch full profile with stats
-          const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
-          const profile = profileRes.data || profileRes;
-          setAuthor({ ...userInfo, ...profile });
-        } else {
-          setAuthor(userInfo);
+        let userId = post.user?.id || post.authorId || post.userId;
+        let userName = post.user?.name || post.author || 'Anonymous';
+        let userPicture = post.user?.picture || post.authorPicture || null;
+        let userUsername = post.user?.username || post.authorUsername || post.username || '';
+
+        if (!userId) {
+          setAuthor({
+            name: userName,
+            username: userUsername,
+            picture: userPicture,
+          });
+          setAuthorLoading(false);
+          return;
         }
+
+        const profileRes = await apiClient(`/api/users/${userId}/profile`);
+        const profile = profileRes.data || profileRes;
+        setAuthor({
+          id: userId,
+          name: profile.name || userName,
+          username: profile.username || userUsername,
+          picture: profile.picture || userPicture,
+          bio: profile.bio || '',
+          postCount: profile.postCount || 0,
+          followerCount: profile.followerCount || 0,
+          followingCount: profile.followingCount || 0,
+          isFollowing: profile.isFollowing || false,
+        });
       } catch (err) {
         console.error('Failed to fetch author:', err);
         setAuthor(null);
@@ -93,7 +111,7 @@ export default function RightSidebar() {
     setTopArticlesLoading(true);
     const fetchTopArticles = async () => {
       try {
-        const res = await apiClient('/api/articles/top?limit=4');
+        const res = await apiClient('/api/articles/top?limit=5');
         const data = res.data || res;
         const articles = data.articles || data || [];
         setTopArticles(articles);
@@ -166,7 +184,14 @@ export default function RightSidebar() {
 
       {/* ── Trending Topics ── */}
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-        <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">🔥 Trending Topics</h3>
+        <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+          {/* Fire icon */}
+          <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M12 2C10 6 6 8 6 12c0 3.314 2.686 6 6 6s6-2.686 6-6c0-4-4-6-6-10z" />
+            <path d="M12 22c-3.314 0-6-2.686-6-6 0-2 1.5-4 3-6 1.5 2 3 4 3 6 0 3.314-2.686 6-6 6z" />
+          </svg>
+          Trending Topics
+        </h3>
         {topicsLoading ? (
           Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="h-4 bg-[var(--color-surface)] rounded animate-pulse mb-2" />
@@ -201,7 +226,14 @@ export default function RightSidebar() {
       {/* ── Top Articles (only on articles page) ── */}
       {isArticles && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">📰 Top Articles</h3>
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+            {/* Newspaper icon */}
+            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M4 4h16v16H4z" />
+              <path d="M8 8h8M8 12h6M8 16h4" />
+            </svg>
+            Top Articles
+          </h3>
           {topArticlesLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="h-4 bg-[var(--color-surface)] rounded animate-pulse mb-2" />
@@ -239,7 +271,14 @@ export default function RightSidebar() {
       {/* ── Author Profile (on post detail) ── */}
       {isPostDetail && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">📝 Author</h3>
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+            {/* User icon */}
+            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Author
+          </h3>
           {authorLoading ? (
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-[var(--color-surface)] animate-pulse" />
@@ -313,7 +352,16 @@ export default function RightSidebar() {
       {/* ── People to Follow (only if not on post detail and not on articles) ── */}
       {!isPostDetail && !isArticles && user && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">👥 Who to Follow</h3>
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+            {/* Users icon (two people) */}
+            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 00-3-3.87" />
+              <path d="M16 3.13a4 4 0 010 7.75" />
+            </svg>
+            Who to Follow
+          </h3>
           {peopleLoading ? (
             Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="flex items-center gap-2 mb-2">
@@ -374,7 +422,15 @@ export default function RightSidebar() {
       {/* ── New Members ── */}
       {user && newMembers.length > 0 && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3">✨ New Members</h3>
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+            {/* Sparkles icon */}
+            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+              <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
+              <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
+            </svg>
+            New Members
+          </h3>
           <ul className="space-y-2">
             {newMembers.slice(0, 4).map((u) => {
               const avatarUrl = resolveMediaUrl(u.picture);

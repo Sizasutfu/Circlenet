@@ -138,8 +138,14 @@ export default function WhisperInboxClient() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)]">
-            💬 Whisper Inbox
+          <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)] flex items-center gap-2">
+            <svg className="w-7 h-7 text-[var(--color-accent)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              <circle cx="9" cy="10" r="1" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="10" r="1" fill="currentColor" stroke="none" />
+              <circle cx="15" cy="10" r="1" fill="currentColor" stroke="none" />
+            </svg>
+            Whisper Inbox
           </h1>
           <p className="text-sm text-[var(--color-txt2)]">Anonymous messages from your audience</p>
         </div>
@@ -180,15 +186,24 @@ export default function WhisperInboxClient() {
               }}
               className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition"
             >
+              <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+              </svg>
               Copy link
             </button>
           )}
           <button
             onClick={handleRegenerateSlug}
-            className="px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-bold hover:bg-[var(--color-accent-bg)] transition"
+            className="flex items-center gap-1.5 px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-bold hover:bg-[var(--color-accent-bg)] transition"
             title="Generate a new unique link"
           >
-            🔄 New link
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M23 4v6h-6" />
+              <path d="M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            New link
           </button>
         </div>
       </div>
@@ -202,7 +217,12 @@ export default function WhisperInboxClient() {
           </div>
         ) : messages.length === 0 ? (
           <div className="text-center py-16 text-[var(--color-txt2)]">
-            <div className="text-5xl mb-4">💬</div>
+            <svg className="w-16 h-16 mx-auto mb-4 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              <circle cx="9" cy="10" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="15" cy="10" r="1.5" fill="currentColor" stroke="none" />
+            </svg>
             <p className="text-lg font-semibold text-[var(--color-txt)]">No whispers yet</p>
             <p className="text-sm">Share your link and let people send you anonymous messages.</p>
           </div>

@@ -42,6 +42,55 @@ function Toast({ message, type, onClose }) {
   );
 }
 
+// ── Skeleton for a single PostCard ──
+function PostCardSkeleton() {
+  return (
+    <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] animate-pulse">
+      <div className="flex items-start gap-3">
+        {/* Avatar */}
+        <div className="h-10 w-10 rounded-full bg-[var(--color-surface)] flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-24 bg-[var(--color-surface)] rounded" />
+              <div className="h-3 w-16 bg-[var(--color-surface)] rounded" />
+              <div className="h-3 w-12 bg-[var(--color-surface)] rounded" />
+            </div>
+            <div className="h-4 w-4 bg-[var(--color-surface)] rounded-full" />
+          </div>
+          {/* Text lines */}
+          <div className="mt-2 space-y-2">
+            <div className="h-4 w-full bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-5/6 bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-3/4 bg-[var(--color-surface)] rounded" />
+          </div>
+          {/* Image placeholder (optional) */}
+          <div className="mt-3 h-48 w-full bg-[var(--color-surface)] rounded-lg" />
+          {/* Action buttons */}
+          <div className="mt-3 flex items-center gap-4">
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Skeleton list for feed ──
+function PostSkeletonList({ count = 3 }) {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <PostCardSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
 export default function FeedClient({ initialPosts = null }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -296,14 +345,12 @@ export default function FeedClient({ initialPosts = null }) {
       );
     }
 
+    // ── Posts feed ──
+    // Show skeleton while loading and no posts yet
     if (loading && posts.length === 0) {
-      return (
-        <div className="text-center py-8">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
-          <p className="mt-4 text-[var(--color-txt2)]">Loading feed…</p>
-        </div>
-      );
+      return <PostSkeletonList count={3} />;
     }
+
     if (error && posts.length === 0) {
       return (
         <div className="text-center py-8">
@@ -314,6 +361,7 @@ export default function FeedClient({ initialPosts = null }) {
         </div>
       );
     }
+
     return (
       <div className="space-y-4">
         {posts.length === 0 ? (

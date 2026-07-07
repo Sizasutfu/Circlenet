@@ -1,12 +1,55 @@
+// src/app/explore/ExploreClient.jsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useExplore } from '@/contexts/ExploreContext';
 import { useAuth } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
 import Link from 'next/link';
 
+// ── SVG Icons ──
+function FireIcon() {
+  return (
+    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="M12 2C10 6 6 8 6 12c0 3.314 2.686 6 6 6s6-2.686 6-6c0-4-4-6-6-10z" />
+      <path d="M12 22c-3.314 0-6-2.686-6-6 0-2 1.5-4 3-6 1.5 2 3 4 3 6 0 3.314-2.686 6-6 6z" />
+    </svg>
+  );
+}
+
+function TrendingIcon() {
+  return (
+    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 00-3-3.87" />
+      <path d="M16 3.13a4 4 0 010 7.75" />
+    </svg>
+  );
+}
+
+function SparklesIcon() {
+  return (
+    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+      <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
+      <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
+    </svg>
+  );
+}
+
+// ── Helpers ──
 function stringToColor(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -35,22 +78,17 @@ function joinedAgo(dateStr) {
   return `Joined ${diff} days ago`;
 }
 
-function PeopleCard({ user, onFollow }) {
+function PeopleCard({ user, onFollow, isFollowing }) {
   const { user: currentUser } = useAuth();
   const color = stringToColor(user.name || '');
   const initial = (user.name || '?').charAt(0).toUpperCase();
   const avatarUrl = user.picture;
 
   const handleClick = () => {
-    // ✅ If username exists, go to /profile/username
     if (user.username) {
       window.location.href = `/profile/${user.username}`;
     } else if (user.id) {
-      // Fallback: use userId as query param
       window.location.href = `/profile?userId=${user.id}`;
-    } else {
-      // Should never happen
-      console.warn('User has no username or id:', user);
     }
   };
 
@@ -69,14 +107,17 @@ function PeopleCard({ user, onFollow }) {
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-[var(--color-txt)]">{user.name}</div>
         <div className="text-sm text-[var(--color-txt2)]">@{user.username || 'user'}</div>
-        <div className="text-xs text-[var(--color-txt3)]">{user.postCount || 0} posts · {user.followerCount || 0} followers</div>
+        <div className="text-xs text-[var(--color-txt3)]">
+          {user.post_count ?? user.postCount ?? 0} posts · {user.follower_count ?? user.followerCount ?? 0} followers
+        </div>
       </div>
       {currentUser && currentUser.id !== user.id && (
         <button
           onClick={(e) => { e.stopPropagation(); onFollow(user.id); }}
-          className="px-4 py-1.5 text-sm rounded-full bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] transition"
+          className="px-4 py-1.5 text-sm rounded-full bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+          disabled={isFollowing}
         >
-          Follow
+          {isFollowing ? 'Following' : 'Follow'}
         </button>
       )}
     </div>
@@ -132,12 +173,31 @@ export default function ExploreClient() {
   const filteredTrending = getFilteredTrending();
 
   const handleFollow = async (userId) => {
-    // Implement follow logic
-    setFollowing((prev) => new Set(prev).add(userId));
-    // Call API here
-    try {
-      await apiClient(`/api/follow/${userId}`, { method: 'POST' });
-    } catch (_) {}
+    if (following.has(userId)) {
+      setFollowing(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
+      try {
+        await apiClient(`/api/unfollow/${userId}`, { method: 'DELETE' });
+        loadPeople();
+      } catch (_) {
+        setFollowing(prev => new Set(prev).add(userId));
+      }
+    } else {
+      setFollowing(prev => new Set(prev).add(userId));
+      try {
+        await apiClient(`/api/follow/${userId}`, { method: 'POST' });
+        loadPeople();
+      } catch (_) {
+        setFollowing(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(userId);
+          return newSet;
+        });
+      }
+    }
   };
 
   const categories = [
@@ -161,7 +221,9 @@ export default function ExploreClient() {
       {/* Topics */}
       <section className="mb-8">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-head font-bold text-[var(--color-txt)]">🔥 Trending Topics</h2>
+          <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
+            <FireIcon /> Trending Topics
+          </h2>
           <button
             onClick={() => loadTopics()}
             className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
@@ -189,7 +251,9 @@ export default function ExploreClient() {
       {/* Trending Posts */}
       <section className="mb-8">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-lg font-head font-bold text-[var(--color-txt)]">📈 Trending Posts</h2>
+          <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
+            <TrendingIcon /> Trending Posts
+          </h2>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-1">
               {categories.map((cat) => (
@@ -244,7 +308,9 @@ export default function ExploreClient() {
       {user && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-head font-bold text-[var(--color-txt)]">👥 People You May Know</h2>
+            <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
+              <PeopleIcon /> People You May Know
+            </h2>
             <button
               onClick={() => loadPeople()}
               className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
@@ -267,7 +333,14 @@ export default function ExploreClient() {
             ) : people.length === 0 ? (
               <div className="text-center py-6 text-[var(--color-txt2)]">No suggestions right now. Interact with posts to get recommendations!</div>
             ) : (
-              people.map((p) => <PeopleCard key={p.id} user={p} onFollow={handleFollow} />)
+              people.map((p) => (
+                <PeopleCard
+                  key={p.id}
+                  user={p}
+                  onFollow={handleFollow}
+                  isFollowing={following.has(p.id)}
+                />
+              ))
             )}
           </div>
         </section>
@@ -277,7 +350,9 @@ export default function ExploreClient() {
       {user && newMembers.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-head font-bold text-[var(--color-txt)]">✨ New Members</h2>
+            <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
+              <SparklesIcon /> New Members
+            </h2>
             <button
               onClick={() => loadNewMembers()}
               className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"

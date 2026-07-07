@@ -127,7 +127,7 @@ export default function Footer() {
     <footer className="border-t border-[var(--color-border)] mt-12 py-10 text-[var(--color-txt3)] text-sm">
       <div className="max-w-screen-xl mx-auto px-4">
         {/* Main footer grid */}
-        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-5">
           {/* Brand */}
           <div>
             <p className="font-head font-bold text-lg text-[var(--color-txt)] mb-2">CircleNet</p>
@@ -158,6 +158,13 @@ export default function Footer() {
             <ul className="space-y-2">
               <li><Link href="/about" className="hover:text-[var(--color-accent)] transition">About</Link></li>
               <li><Link href="/contact" className="hover:text-[var(--color-accent)] transition">Contact</Link></li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h3 className="font-semibold text-[var(--color-txt)] mb-3">Legal</h3>
+            <ul className="space-y-2">
               <li><Link href="/privacy-policy" className="hover:text-[var(--color-accent)] transition">Privacy Policy</Link></li>
               <li><Link href="/terms" className="hover:text-[var(--color-accent)] transition">Terms of Service</Link></li>
             </ul>

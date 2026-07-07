@@ -42,25 +42,81 @@
       "name": "New Post",
       "short_name": "Post",
       "description": "Create a new post",
-      "url": "/compose"
+      "url": "/compose",
+      "icons": [
+        {
+          "src": "/icons/compose-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        },
+        {
+          "src": "/icons/compose-96.svg",
+          "sizes": "96x96",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        }
+      ]
     },
     {
       "name": "Messages",
       "short_name": "Messages",
       "description": "View your messages",
-      "url": "/messages"
+      "url": "/messages",
+      "icons": [
+        {
+          "src": "/icons/messages-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        },
+        {
+          "src": "/icons/messages-96.svg",
+          "sizes": "96x96",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        }
+      ]
     },
     {
       "name": "Explore",
       "short_name": "Explore",
       "description": "Discover new content",
-      "url": "/explore"
+      "url": "/explore",
+      "icons": [
+        {
+          "src": "/icons/explore-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        },
+        {
+          "src": "/icons/explore-96.svg",
+          "sizes": "96x96",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        }
+      ]
     },
     {
       "name": "Notifications",
       "short_name": "Notifs",
       "description": "Check your notifications",
-      "url": "/"
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icons/notifications-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        },
+        {
+          "src": "/icons/notifications-96.svg",
+          "sizes": "96x96",
+          "type": "image/svg+xml",
+          "purpose": "any"
+        }
+      ]
     }
   ],
   "categories": ["social", "communication"],

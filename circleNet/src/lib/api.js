@@ -1,9 +1,16 @@
 // src/lib/api.js
 const getBaseURL = () => {
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/$/, '');
   }
-  return ' http://localhost:5000';
+
+  if (process.env.NODE_ENV === 'production') {
+    return '';
+  }
+
+  return 'http://localhost:5000';
 };
 
 export async function apiClient(endpoint, options = {}) {

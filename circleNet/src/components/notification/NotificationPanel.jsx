@@ -2,10 +2,11 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation'; // ✅ added
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAuth } from '@/lib/auth';
 
-// ── Constants (moved here from context) ──
+// ── Constants (icons, helpers) ──
 const NOTIF_ICONS = {
   like: `<svg fill="currentColor" viewBox="0 0 24 24" width="16" height="16"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>`,
   comment: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`,
@@ -122,8 +123,9 @@ function NotificationItem({ notification, onClick }) {
 }
 
 export default function NotificationPanel() {
-  const { notifications, loading, hasMore, fetchNotifications, isPanelOpen, closePanel, onNotifClick } = useNotifications();
+  const { notifications, loading, hasMore, fetchNotifications, isPanelOpen, closePanel, markAsRead } = useNotifications();
   const { user } = useAuth();
+  const router = useRouter();
   const listRef = useRef(null);
 
   useEffect(() => {
@@ -136,6 +138,29 @@ export default function NotificationPanel() {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     if (scrollHeight - scrollTop - clientHeight < 100 && !loading && hasMore) {
       fetchNotifications(false);
+    }
+  };
+
+  // ── Handle notification click with navigation ──
+  const handleNotificationClick = async (notif) => {
+    // Mark as read
+    await markAsRead(notif.id);
+
+    // Close panel
+    closePanel();
+
+    // Navigate based on notification data
+    if (notif.postId) {
+      router.push(`/post/${notif.postId}`);
+    } else if (notif.sessionId) {
+      router.push(`/live/${notif.sessionId}`);
+    } else if (notif.actorId) {
+      // For follow or profile-related notifications, go to the actor's profile
+      // We don't know the username, but we can use userId – we'll navigate to /profile?userId=...
+      router.push(`/profile?userId=${notif.actorId}`);
+    } else {
+      // Fallback: close panel only (or navigate to notifications page)
+      // We could also do nothing.
     }
   };
 
@@ -159,7 +184,10 @@ export default function NotificationPanel() {
           <h2 className="text-lg font-head font-extrabold text-[var(--color-txt)]">Notifications</h2>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { /* mark all read handled on close */ }}
+              onClick={() => {
+                // Mark all read – we can call markAllRead if needed, but we don't have it in context.
+                // You can add it later.
+              }}
               className="text-xs text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
             >
               Mark all read
@@ -201,7 +229,7 @@ export default function NotificationPanel() {
                 <NotificationItem
                   key={notif.id}
                   notification={notif}
-                  onClick={onNotifClick}
+                  onClick={handleNotificationClick}
                 />
               ))}
               {loading && (

@@ -1,7 +1,7 @@
 {
-  "name": "Circle",
+  "name": "Circlenet",
   "short_name": "Circle",
-  "description": "Circle — where real connections happen. Share moments, join conversations, and grow your community.",
+  "description": "CircleNet — where real connections happen. Share moments, join conversations, and grow your community.",
   "start_url": "/",
   "id": "/",
   "display": "standalone",
@@ -35,6 +35,32 @@
       "sizes": "1910x972",
       "type": "image/png",
       "form_factor": "wide"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Post",
+      "short_name": "Post",
+      "description": "Create a new post",
+      "url": "/compose"
+    },
+    {
+      "name": "Messages",
+      "short_name": "Messages",
+      "description": "View your messages",
+      "url": "/messages"
+    },
+    {
+      "name": "Explore",
+      "short_name": "Explore",
+      "description": "Discover new content",
+      "url": "/explore"
+    },
+    {
+      "name": "Notifications",
+      "short_name": "Notifs",
+      "description": "Check your notifications",
+      "url": "/"
     }
   ],
   "categories": ["social", "communication"],

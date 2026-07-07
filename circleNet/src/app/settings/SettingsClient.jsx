@@ -5,9 +5,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import WhisperSettings from '@/components/whisper/WhisperSettings';
-import PushToggle from '@/components/push/PushToggle';
-import PushPreferences from '@/components/push/PushPreferences';
+import { useWhisper } from '@/contexts/WhisperContext';
+import ToggleSwitch from '@/components/ui/ToggleSwitch';
 
 // ── Country dial codes ──
 const DIAL_CODES = [
@@ -88,6 +87,7 @@ function Toast({ message, type, onClose }) {
 export default function SettingsClient() {
   const { user, login } = useAuth();
   const router = useRouter();
+  const { settings, fetchSettings, regenerateSlug, updateSettings } = useWhisper();
 
   // ── Form state ──
   const [name, setName] = useState('');
@@ -105,8 +105,19 @@ export default function SettingsClient() {
   const [phone, setPhone] = useState('');
 
   // ── Notification preferences ──
-  // Note: 'push' is handled separately by the PushToggle component
   const [notifPrefs, setNotifPrefs] = useState({
+    likes: true,
+    comments: true,
+    reposts: true,
+    new_post: true,
+    profile_pic: true,
+    mention: true,
+    milestone: true,
+  });
+
+  // ── Push preferences ──
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [pushPrefs, setPushPrefs] = useState({
     likes: true,
     comments: true,
     reposts: true,
@@ -127,7 +138,7 @@ export default function SettingsClient() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // ── Load user data ──
+  // ── Load user data and whisper settings ──
   useEffect(() => {
     async function loadData() {
       if (!user) {
@@ -136,6 +147,7 @@ export default function SettingsClient() {
       }
 
       try {
+        // Load profile
         const response = await apiClient(`/api/users/${user.id}/profile`);
         const profile = response.data || {};
 
@@ -166,11 +178,18 @@ export default function SettingsClient() {
         if (storedPrefs) {
           const parsed = JSON.parse(storedPrefs);
           setNotifPrefs((prev) => ({ ...prev, ...parsed }));
+          setPushPrefs((prev) => ({ ...prev, ...parsed }));
           setPrivPrefs({
             account: parsed.account !== undefined ? parsed.account : true,
             activity: parsed.activity !== undefined ? parsed.activity : true,
           });
+          if (parsed.pushEnabled !== undefined) {
+            setPushEnabled(parsed.pushEnabled);
+          }
         }
+
+        // ── Load Whisper settings ──
+        await fetchSettings();
       } catch (err) {
         console.error('Failed to load profile data:', err);
         setName(user.name || '');
@@ -181,7 +200,7 @@ export default function SettingsClient() {
       }
     }
     loadData();
-  }, [user, router]);
+  }, [user, router, fetchSettings]);
 
   // ── Show toast ──
   const showToast = (msg, type = 'success') => {
@@ -192,6 +211,27 @@ export default function SettingsClient() {
   const handlePhoneChange = (e) => {
     const digits = e.target.value.replace(/\D/g, '');
     setPhone(digits);
+  };
+
+  // ── Toggle whisper acceptance ──
+  const handleToggleWhisper = async (enabled) => {
+    try {
+      await updateSettings(enabled);
+      showToast(enabled ? 'Whisper enabled' : 'Whisper disabled');
+    } catch {
+      showToast('Failed to update whisper settings', 'error');
+    }
+  };
+
+  // ── Regenerate Whisper link ──
+  const handleRegenerateSlug = async () => {
+    if (!confirm('This will generate a new link for your Whisper page. Your old link will stop working. Continue?')) return;
+    try {
+      await regenerateSlug();
+      showToast('New Whisper link generated! 🔗', 'success');
+    } catch {
+      showToast('Failed to generate new link.', 'error');
+    }
   };
 
   // ── Save profile ──
@@ -248,7 +288,7 @@ export default function SettingsClient() {
         updatedUser.username = username;
       }
 
-      const prefs = { ...notifPrefs, ...privPrefs };
+      const prefs = { ...notifPrefs, ...privPrefs, pushEnabled, ...pushPrefs };
       localStorage.setItem('circle_notif_prefs', JSON.stringify(prefs));
 
       const finalUser = {
@@ -431,7 +471,7 @@ export default function SettingsClient() {
           </select>
         </div>
 
-        {/* Phone with dial code */}
+        {/* Phone */}
         <div>
           <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Phone</label>
           <div className="flex gap-2">
@@ -469,38 +509,148 @@ export default function SettingsClient() {
         </div>
       </div>
 
+      {/* ── Whisper Settings ── */}
+      <div className="mt-10 border-t border-[var(--color-border)] pt-6">
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">💬 Whisper</h2>
+
+        <ToggleSwitch
+          checked={settings.enabled || false}
+          onChange={handleToggleWhisper}
+          label="Accept anonymous messages"
+          description="When enabled, others can send you anonymous whispers via your link."
+        />
+
+        <div className="mt-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wider">Your Whisper link</div>
+            {settings.link_slug ? (
+              <div className="text-sm font-mono text-[var(--color-accent)] break-all">
+                {`${window.location.origin}/whisper/send/${settings.link_slug}`}
+              </div>
+            ) : (
+              <div className="text-sm text-[var(--color-txt2)]">No link generated yet.</div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {settings.link_slug && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/whisper/send/${settings.link_slug}`);
+                  showToast('Link copied! 🔗', 'success');
+                }}
+                className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition"
+              >
+                Copy link
+              </button>
+            )}
+            <button
+              onClick={handleRegenerateSlug}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-bold hover:bg-[var(--color-accent-bg)] transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path d="M23 4v6h-6" />
+                <path d="M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+              <span>New link</span>
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-[var(--color-txt3)] mt-2">Generate a new link to stop spam on your old link.</p>
+      </div>
+
       {/* ── Notification Preferences ── */}
       <div className="mt-10">
         <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Notification Preferences</h2>
         <div className="space-y-2">
-          {[
-            { key: 'likes', label: 'Likes on my posts' },
-            { key: 'comments', label: 'Comments on my posts' },
-            { key: 'reposts', label: 'Reposts of my posts' },
-            { key: 'new_post', label: 'New posts from people I follow' },
-            { key: 'profile_pic', label: 'Profile picture updates from friends' },
-            { key: 'mention', label: 'Mentions' },
-            { key: 'milestone', label: 'Milestones' },
-          ].map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-3 text-sm text-[var(--color-txt2)]">
-              <input
-                type="checkbox"
-                checked={notifPrefs[key] !== undefined ? notifPrefs[key] : false}
-                onChange={(e) => setNotifPrefs((prev) => ({ ...prev, [key]: e.target.checked }))}
-                className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-              />
-              {label}
-            </label>
-          ))}
+          <ToggleSwitch
+            checked={notifPrefs.likes}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, likes: val }))}
+            label="Likes on my posts"
+          />
+          <ToggleSwitch
+            checked={notifPrefs.comments}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, comments: val }))}
+            label="Comments on my posts"
+          />
+          <ToggleSwitch
+            checked={notifPrefs.reposts}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, reposts: val }))}
+            label="Reposts of my posts"
+          />
+          <ToggleSwitch
+            checked={notifPrefs.new_post}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, new_post: val }))}
+            label="New posts from people I follow"
+          />
+          <ToggleSwitch
+            checked={notifPrefs.profile_pic}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, profile_pic: val }))}
+            label="Profile picture updates from friends"
+          />
+          <ToggleSwitch
+            checked={notifPrefs.mention}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, mention: val }))}
+            label="Mentions"
+          />
+          <ToggleSwitch
+            checked={notifPrefs.milestone}
+            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, milestone: val }))}
+            label="Milestones"
+          />
         </div>
       </div>
 
-      {/* ── Push Notifications ── */}
+      {/* ── Push Notifications (styled with ToggleSwitch) ── */}
       <div className="mt-8">
-        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Push Notifications</h2>
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">🔔 Push Notifications</h2>
         <div className="space-y-4">
-          <PushToggle />
-          <PushPreferences />
+          <ToggleSwitch
+            checked={pushEnabled}
+            onChange={setPushEnabled}
+            label="Enable push notifications"
+            description="Receive push notifications on your device"
+          />
+
+          {pushEnabled && (
+            <div className="ml-6 border-l-2 border-[var(--color-border)] pl-4 space-y-2">
+              <ToggleSwitch
+                checked={pushPrefs.likes}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, likes: val }))}
+                label="Likes"
+              />
+              <ToggleSwitch
+                checked={pushPrefs.comments}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, comments: val }))}
+                label="Comments"
+              />
+              <ToggleSwitch
+                checked={pushPrefs.reposts}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, reposts: val }))}
+                label="Reposts"
+              />
+              <ToggleSwitch
+                checked={pushPrefs.new_post}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, new_post: val }))}
+                label="New posts"
+              />
+              <ToggleSwitch
+                checked={pushPrefs.profile_pic}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, profile_pic: val }))}
+                label="Profile picture updates"
+              />
+              <ToggleSwitch
+                checked={pushPrefs.mention}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, mention: val }))}
+                label="Mentions"
+              />
+              <ToggleSwitch
+                checked={pushPrefs.milestone}
+                onChange={(val) => setPushPrefs((prev) => ({ ...prev, milestone: val }))}
+                label="Milestones"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -508,29 +658,18 @@ export default function SettingsClient() {
       <div className="mt-8">
         <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Privacy Preferences</h2>
         <div className="space-y-2">
-          <label className="flex items-center gap-3 text-sm text-[var(--color-txt2)]">
-            <input
-              type="checkbox"
-              checked={privPrefs.account !== undefined ? privPrefs.account : false}
-              onChange={(e) => setPrivPrefs((prev) => ({ ...prev, account: e.target.checked }))}
-              className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-            />
-            Account visible to everyone
-          </label>
-          <label className="flex items-center gap-3 text-sm text-[var(--color-txt2)]">
-            <input
-              type="checkbox"
-              checked={privPrefs.activity !== undefined ? privPrefs.activity : false}
-              onChange={(e) => setPrivPrefs((prev) => ({ ...prev, activity: e.target.checked }))}
-              className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-            />
-            Show my activity status
-          </label>
+          <ToggleSwitch
+            checked={privPrefs.account}
+            onChange={(val) => setPrivPrefs((prev) => ({ ...prev, account: val }))}
+            label="Account visible to everyone"
+          />
+          <ToggleSwitch
+            checked={privPrefs.activity}
+            onChange={(val) => setPrivPrefs((prev) => ({ ...prev, activity: val }))}
+            label="Show my activity status"
+          />
         </div>
       </div>
-
-      {/* ── Whisper Settings ── */}
-      <WhisperSettings />
 
       {/* ── Save Button ── */}
       <div className="mt-8 flex gap-3">

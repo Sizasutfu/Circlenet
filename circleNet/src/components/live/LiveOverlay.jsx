@@ -253,7 +253,9 @@ export default function LiveOverlay() {
             </svg>
             <span>{viewerCount || 0}</span>
           </div>
-          <button onClick={closeLive} className="w-9 h-9 rounded-full bg-black/45 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white hover:bg-white/20 transition">
+          <button onClick={closeLive} className="w-9 h-9 rounded-full bg-black/45 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white hover:bg-white/20 transition"
+          title='Close live'
+          >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />

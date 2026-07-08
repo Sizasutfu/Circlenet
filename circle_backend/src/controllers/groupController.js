@@ -25,6 +25,13 @@ async function getTrendingGroups(req, res) {
 
   try {
     const result = await GroupModel.getTrendingGroups({ limit, offset, userId });
+    // Additional override: for each group, if userId present, double-check membership
+    if (userId && result.groups) {
+      for (const group of result.groups) {
+        const member = await GroupModel.isMember(userId, group.id);
+        group.isMember = member;
+      }
+    }
     return sendOk(res, 200, 'Groups fetched.', { ...result, page, limit });
   } catch (err) {
     console.error('getTrendingGroups error:', err);
@@ -55,8 +62,17 @@ async function getGroup(req, res) {
   if (!groupId || isNaN(groupId)) return sendError(res, 400, 'Invalid group ID.');
 
   try {
-    const group = await GroupModel.getGroupById(groupId, userId);
+    let group = await GroupModel.getGroupById(groupId, userId);
     if (!group) return sendError(res, 404, 'Group not found.');
+
+    // ── Explicit membership check to override any false values ──
+    if (userId) {
+      const member = await GroupModel.isMember(userId, groupId);
+      group.isMember = member;
+    } else {
+      group.isMember = false;
+    }
+
     return sendOk(res, 200, 'Group fetched.', group);
   } catch (err) {
     console.error('getGroup error:', err);
@@ -72,8 +88,17 @@ async function getGroupByTopic(req, res) {
   if (!topic) return sendError(res, 400, 'Topic is required.');
 
   try {
-    const group = await GroupModel.getGroupByTopic(topic, userId);
+    let group = await GroupModel.getGroupByTopic(topic, userId);
     if (!group) return sendError(res, 404, 'Group not found for that topic.');
+
+    // ── Explicit membership check ──
+    if (userId) {
+      const member = await GroupModel.isMember(userId, group.id);
+      group.isMember = member;
+    } else {
+      group.isMember = false;
+    }
+
     return sendOk(res, 200, 'Group fetched.', group);
   } catch (err) {
     console.error('getGroupByTopic error:', err);
@@ -152,4 +177,5 @@ module.exports = {
   joinGroup,
   leaveGroup,
   getGroupFeed,
+ 
 };

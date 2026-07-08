@@ -66,7 +66,15 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
-export default function PostCard({ post, onLike, onComment, onRepost, onShare, onQuote }) {
+export default function PostCard({ 
+  post, 
+  onLike, 
+  onComment, 
+  onRepost, 
+  onShare, 
+  onQuote,
+  groupMap = new Map()
+}) {
   if (!post) return null;
 
   const { user: currentUser } = useAuth();
@@ -90,7 +98,11 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
     repostCount,
     isRepost = false,
     originalPost = null,
+    groupId = null,
   } = post;
+
+  const groupInfo = groupId ? groupMap.get(groupId) : null;
+  const groupTopic = groupInfo?.displayName || groupInfo?.topic || null;
 
   const displayName = post.user?.name || post.author || 'Anonymous';
   const username = post.user?.username || post.authorUsername || post.username || '';
@@ -363,10 +375,38 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
 
   const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
-  // ── Profile URL: prefer username, fallback to userId ──
+  // ── Profile URL ──
   const userId = post.user?.id || post.authorId || post.userId;
   const usernameForProfile = post.user?.username || post.authorUsername || post.username;
   const profileUrl = usernameForProfile ? `/profile/${usernameForProfile}` : (userId ? `/profile?userId=${userId}` : null);
+
+  // ── Render group badge ──
+  const renderGroupBadge = () => {
+    if (!groupId || !groupTopic) return null;
+    return (
+      <Link
+        href={`/groups/${groupId}`}
+        className="ml-2 text-xs bg-[var(--color-accent-bg)] text-[var(--color-accent)] px-2 py-0.5 rounded-full hover:underline transition"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {groupTopic}
+      </Link>
+    );
+  };
+
+  // ── View count badge (shared across layouts) ──
+  const renderViewCount = () => {
+    if (!viewCount || viewCount <= 0) return null;
+    return (
+      <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+        {formatNumber(viewCount)}
+      </span>
+    );
+  };
 
   // ── Render original post as embedded card ──
   const renderOriginalPost = () => {
@@ -437,7 +477,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
     );
   };
 
-  // ── Repost / Quote layout ──
+  // ── Repost layout ──
   if (isRepost && originalPost) {
     return (
       <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
@@ -489,6 +529,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                   )
                 )}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
+                {renderGroupBadge()}
               </div>
 
               <div className="relative flex-shrink-0" ref={dropdownRef}>
@@ -585,15 +626,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-              {isAuthor && viewCount > 0 && (
-                <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                  {formatNumber(viewCount)}
-                </span>
-              )}
+              {renderViewCount()}  {/* 👈 View count for reposts */}
             </div>
           </div>
         </div>
@@ -601,7 +634,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
     );
   }
 
-  // ── Live post ──
+  // ── Live post layout ──
   if (isLive && liveSessionId) {
     return (
       <div
@@ -646,6 +679,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                   )
                 )}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
+                {renderGroupBadge()}
               </div>
               <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
                 <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
@@ -662,13 +696,31 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
               </svg>
               <span className="text-sm font-semibold text-[var(--color-rose)]">Tap to watch live</span>
             </div>
+
+            {/* Action row with view count */}
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
+              <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
+              <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
+              <RepostButton count={repostCount ?? reposts.length} onClick={() => onRepost && onRepost(id)} />
+              <button
+                onClick={(e) => { e.stopPropagation(); if (onQuote) onQuote(id); }}
+                className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
+                title="Quote this post"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
+                </svg>
+              </button>
+              <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
+              {renderViewCount()}  {/* 👈 View count for live posts */}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Regular post ──
+  // ── Regular post layout ──
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
       <div className="flex items-start gap-3">
@@ -720,6 +772,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
                   )
                 )}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
+                {renderGroupBadge()}
               </div>
 
               <div className="relative flex-shrink-0" ref={dropdownRef}>
@@ -828,15 +881,7 @@ export default function PostCard({ post, onLike, onComment, onRepost, onShare, o
               </svg>
             </button>
             <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-            {isAuthor && viewCount > 0 && (
-              <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                {formatNumber(viewCount)}
-              </span>
-            )}
+            {renderViewCount()}  {/* 👈 View count for regular posts */}
           </div>
         </div>
       </div>

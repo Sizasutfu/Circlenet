@@ -46,7 +46,8 @@ function toAbsoluteUrl(path) {
 }
 
 export async function generateMetadata({ params }) {
-  const { id } = params;
+  // ✅ Await the params promise before accessing it
+  const { id } = await params;  // <-- FIXED HERE
   const post = await getPost(id);
 
   if (!post) {
@@ -95,7 +96,8 @@ export async function generateMetadata({ params }) {
 }
 
 export default async function PostDetailPage({ params }) {
-  const { id } = params;
+  // ✅ Also await params here
+  const { id } = await params;  // <-- FIXED HERE
 
   if (!id || Number.isNaN(Number(id))) {
     notFound();

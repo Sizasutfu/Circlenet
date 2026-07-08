@@ -24,7 +24,6 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
-// ── Helper: dataURL to File ──
 function dataURLtoFile(dataUrl, filename) {
   const arr = dataUrl.split(',');
   const mime = arr[0].match(/:(.*?);/)[1];
@@ -37,9 +36,88 @@ function dataURLtoFile(dataUrl, filename) {
   return new File([u8arr], filename, { type: mime });
 }
 
-// ── Helper: get draft key ──
 function getDraftKey(userId, mode, groupId) {
   return `compose_draft_${userId}_${mode}${groupId ? '_group_' + groupId : ''}`;
+}
+
+// ── Auth headers helper (mirrors apiClient) ──
+function getAuthHeaders() {
+  if (typeof window === 'undefined') return { token: null, userId: null };
+  let token = localStorage.getItem('circle_token');
+  let userId = null;
+
+  if (!token) {
+    const userString = localStorage.getItem('circle_user');
+    if (userString) {
+      try {
+        const user = JSON.parse(userString);
+        if (user?.token) token = user.token;
+        if (user?.id) userId = user.id;
+      } catch (e) {}
+    }
+  } else {
+    const userString = localStorage.getItem('circle_user');
+    if (userString) {
+      try {
+        const user = JSON.parse(userString);
+        if (user?.id) userId = user.id;
+      } catch (e) {}
+    }
+  }
+
+  if (!userId) {
+    const userString = localStorage.getItem('user');
+    if (userString) {
+      try {
+        const user = JSON.parse(userString);
+        if (user?.id) userId = user.id;
+        if (!token && user?.token) token = user.token;
+      } catch (e) {}
+    }
+  }
+
+  return { token, userId };
+}
+
+function uploadWithProgress(url, formData, onProgress, token, userId) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.withCredentials = false;
+
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    if (userId) {
+      xhr.setRequestHeader('X-User-Id', String(userId));
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        onProgress(progress);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          resolve(response);
+        } catch {
+          reject(new Error('Invalid response'));
+        }
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('Network error'));
+    };
+
+    xhr.send(formData);
+  });
 }
 
 export default function ComposePage({ groupId = null }) {
@@ -48,19 +126,18 @@ export default function ComposePage({ groupId = null }) {
 
   const [mode, setMode] = useState('post');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Post state
   const [postText, setPostText] = useState('');
   const [postImage, setPostImage] = useState(null);
   const [postImagePreview, setPostImagePreview] = useState(null);
 
-  // Photo editor state
   const [showEditor, setShowEditor] = useState(false);
   const [editorImageSrc, setEditorImageSrc] = useState(null);
 
-  // Article state
   const [articleTitle, setArticleTitle] = useState('');
   const [articleExcerpt, setArticleExcerpt] = useState('');
   const [articleContent, setArticleContent] = useState('');
@@ -74,7 +151,6 @@ export default function ComposePage({ groupId = null }) {
   const saveTimerRef = useRef(null);
   const draftKey = user ? getDraftKey(user.id, mode, groupId) : null;
 
-  // ── Load draft from localStorage on mount ──
   useEffect(() => {
     if (!user) return;
     try {
@@ -84,14 +160,11 @@ export default function ComposePage({ groupId = null }) {
         if (mode === 'post') {
           if (draft.postText) setPostText(draft.postText);
           if (draft.postImage) {
-            // Restore image from data URL
             try {
               const file = dataURLtoFile(draft.postImage, 'draft-image.png');
               setPostImage(file);
               setPostImagePreview(draft.postImage);
-            } catch (_) {
-              // If invalid, ignore
-            }
+            } catch (_) {}
           }
         } else {
           if (draft.articleTitle) setArticleTitle(draft.articleTitle);
@@ -111,7 +184,6 @@ export default function ComposePage({ groupId = null }) {
     } catch (_) {}
   }, [user, draftKey, mode]);
 
-  // ── Save draft with debounce ──
   const saveDraft = useCallback(() => {
     if (!user) return;
     const draft = {};
@@ -138,14 +210,12 @@ export default function ComposePage({ groupId = null }) {
     return () => clearTimeout(saveTimerRef.current);
   }, [saveDraft]);
 
-  // ── Clear draft on submit ──
   const clearDraft = () => {
     try {
       localStorage.removeItem(draftKey);
     } catch (_) {}
   };
 
-  // ── Tag handlers ──
   const addTag = () => {
     const tag = tagInput.trim().toLowerCase();
     if (!tag) return;
@@ -165,7 +235,6 @@ export default function ComposePage({ groupId = null }) {
     }
   };
 
-  // ── Post image ──
   const handlePostImageSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -209,7 +278,6 @@ export default function ComposePage({ groupId = null }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── Article cover ──
   const handleArticleCoverSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -229,10 +297,15 @@ export default function ComposePage({ groupId = null }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── Submit ──
   const handleSubmit = async () => {
     if (!user) {
       setError('Please log in to post.');
+      return;
+    }
+
+    const { token, userId } = getAuthHeaders();
+    if (!token) {
+      setError('Authentication token not found. Please log in again.');
       return;
     }
 
@@ -243,6 +316,8 @@ export default function ComposePage({ groupId = null }) {
       }
       setIsSubmitting(true);
       setError(null);
+      setUploadProgress(0);
+      setIsUploading(true);
 
       try {
         const formData = new FormData();
@@ -250,10 +325,13 @@ export default function ComposePage({ groupId = null }) {
         if (postImage) formData.append('image', postImage);
         if (groupId) formData.append('groupId', String(groupId));
 
-        await apiClient('/api/posts', {
-          method: 'POST',
-          body: formData,
-        });
+        const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL
+          ? `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/posts`
+          : '/api/posts';
+
+        await uploadWithProgress(apiUrl, formData, (progress) => {
+          setUploadProgress(progress);
+        }, token, userId);
 
         clearDraft();
         if (groupId) {
@@ -266,6 +344,8 @@ export default function ComposePage({ groupId = null }) {
         setError(err.message || 'Failed to create post.');
       } finally {
         setIsSubmitting(false);
+        setIsUploading(false);
+        setUploadProgress(0);
       }
       return;
     }
@@ -278,6 +358,8 @@ export default function ComposePage({ groupId = null }) {
 
     setIsSubmitting(true);
     setError(null);
+    setUploadProgress(0);
+    setIsUploading(true);
 
     try {
       const formData = new FormData();
@@ -288,10 +370,13 @@ export default function ComposePage({ groupId = null }) {
       formData.append('tags', JSON.stringify(articleTags));
       if (articleCover) formData.append('image', articleCover);
 
-      await apiClient('/api/articles', {
-        method: 'POST',
-        body: formData,
-      });
+      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL
+        ? `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/articles`
+        : '/api/articles';
+
+      await uploadWithProgress(apiUrl, formData, (progress) => {
+        setUploadProgress(progress);
+      }, token, userId);
 
       clearDraft();
       router.push('/articles');
@@ -300,6 +385,8 @@ export default function ComposePage({ groupId = null }) {
       setError(err.message || 'Failed to create article.');
     } finally {
       setIsSubmitting(false);
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -393,19 +480,29 @@ export default function ComposePage({ groupId = null }) {
               rows={4}
             />
             {postImagePreview && (
-              <div className="relative inline-block group">
-                <img src={postImagePreview} alt="Preview" className="max-h-48 rounded-lg border border-[var(--color-border)]" />
-                <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition bg-black/40 rounded-lg">
+              <div className="space-y-2">
+                <img
+                  src={postImagePreview}
+                  alt="Preview"
+                  className="max-h-48 rounded-lg border border-[var(--color-border)]"
+                />
+                <div className="flex items-center gap-2">
                   <button
                     onClick={openEditor}
-                    className="px-3 py-1.5 bg-[var(--color-accent)] text-white rounded-md text-xs font-semibold hover:bg-[var(--color-accent-h)] transition"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-md text-xs font-medium hover:bg-[var(--color-accent)] hover:text-white transition"
                   >
-                    ✏️ Edit
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                    Edit
                   </button>
                   <button
                     onClick={removePostImage}
-                    className="px-3 py-1.5 bg-[var(--color-rose)] text-white rounded-md text-xs font-semibold hover:bg-[var(--color-rose)]/80 transition"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-rose-bg)] text-[var(--color-rose)] rounded-md text-xs font-medium hover:bg-[var(--color-rose)] hover:text-white transition"
                   >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                    </svg>
                     Remove
                   </button>
                 </div>
@@ -433,7 +530,7 @@ export default function ComposePage({ groupId = null }) {
               </button>
               {postImagePreview && (
                 <span className="text-xs text-[var(--color-txt2)]">
-                  (Hover image to edit/remove)
+                  Image attached
                 </span>
               )}
             </div>
@@ -508,17 +605,23 @@ export default function ComposePage({ groupId = null }) {
                 className="w-full text-sm text-[var(--color-txt2)] file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[var(--color-accent)] file:text-white hover:file:bg-[var(--color-accent-h)]"
               />
               {articleCoverPreview && (
-                <div className="relative mt-2 inline-block">
-                  <img src={articleCoverPreview} alt="Cover preview" className="max-h-32 rounded-lg border border-[var(--color-border)]" />
-                  <button
-                    onClick={removeArticleCover}
-                    className="absolute -top-2 -right-2 bg-[var(--color-rose)] text-white rounded-full p-1 hover:bg-[var(--color-rose)]/80 transition"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
+                <div className="space-y-2 mt-2">
+                  <img
+                    src={articleCoverPreview}
+                    alt="Cover preview"
+                    className="max-h-32 rounded-lg border border-[var(--color-border)]"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={removeArticleCover}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-rose-bg)] text-[var(--color-rose)] rounded-md text-xs font-medium hover:bg-[var(--color-rose)] hover:text-white transition"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                      Remove
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -543,20 +646,36 @@ export default function ComposePage({ groupId = null }) {
           </div>
         )}
 
-        <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="px-6 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
-          >
-            {isSubmitting ? 'Saving…' : mode === 'post' ? 'Post' : 'Save Article'}
-          </button>
-          <button
-            onClick={() => router.back()}
-            className="px-6 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition"
-          >
-            Cancel
-          </button>
+        <div className="flex flex-col gap-2 pt-2">
+          <div className="flex gap-3">
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="px-6 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+            >
+              {isSubmitting ? 'Saving…' : mode === 'post' ? 'Post' : 'Save Article'}
+            </button>
+            <button
+              onClick={() => router.back()}
+              className="px-6 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {isUploading && uploadProgress > 0 && (
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-2 bg-[var(--color-surface)] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[var(--color-accent)] transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <span className="text-xs text-[var(--color-txt2)] font-mono">
+                {uploadProgress}%
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

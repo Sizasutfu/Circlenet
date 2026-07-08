@@ -1,11 +1,12 @@
 // src/app/feed/FeedClient.jsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useFeed } from '@/contexts/FeedContext';
 import { useWs } from '@/contexts/WsContext';
+import { useGroups } from '@/contexts/GroupsContext'; // ✅ added
 import PostCard from '@/components/ui/PostCard';
 import ArticleCard from '@/components/articles/ArticleCard';
 import QuoteModal from '@/components/ui/QuoteModal';
@@ -111,6 +112,20 @@ export default function FeedClient({ initialPosts = null }) {
     initPosts,
     initialized,
   } = useFeed();
+
+  // ── Use GroupsContext to build group map ──
+  const { groupsList, myGroups } = useGroups();
+  const groupMap = useMemo(() => {
+    const map = new Map();
+    // Combine myGroups and groupsList (deduplicate by id)
+    const all = [...myGroups, ...groupsList];
+    for (const g of all) {
+      if (g.id) {
+        map.set(g.id, { id: g.id, topic: g.topic, displayName: g.displayName || `#${g.topic}` });
+      }
+    }
+    return map;
+  }, [myGroups, groupsList]);
 
   const [articles, setArticles] = useState([]);
   const [articlesPage, setArticlesPage] = useState(1);
@@ -378,6 +393,7 @@ export default function FeedClient({ initialPosts = null }) {
             <PostCard
               key={post.id}
               post={post}
+              groupMap={groupMap} // ✅ pass group map
               onLike={handleLike}
               onComment={handleComment}
               onRepost={handleRepost}

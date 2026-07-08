@@ -42,6 +42,7 @@ const linkPreviewRoutes    = require('./routes/linkpreviewRoutes');
 const articleRoutes        = require('./routes/articleRoutes');
 const liveRoutes           = require('./routes/liveRoutes');
 const whisperRoutes        = require('./routes/whisperRoutes');
+const commentRoutes        = require('./routes/commentRoutes');
 
 // authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
@@ -131,7 +132,7 @@ app.use('/api/live',            liveRoutes);
 app.use('/articles',             articlesProxy);
 app.use('/_next',                articlesProxy);
 app.use('/api/whisper',         whisperRoutes);
-
+app.use('/api/comments',        commentRoutes);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 

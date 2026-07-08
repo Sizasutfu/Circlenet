@@ -1,15 +1,15 @@
 // src/app/post/[id]/PostDetailClient.jsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useWs } from '@/contexts/WsContext';
+import { useGroups } from '@/contexts/GroupsContext';
 import PostCard from '@/components/ui/PostCard';
 import Link from 'next/link';
 
-// ── Helper: resolve media URLs ──
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -32,7 +32,6 @@ function fmtNum(n) {
   return String(n || 0);
 }
 
-// ── Deduplicate comments by id ──
 function dedupeComments(comments) {
   const seen = new Set();
   return comments.filter((c) => {
@@ -81,6 +80,23 @@ export default function PostDetailClient({ postId }) {
   const { user } = useAuth();
   const router = useRouter();
   const { registerHandler } = useWs();
+  const { groupsList, myGroups } = useGroups();
+
+  const groupMap = useMemo(() => {
+    const map = new Map();
+    const all = [...myGroups, ...groupsList];
+    for (const g of all) {
+      if (g.id) {
+        map.set(g.id, {
+          id: g.id,
+          topic: g.topic,
+          displayName: g.displayName || `#${g.topic}`,
+        });
+      }
+    }
+    return map;
+  }, [myGroups, groupsList]);
+
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,12 +109,24 @@ export default function PostDetailClient({ postId }) {
   const [creator, setCreator] = useState(null);
   const [creatorLoading, setCreatorLoading] = useState(true);
 
-  // ── Reply states ──
-  const [replyTexts, setReplyTexts] = useState({}); // { commentId: text }
-  const [replySubmitting, setReplySubmitting] = useState({}); // { commentId: boolean }
-  const [replyingTo, setReplyingTo] = useState(null); // commentId or null
+  const [replyTexts, setReplyTexts] = useState({});
+  const [replySubmitting, setReplySubmitting] = useState({});
+  const [replyingTo, setReplyingTo] = useState(null);
 
-  // ── Fetch post and comments ──
+  const [expandedReplies, setExpandedReplies] = useState(new Set());
+
+  const toggleReplies = (commentId) => {
+    setExpandedReplies((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(commentId)) {
+        newSet.delete(commentId);
+      } else {
+        newSet.add(commentId);
+      }
+      return newSet;
+    });
+  };
+
   const fetchPostData = async () => {
     if (!postId) {
       setError('Post ID missing.');
@@ -109,7 +137,14 @@ export default function PostDetailClient({ postId }) {
       const response = await apiClient(`/api/posts/${postId}`);
       const data = response.data || response;
       setPost(data);
-      setComments(dedupeComments(data.comments || []));
+      const deduped = dedupeComments(data.comments || []);
+      setComments(deduped);
+
+      const parentIds = new Set();
+      deduped.forEach(c => {
+        if (c.parentId) parentIds.add(c.parentId);
+      });
+      setExpandedReplies(parentIds);
 
       const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
       if (userInfo && userInfo.id) {
@@ -135,20 +170,22 @@ export default function PostDetailClient({ postId }) {
     fetchPostData();
   }, [postId]);
 
-  // ── WebSocket: listen for new comments (including replies) ──
   useEffect(() => {
     const unregisterNewComment = registerHandler('new_comment', (msg) => {
       if (msg.postId === parseInt(postId)) {
         setComments((prev) => {
           if (prev.some((c) => c.id === msg.comment.id)) return dedupeComments(prev);
-          return dedupeComments([msg.comment, ...prev]);
+          const newComments = dedupeComments([msg.comment, ...prev]);
+          if (msg.comment.parentId) {
+            setExpandedReplies(prevSet => new Set(prevSet).add(msg.comment.parentId));
+          }
+          return newComments;
         });
       }
     });
     return () => unregisterNewComment();
   }, [postId, registerHandler]);
 
-  // ── WebSocket: listen for post_counts updates ──
   useEffect(() => {
     const unregisterCounts = registerHandler('post_counts', (msg) => {
       if (msg.postId === parseInt(postId)) {
@@ -264,7 +301,6 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
-  // ── Reply handlers ──
   const toggleReply = (commentId) => {
     if (replyingTo === commentId) {
       setReplyingTo(null);
@@ -291,9 +327,8 @@ export default function PostDetailClient({ postId }) {
         body: { text, parentId: commentId },
       });
       const newComment = res.data || res;
-      // 🔁 Optimistically add the reply to the comments list
       setComments((prev) => dedupeComments([...prev, newComment]));
-      // Clear the reply input and close the reply box
+      setExpandedReplies(prev => new Set(prev).add(commentId));
       setReplyTexts((prev) => ({ ...prev, [commentId]: '' }));
       setReplyingTo(null);
       showToast('Reply added!', 'success');
@@ -304,7 +339,6 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
-  // ── Recursive comment renderer ──
   const renderComment = (comment, depth = 0) => {
     const { name, username, picture } = getCommentUser(comment);
     const avatarUrl = resolveMediaUrl(picture);
@@ -314,8 +348,9 @@ export default function PostDetailClient({ postId }) {
     const replyText = replyTexts[comment.id] || '';
     const isSubmittingReply = replySubmitting[comment.id] || false;
 
-    // Get replies (comments that have this comment as parentId)
     const replies = comments.filter((c) => c.parentId === comment.id);
+    const isExpanded = expandedReplies.has(comment.id);
+    const hasReplies = replies.length > 0;
 
     return (
       <div key={comment.id} className="border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
@@ -330,7 +365,13 @@ export default function PostDetailClient({ postId }) {
               initial
             )}
           </div>
-          <div className="flex-1">
+
+          {/* ── Clickable comment body – navigates to comment detail ── */}
+          <Link
+            href={`/comment/${comment.id}`}
+            className="flex-1 min-w-0 hover:bg-[var(--color-surface)] rounded-md transition p-1 -m-1"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>
               <span className="text-xs text-[var(--color-txt3)]">@{username}</span>
@@ -338,19 +379,28 @@ export default function PostDetailClient({ postId }) {
                 · {new Date(comment.createdAt).toLocaleString()}
               </span>
             </div>
-            <p className="text-sm text-[var(--color-txt)] mt-0.5">{comment.text}</p>
-            <div className="flex items-center gap-3 mt-1">
-              <button
-                onClick={() => toggleReply(comment.id)}
-                className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition"
-              >
-                {isReplying ? 'Cancel' : 'Reply'}
-              </button>
-            </div>
-          </div>
+            <p className="text-sm text-[var(--color-txt)] mt-0.5 break-words">{comment.text}</p>
+          </Link>
         </div>
 
-        {/* Reply input (shown when replying to this comment) */}
+        {/* ── Buttons outside the link ── */}
+        <div className="flex items-center gap-3 mt-1 ml-11">
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleReply(comment.id); }}
+            className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition"
+          >
+            {isReplying ? 'Cancel' : 'Reply'}
+          </button>
+          {hasReplies && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleReplies(comment.id); }}
+              className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition"
+            >
+              {isExpanded ? 'Hide replies' : `View ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+            </button>
+          )}
+        </div>
+
         {isReplying && (
           <div className="mt-3 ml-11 flex gap-2">
             <input
@@ -377,8 +427,7 @@ export default function PostDetailClient({ postId }) {
           </div>
         )}
 
-        {/* Render replies recursively */}
-        {replies.length > 0 && (
+        {hasReplies && isExpanded && (
           <div className="ml-11 mt-3 space-y-3 border-l-2 border-[var(--color-border)] pl-4">
             {replies.map((reply) => renderComment(reply, depth + 1))}
           </div>
@@ -418,7 +467,6 @@ export default function PostDetailClient({ postId }) {
   const creatorColor = stringToColor(creatorName);
   const avatarUrl = resolveMediaUrl(creatorAvatar);
 
-  // ── Separate top-level comments (parentId = null or undefined) ──
   const topLevelComments = comments.filter((c) => !c.parentId);
 
   return (
@@ -428,7 +476,6 @@ export default function PostDetailClient({ postId }) {
       <button
         onClick={() => router.back()}
         className="flex items-center gap-1 text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition mb-4"
-        title="Click to go back"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -494,6 +541,7 @@ export default function PostDetailClient({ postId }) {
         {post && (
           <PostCard
             post={post}
+            groupMap={groupMap}
             onLike={handleLike}
             onComment={() => document.getElementById('comment-input')?.focus()}
             onRepost={handleRepost}

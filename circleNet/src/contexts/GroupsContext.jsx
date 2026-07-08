@@ -1,16 +1,50 @@
 // src/contexts/GroupsContext.jsx
 'use client';
 
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 
 const GroupsContext = createContext();
 
+function getAuthToken() {
+  let token = localStorage.getItem('circle_token') ||
+             localStorage.getItem('token') ||
+             localStorage.getItem('authToken');
+  if (token) return token;
+  const userData = localStorage.getItem('circle_user') || localStorage.getItem('user');
+  if (userData) {
+    try {
+      const parsed = JSON.parse(userData);
+      if (parsed.token) return parsed.token;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function getUserId() {
+  const userData = localStorage.getItem('circle_user') || localStorage.getItem('user');
+  if (userData) {
+    try {
+      const parsed = JSON.parse(userData);
+      if (parsed.id) return parsed.id;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function toggleMembership(group, isJoining) {
+  if (!group) return group;
+  return {
+    ...group,
+    isMember: isJoining,
+    memberCount: Math.max(0, (group.memberCount || 0) + (isJoining ? 1 : -1)),
+  };
+}
+
 export function GroupsProvider({ children }) {
   const { user } = useAuth();
 
-  // ── State ──
   const [groupsList, setGroupsList] = useState([]);
   const [myGroups, setMyGroups] = useState([]);
   const [currentGroup, setCurrentGroup] = useState(null);
@@ -21,8 +55,37 @@ export function GroupsProvider({ children }) {
   const [groupFeedPage, setGroupFeedPage] = useState(1);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [loadingGroupFeed, setLoadingGroupFeed] = useState(false);
+  const [loadingMyGroups, setLoadingMyGroups] = useState(false);
 
-  // ── Load trending groups ──
+  useEffect(() => {
+    if (user) loadMyGroups();
+  }, [user]);
+
+  const loadMyGroups = useCallback(async () => {
+    if (!user) return [];
+    if (loadingMyGroups) return myGroups;
+    setLoadingMyGroups(true);
+    try {
+      const res = await apiClient('/api/groups/mine');
+      const groups = res.data || [];
+      setMyGroups(groups);
+      if (currentGroup) {
+        const found = groups.find(g => g.id === currentGroup.id);
+        if (found) {
+          setCurrentGroup(prev => ({ ...prev, isMember: true }));
+        } else {
+          setCurrentGroup(prev => ({ ...prev, isMember: false }));
+        }
+      }
+      return groups;
+    } catch (err) {
+      console.error('Failed to load my groups:', err);
+      return [];
+    } finally {
+      setLoadingMyGroups(false);
+    }
+  }, [user, loadingMyGroups, myGroups, currentGroup]);
+
   const loadGroups = useCallback(async (reset = false) => {
     if (loadingGroups) return;
     if (reset) {
@@ -46,31 +109,24 @@ export function GroupsProvider({ children }) {
     }
   }, [loadingGroups, groupsPage, user]);
 
-  // ── Load my groups ──
-  const loadMyGroups = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await apiClient('/api/groups/mine');
-      const groups = res.data || [];
-      setMyGroups(groups);
-    } catch (err) {
-      console.error('Failed to load my groups:', err);
-    }
-  }, [user]);
-
-  // ── Load group detail ──
   const loadGroupDetail = useCallback(async (groupId) => {
     try {
       const res = await apiClient(`/api/groups/${groupId}`);
-      const group = res.data || res;
+      let group = res.data || res;
+      if (user) {
+        let groups = myGroups;
+        if (groups.length === 0) groups = await loadMyGroups();
+        group.isMember = groups.some(g => g.id === groupId);
+      } else {
+        group.isMember = false;
+      }
       setCurrentGroup(group);
       return group;
     } catch (err) {
       throw err;
     }
-  }, []);
+  }, [myGroups, user, loadMyGroups]);
 
-  // ── Load group feed ──
   const loadGroupFeed = useCallback(async (groupId, reset = false) => {
     if (loadingGroupFeed) return;
     if (reset) {
@@ -92,33 +148,41 @@ export function GroupsProvider({ children }) {
     }
   }, [loadingGroupFeed, groupFeedPage]);
 
-  // ── Join group ──
   const joinGroup = useCallback(async (groupId) => {
     if (!user) throw new Error('Not authenticated');
-    await apiClient(`/api/groups/${groupId}/join`, { method: 'POST' });
-    // Refresh group lists
-    await loadGroups(true);
-    await loadMyGroups();
-    // Update current group if open
-    if (currentGroup && currentGroup.id === groupId) {
-      const updated = await loadGroupDetail(groupId);
-      setCurrentGroup(updated);
-    }
-  }, [user, loadGroups, loadMyGroups, loadGroupDetail, currentGroup]);
+    const response = await apiClient(`/api/groups/${groupId}/join`, { method: 'POST' });
+    const isMember = response.data?.isMember ?? true;
+    console.log('[joinGroup] API returned isMember:', isMember); // Debug
 
-  // ── Leave group ──
+    // 🔥 Update currentGroup immediately
+    setCurrentGroup((prev) => {
+      if (!prev || prev.id !== groupId) return prev;
+      console.log('[joinGroup] Updating currentGroup to isMember = true');
+      return { ...prev, isMember: true, memberCount: (prev.memberCount || 0) + 1 };
+    });
+
+    // Also update groupsList
+    setGroupsList((prev) =>
+      prev.map(g => g.id === groupId ? { ...g, isMember: true, memberCount: (g.memberCount || 0) + 1 } : g)
+    );
+
+    // Refresh myGroups (async, but don't overwrite currentGroup until done)
+    await loadMyGroups();
+  }, [user, loadMyGroups]);
+
   const leaveGroup = useCallback(async (groupId) => {
     if (!user) throw new Error('Not authenticated');
     await apiClient(`/api/groups/${groupId}/join`, { method: 'DELETE' });
-    await loadGroups(true);
+    setCurrentGroup((prev) => {
+      if (!prev || prev.id !== groupId) return prev;
+      return { ...prev, isMember: false, memberCount: Math.max(0, (prev.memberCount || 0) - 1) };
+    });
+    setGroupsList((prev) =>
+      prev.map(g => g.id === groupId ? { ...g, isMember: false, memberCount: Math.max(0, (g.memberCount || 0) - 1) } : g)
+    );
     await loadMyGroups();
-    if (currentGroup && currentGroup.id === groupId) {
-      const updated = await loadGroupDetail(groupId);
-      setCurrentGroup(updated);
-    }
-  }, [user, loadGroups, loadMyGroups, loadGroupDetail, currentGroup]);
+  }, [user, loadMyGroups]);
 
-  // ── Post to group ──
   const postToGroup = useCallback(async (groupId, text, imageFile, videoFile) => {
     if (!user) throw new Error('Not authenticated');
     const formData = new FormData();
@@ -126,11 +190,20 @@ export function GroupsProvider({ children }) {
     formData.append('groupId', String(groupId));
     if (imageFile) formData.append('image', imageFile);
     if (videoFile) formData.append('video', videoFile);
-    // Using fetch directly because apiClient doesn't handle FormData with Content-Type automatically.
-    const token = localStorage.getItem('circle_token');
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'}/api/posts`, {
+
+    const token = getAuthToken();
+    const userId = getUserId() || user?.id;
+    if (!token) throw new Error('Authentication token not found. Please log in again.');
+
+    const headers = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (userId) headers['X-User-Id'] = String(userId);
+
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+    const res = await fetch(`${baseUrl}/api/posts`, {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers,
       body: formData,
     });
     if (!res.ok) {
@@ -139,7 +212,6 @@ export function GroupsProvider({ children }) {
     }
     const data = await res.json();
     const newPost = data.data || data;
-    // Prepend to group feed optimistically
     setGroupFeed((prev) => [newPost, ...prev]);
     return newPost;
   }, [user]);

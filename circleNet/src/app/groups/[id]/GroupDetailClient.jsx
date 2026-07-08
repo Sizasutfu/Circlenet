@@ -55,7 +55,7 @@ export default function GroupDetailClient({ params }) {
   const [error, setError] = useState(null);
   const loadMoreRef = useRef(null);
   const [groupId, setGroupId] = useState(null);
-  const initialFetchDone = useRef(false); // 👈 prevent infinite loop
+  const initialFetchDone = useRef(false);
 
   // ── Resolve groupId from params ──
   useEffect(() => {
@@ -75,7 +75,7 @@ export default function GroupDetailClient({ params }) {
   // ── Load group data (only once) ──
   useEffect(() => {
     if (!groupId) return;
-    if (initialFetchDone.current) return; // guard against re-runs
+    if (initialFetchDone.current) return;
     initialFetchDone.current = true;
 
     const fetchData = async () => {
@@ -92,7 +92,7 @@ export default function GroupDetailClient({ params }) {
       }
     };
     fetchData();
-  }, [groupId]); // 👈 only depend on groupId; load functions are stable enough
+  }, [groupId]);
 
   // ── Infinite scroll observer ──
   useEffect(() => {
@@ -271,66 +271,80 @@ export default function GroupDetailClient({ params }) {
       {/* Feed Tab */}
       {activeTab === 'feed' && (
         <div className="mt-4">
-          {user && isMember && (
-            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-4">
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-9 h-9 rounded-full bg-[var(--color-accent)] text-white flex items-center justify-center text-sm font-bold">
-                  {user.name?.charAt(0)?.toUpperCase() || '?'}
-                </div>
-                <div className="flex-1">
-                  <textarea
-                    value={composerText}
-                    onChange={(e) => setComposerText(e.target.value)}
-                    placeholder="What's on your mind?"
-                    className="w-full bg-transparent border-none outline-none resize-none text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)]"
-                    rows={2}
-                  />
-                  {(composerImagePreview || composerVideoPreview) && (
-                    <div className="relative mt-2 inline-block">
-                      {composerImagePreview && (
-                        <img src={composerImagePreview} alt="Preview" className="max-h-48 rounded-lg border border-[var(--color-border)]" />
-                      )}
-                      {composerVideoPreview && (
-                        <video src={composerVideoPreview} className="max-h-48 rounded-lg border border-[var(--color-border)]" controls />
-                      )}
+          {/* ── Composer – always visible ── */}
+          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-9 h-9 rounded-full bg-[var(--color-accent)] text-white flex items-center justify-center text-sm font-bold">
+                {user?.name?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              <div className="flex-1">
+                {isMember ? (
+                  <>
+                    <textarea
+                      value={composerText}
+                      onChange={(e) => setComposerText(e.target.value)}
+                      placeholder="What's on your mind?"
+                      className="w-full bg-transparent border-none outline-none resize-none text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)]"
+                      rows={2}
+                    />
+                    {(composerImagePreview || composerVideoPreview) && (
+                      <div className="relative mt-2 inline-block">
+                        {composerImagePreview && (
+                          <img src={composerImagePreview} alt="Preview" className="max-h-48 rounded-lg border border-[var(--color-border)]" />
+                        )}
+                        {composerVideoPreview && (
+                          <video src={composerVideoPreview} className="max-h-48 rounded-lg border border-[var(--color-border)]" controls />
+                        )}
+                        <button
+                          onClick={removeMedia}
+                          className="absolute -top-2 -right-2 bg-[var(--color-rose)] text-white rounded-full p-1 hover:bg-[var(--color-rose)]/80 transition"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--color-border)]">
+                      <div className="flex gap-2">
+                        <label className="cursor-pointer text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <circle cx="8.5" cy="8.5" r="1.5" />
+                            <path d="M21 15l-5-5L5 21" />
+                          </svg>
+                          <input type="file" className="hidden" accept="image/*" onChange={handleImageSelect} />
+                        </label>
+                        <label className="cursor-pointer text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <polygon points="23 7 16 12 23 17 23 7" />
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                          </svg>
+                          <input type="file" className="hidden" accept="video/*" onChange={handleVideoSelect} />
+                        </label>
+                      </div>
                       <button
-                        onClick={removeMedia}
-                        className="absolute -top-2 -right-2 bg-[var(--color-rose)] text-white rounded-full p-1 hover:bg-[var(--color-rose)]/80 transition"
+                        onClick={handlePost}
+                        disabled={submitting || (!composerText.trim() && !composerImage && !composerVideo)}
+                        className="px-4 py-1.5 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        {submitting ? 'Posting…' : 'Post'}
                       </button>
                     </div>
-                  )}
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--color-border)]">
-                    <div className="flex gap-2">
-                      <label className="cursor-pointer text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" />
-                          <path d="M21 15l-5-5L5 21" />
-                        </svg>
-                        <input type="file" className="hidden" accept="image/*" onChange={handleImageSelect} />
-                      </label>
-                      <label className="cursor-pointer text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <polygon points="23 7 16 12 23 17 23 7" />
-                          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                        </svg>
-                        <input type="file" className="hidden" accept="video/*" onChange={handleVideoSelect} />
-                      </label>
-                    </div>
+                  </>
+                ) : (
+                  <div className="py-3 text-center text-[var(--color-txt2)]">
+                    <p className="text-sm">Join this group to start posting</p>
                     <button
-                      onClick={handlePost}
-                      disabled={submitting || (!composerText.trim() && !composerImage && !composerVideo)}
-                      className="px-4 py-1.5 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+                      onClick={handleJoinToggle}
+                      disabled={isJoining}
+                      className="mt-2 px-4 py-1.5 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition"
                     >
-                      {submitting ? 'Posting…' : 'Post'}
+                      {isJoining ? '…' : 'Join Now'}
                     </button>
                   </div>
-                </div>
+                )}
               </div>
             </div>
-          )}
+          </div>
 
           <div className="space-y-3">
             {groupFeed.length === 0 ? (

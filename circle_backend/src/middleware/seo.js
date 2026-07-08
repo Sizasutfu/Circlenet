@@ -70,7 +70,28 @@ async function fetchArticleBySlug(slug) {
   return await ArticleModel.findBySlug(slug);
 }
 
-function buildHtml({ title, description, image, url, bodyText, type = 'website' }) {
+function buildJsonLd({ title, description, url, image, bodyText, authorName, type }) {
+  if (type !== 'article') return '';
+
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'SocialMediaPosting',
+    headline: title,
+    description,
+    articleBody: String(bodyText || description || '').replace(/\s+/g, ' ').trim(),
+    author: {
+      '@type': 'Person',
+      name: authorName || 'Circle user',
+    },
+    url,
+    image,
+  };
+
+  const json = JSON.stringify(schema).replace(/<\//g, '<\\/');
+  return `<script type="application/ld+json">${json}</script>`;
+}
+
+function buildHtml({ title, description, image, url, bodyText, type = 'website', authorName }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -92,9 +113,11 @@ function buildHtml({ title, description, image, url, bodyText, type = 'website' 
 
   <meta name="twitter:card"        content="summary_large_image" />
   <meta name="twitter:site"        content="${esc(TWITTER_SITE)}" />
+  <meta name="twitter:creator"     content="${esc(TWITTER_SITE)}" />
   <meta name="twitter:title"       content="${esc(title)}" />
   <meta name="twitter:description" content="${esc(description)}" />
   <meta name="twitter:image"       content="${esc(image)}" />
+  ${buildJsonLd({ title, description, url, image, bodyText, authorName, type })}
 </head>
 <body>
   <h1>${esc(title)}</h1>
@@ -166,17 +189,21 @@ async function handlePost(req, res, next) {
 
   const url         = `${BASE_URL}/post/${post.id}`;
   const author      = post.author || 'Someone';
-  const description = truncate(post.text || `${author} shared a post on Circle.`);
+  const text        = post.text ? String(post.text).replace(/\s+/g, ' ').trim() : '';
+  const title       = text ? (text.length <= 65 ? text : `${text.slice(0, 62).trimEnd()}…`) : `${author} shared a post on Circle`;
+  const description = truncate(text || `${author} shared a post on Circle.`);
   const image       = toAbsUrl(post.image || post.authorPicture);
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.send(buildHtml({
-    title: `${author} on Circle`,
+    title,
     description,
     image,
     url,
-    bodyText: post.text || '',
+    bodyText: text,
+    type: 'article',
+    authorName: author,
   }));
 }
 

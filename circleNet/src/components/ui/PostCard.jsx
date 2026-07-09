@@ -177,13 +177,47 @@ export default function PostCard({
   const postImageUrl = resolveMediaUrl(image);
   const postVideoUrl = resolveMediaUrl(video);
 
+  // ── Image click: open lightbox with metadata ──
   const handleImageClick = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (postImageUrl) {
-      openLightbox([postImageUrl], 0);
-    }
-  };
+  e.preventDefault();
+  e.stopPropagation();
+  if (postImageUrl) {
+    const imageItem = {
+      src: postImageUrl,
+      type: 'image',
+      meta: {
+        postId: id,
+        caption: text || '',
+        name: displayName,
+        username: username || undefined,
+        userId: post.user?.id || post.authorId || post.userId,
+        picture: avatarUrl,
+      },
+    };
+    openLightbox([imageItem], 0);
+  }
+};
+
+  // ── Video double-click: open lightbox with metadata ──
+  const handleVideoDblClick = (e) => {
+  e.stopPropagation();
+  if (postVideoUrl) {
+    const videoItem = {
+      src: postVideoUrl,
+      type: 'video',
+      meta: {
+        postId: id,
+        caption: text || '',
+        name: displayName,
+        username: username || undefined,
+        userId: post.user?.id || post.authorId || post.userId,
+        picture: avatarUrl,
+        poster: postImageUrl || undefined,
+      },
+    };
+    openLightbox([videoItem], 0);
+  }
+};
 
   const handleVideoError = () => {
     console.warn('⚠️ Video failed to load:', postVideoUrl);
@@ -278,10 +312,14 @@ export default function PostCard({
     router.push(`/post/${id}`);
   };
 
+  // ── Render media (image or video) ──
   const renderMedia = () => {
     if (postVideoUrl) {
       return (
-        <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5">
+        <div
+          className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative cursor-pointer"
+          onDoubleClick={handleVideoDblClick}
+        >
           {videoError ? (
             <div className="p-6 text-center text-[var(--color-txt2)] text-sm">
               <svg className="w-10 h-10 mx-auto mb-2 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -293,16 +331,28 @@ export default function PostCard({
               </a>
             </div>
           ) : (
-            <video
-              ref={videoRef}
-              src={postVideoUrl}
-              controls
-              playsInline
-              className="w-full h-auto max-h-96 object-contain"
-              poster={postImageUrl || undefined}
-              onError={handleVideoError}
-              preload="metadata"
-            />
+            <>
+              <video
+                ref={videoRef}
+                src={postVideoUrl}
+                controls
+                playsInline
+                className="w-full h-auto max-h-96 object-contain"
+                poster={postImageUrl || undefined}
+                onError={handleVideoError}
+                preload="metadata"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 pointer-events-none">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+                Expand
+              </div>
+            </>
           )}
         </div>
       );
@@ -324,6 +374,7 @@ export default function PostCard({
     return null;
   };
 
+  // ── Render link preview ──
   const renderLinkPreview = () => {
     if (postImageUrl || postVideoUrl) return null;
     if (previewLoading) {
@@ -394,7 +445,7 @@ export default function PostCard({
     );
   };
 
-  // ── View count badge (shared across layouts) ──
+  // ── View count badge ──
   const renderViewCount = () => {
     if (!viewCount || viewCount <= 0) return null;
     return (
@@ -626,7 +677,7 @@ export default function PostCard({
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-              {renderViewCount()}  {/* 👈 View count for reposts */}
+              {renderViewCount()}
             </div>
           </div>
         </div>
@@ -697,7 +748,6 @@ export default function PostCard({
               <span className="text-sm font-semibold text-[var(--color-rose)]">Tap to watch live</span>
             </div>
 
-            {/* Action row with view count */}
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
               <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
               <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
@@ -712,7 +762,7 @@ export default function PostCard({
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-              {renderViewCount()}  {/* 👈 View count for live posts */}
+              {renderViewCount()}
             </div>
           </div>
         </div>
@@ -881,7 +931,7 @@ export default function PostCard({
               </svg>
             </button>
             <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-            {renderViewCount()}  {/* 👈 View count for regular posts */}
+            {renderViewCount()}
           </div>
         </div>
       </div>

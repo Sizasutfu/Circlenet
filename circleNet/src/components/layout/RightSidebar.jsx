@@ -349,117 +349,118 @@ export default function RightSidebar() {
         </div>
       )}
 
-      {/* ── People to Follow (only if not on post detail and not on articles) ── */}
-      {!isPostDetail && !isArticles && user && (
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
-            {/* Users icon (two people) */}
-            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 00-3-3.87" />
-              <path d="M16 3.13a4 4 0 010 7.75" />
-            </svg>
-            Who to Follow
-          </h3>
-          {peopleLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-full bg-[var(--color-surface)] animate-pulse" />
-                <div className="flex-1 h-3 bg-[var(--color-surface)] animate-pulse rounded" />
+      {/* ── People to Follow ── */}
+{!isPostDetail && !isArticles && user && (
+  <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+    <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+      {/* Users icon */}
+      <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 00-3-3.87" />
+        <path d="M16 3.13a4 4 0 010 7.75" />
+      </svg>
+      Who to Follow
+    </h3>
+    {peopleLoading ? (
+      Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-2 mb-2">
+          <div className="w-8 h-8 rounded-full bg-[var(--color-surface)] animate-pulse" />
+          <div className="flex-1 h-3 bg-[var(--color-surface)] animate-pulse rounded" />
+        </div>
+      ))
+    ) : people.length === 0 ? (
+      <p className="text-xs text-[var(--color-txt3)]">No suggestions</p>
+    ) : (
+      <ul className="space-y-3">
+        {people.slice(0, 4).map((p) => {
+          const avatarUrl = resolveMediaUrl(p.picture);
+          const initial = (p.name || '?').charAt(0).toUpperCase();
+          const color = stringToColor(p.name || '');
+          const profileHref = p.username ? `/profile/${p.username}` : `/profile?userId=${p.id}`;
+          return (
+            <li key={p.id} className="flex items-center gap-2">
+              <Link
+                href={profileHref}
+                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+                style={{ background: avatarUrl ? 'transparent' : color }}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
+                ) : (
+                  initial
+                )}
+              </Link>
+              <div className="flex-1 min-w-0">
+                <Link
+                  href={profileHref}
+                  className="text-sm font-semibold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
+                >
+                  {p.name}
+                </Link>
+                <p className="text-xs text-[var(--color-txt3)] truncate">
+                  @{p.username || 'user'}
+                </p>
               </div>
-            ))
-          ) : people.length === 0 ? (
-            <p className="text-xs text-[var(--color-txt3)]">No suggestions</p>
-          ) : (
-            <ul className="space-y-3">
-              {people.slice(0, 4).map((p) => {
-                const avatarUrl = resolveMediaUrl(p.picture);
-                const initial = (p.name || '?').charAt(0).toUpperCase();
-                const color = stringToColor(p.name || '');
-                return (
-                  <li key={p.id} className="flex items-center gap-2">
-                    <Link
-                      href={`/profile/${p.username}`}
-                      className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                      style={{ background: avatarUrl ? 'transparent' : color }}
-                    >
-                      {avatarUrl ? (
-                        <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-                      ) : (
-                        initial
-                      )}
-                    </Link>
-                    <div className="flex-1 min-w-0">
-                      <Link
-                        href={`/profile/${p.username}`}
-                        className="text-sm font-semibold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
-                      >
-                        {p.name}
-                      </Link>
-                      <p className="text-xs text-[var(--color-txt3)] truncate">@{p.username}</p>
-                    </div>
-                    <button
-                      onClick={() => handleFollow(p.id)}
-                      className="px-3 py-1 text-xs font-medium bg-[var(--color-accent)] text-white rounded-full hover:bg-[var(--color-accent-h)] transition"
-                    >
-                      Follow
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <Link
-            href="/explore"
-            className="block text-xs text-[var(--color-accent)] hover:underline mt-2"
-          >
-            Explore more →
-          </Link>
-        </div>
-      )}
+              <button
+                onClick={() => handleFollow(p.id)}
+                className="px-3 py-1 text-xs font-medium bg-[var(--color-accent)] text-white rounded-full hover:bg-[var(--color-accent-h)] transition"
+              >
+                Follow
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    )}
+    <Link href="/explore" className="block text-xs text-[var(--color-accent)] hover:underline mt-2">
+      Explore more →
+    </Link>
+  </div>
+)}
 
-      {/* ── New Members ── */}
-      {user && newMembers.length > 0 && (
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
-            {/* Sparkles icon */}
-            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
-              <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
-              <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
-            </svg>
-            New Members
-          </h3>
-          <ul className="space-y-2">
-            {newMembers.slice(0, 4).map((u) => {
-              const avatarUrl = resolveMediaUrl(u.picture);
-              const initial = (u.name || '?').charAt(0).toUpperCase();
-              const color = stringToColor(u.name || '');
-              return (
-                <li key={u.id}>
-                  <Link
-                    href={`/profile/${u.username}`}
-                    className="flex items-center gap-2 text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition"
-                  >
-                    <div
-                      className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                      style={{ background: avatarUrl ? 'transparent' : color }}
-                    >
-                      {avatarUrl ? (
-                        <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-                      ) : (
-                        initial
-                      )}
-                    </div>
-                    <span className="truncate">{u.name}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-    </aside>
+{/* ── New Members ── */}
+{user && newMembers.length > 0 && (
+  <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+    <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+      {/* Sparkles icon */}
+      <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+        <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
+        <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
+      </svg>
+      New Members
+    </h3>
+    <ul className="space-y-2">
+      {newMembers.slice(0, 4).map((u) => {
+        const avatarUrl = resolveMediaUrl(u.picture);
+        const initial = (u.name || '?').charAt(0).toUpperCase();
+        const color = stringToColor(u.name || '');
+        const profileHref = u.username ? `/profile/${u.username}` : `/profile?userId=${u.id}`;
+        return (
+          <li key={u.id}>
+            <Link
+              href={profileHref}
+              className="flex items-center gap-2 text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition"
+            >
+              <div
+                className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
+                style={{ background: avatarUrl ? 'transparent' : color }}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
+                ) : (
+                  initial
+                )}
+              </div>
+              <span className="truncate">{u.name}</span>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+)} 
+</aside>
   );
 }

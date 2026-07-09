@@ -5,7 +5,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import PhotoEditor from '@/components/PhotoEditor';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -40,7 +39,7 @@ function getDraftKey(userId, mode, groupId) {
   return `compose_draft_${userId}_${mode}${groupId ? '_group_' + groupId : ''}`;
 }
 
-// ── Auth headers helper (mirrors apiClient) ──
+// ── Auth headers helper ──
 function getAuthHeaders() {
   if (typeof window === 'undefined') return { token: null, userId: null };
   let token = localStorage.getItem('circle_token');
@@ -130,13 +129,15 @@ export default function ComposePage({ groupId = null }) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
+  const videoInputRef = useRef(null);
 
   const [postText, setPostText] = useState('');
   const [postImage, setPostImage] = useState(null);
   const [postImagePreview, setPostImagePreview] = useState(null);
-
-  const [showEditor, setShowEditor] = useState(false);
-  const [editorImageSrc, setEditorImageSrc] = useState(null);
+  const [postVideo, setPostVideo] = useState(null);
+  const [postVideoPreview, setPostVideoPreview] = useState(null);
+  const [editKey, setEditKey] = useState(null);
+  const [editingMediaType, setEditingMediaType] = useState(null); // 'image' or 'video'
 
   const [articleTitle, setArticleTitle] = useState('');
   const [articleExcerpt, setArticleExcerpt] = useState('');
@@ -151,6 +152,38 @@ export default function ComposePage({ groupId = null }) {
   const saveTimerRef = useRef(null);
   const draftKey = user ? getDraftKey(user.id, mode, groupId) : null;
 
+  // ── Listen for edited media from editor tab via postMessage ──
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'edited_image' && event.data.key === editKey) {
+        const dataUrl = event.data.data;
+        if (dataUrl) {
+          // Determine if it's an image or video by the data URL prefix
+          if (dataUrl.startsWith('data:video/')) {
+            // It's a video
+            const file = dataURLtoFile(dataUrl, 'edited-video.webm');
+            setPostVideo(file);
+            setPostVideoPreview(URL.createObjectURL(file));
+            setPostImage(null);
+            setPostImagePreview(null);
+          } else {
+            // It's an image
+            const file = dataURLtoFile(dataUrl, 'edited-image.png');
+            setPostImage(file);
+            setPostImagePreview(dataUrl);
+            setPostVideo(null);
+            setPostVideoPreview(null);
+          }
+          setEditKey(null);
+          setEditingMediaType(null);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [editKey]);
+
+  // ── Load draft from localStorage on mount ──
   useEffect(() => {
     if (!user) return;
     try {
@@ -190,6 +223,7 @@ export default function ComposePage({ groupId = null }) {
     if (mode === 'post') {
       draft.postText = postText;
       if (postImagePreview) draft.postImage = postImagePreview;
+      // Videos not saved to draft (too large)
     } else {
       draft.articleTitle = articleTitle;
       draft.articleExcerpt = articleExcerpt;
@@ -243,6 +277,10 @@ export default function ComposePage({ groupId = null }) {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
+    if (postVideo) {
+      setPostVideo(null);
+      setPostVideoPreview(null);
+    }
     setPostImage(file);
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -252,30 +290,58 @@ export default function ComposePage({ groupId = null }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const openEditor = () => {
-    if (!postImagePreview) return;
-    setEditorImageSrc(postImagePreview);
-    setShowEditor(true);
+  const handlePostVideoSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      setError('Video must be under 50MB.');
+      if (videoInputRef.current) videoInputRef.current.value = '';
+      return;
+    }
+    if (postImage) {
+      setPostImage(null);
+      setPostImagePreview(null);
+    }
+    setPostVideo(file);
+    setPostVideoPreview(URL.createObjectURL(file));
+    if (videoInputRef.current) videoInputRef.current.value = '';
   };
 
-  const handleEditorSave = (editedFile) => {
-    setPostImage(editedFile);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPostImagePreview(ev.target.result);
-    reader.readAsDataURL(editedFile);
-    setShowEditor(false);
-    setEditorImageSrc(null);
-  };
+  // ── Open editor for image or video ──
+  const openEditorRoute = (mediaType) => {
+    const preview = mediaType === 'image' ? postImagePreview : postVideoPreview;
+    if (!preview) return;
 
-  const handleEditorCancel = () => {
-    setShowEditor(false);
-    setEditorImageSrc(null);
+    const key = `edit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    setEditKey(key);
+    setEditingMediaType(mediaType);
+
+    const editorWindow = window.open(`/editor?key=${key}`, '_blank');
+    if (!editorWindow) {
+      setError('Could not open editor. Please allow popups.');
+      return;
+    }
+
+    const handleMessage = (event) => {
+      if (event.data?.type === 'editor_ready' && event.data.key === key) {
+        editorWindow.postMessage({ type: 'image_data', key, data: preview }, '*');
+        window.removeEventListener('message', handleMessage);
+      }
+    };
+    window.addEventListener('message', handleMessage);
   };
 
   const removePostImage = () => {
     setPostImage(null);
     setPostImagePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePostVideo = () => {
+    if (postVideoPreview) URL.revokeObjectURL(postVideoPreview);
+    setPostVideo(null);
+    setPostVideoPreview(null);
+    if (videoInputRef.current) videoInputRef.current.value = '';
   };
 
   const handleArticleCoverSelect = (e) => {
@@ -310,8 +376,8 @@ export default function ComposePage({ groupId = null }) {
     }
 
     if (mode === 'post') {
-      if (!postText.trim() && !postImage) {
-        setError('Please write something or add an image.');
+      if (!postText.trim() && !postImage && !postVideo) {
+        setError('Please write something or add an image/video.');
         return;
       }
       setIsSubmitting(true);
@@ -323,6 +389,7 @@ export default function ComposePage({ groupId = null }) {
         const formData = new FormData();
         formData.append('text', postText.trim());
         if (postImage) formData.append('image', postImage);
+        if (postVideo) formData.append('video', postVideo);
         if (groupId) formData.append('groupId', String(groupId));
 
         const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL
@@ -394,15 +461,6 @@ export default function ComposePage({ groupId = null }) {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      {/* Photo Editor Modal */}
-      {showEditor && (
-        <PhotoEditor
-          image={editorImageSrc}
-          onSave={handleEditorSave}
-          onCancel={handleEditorCancel}
-        />
-      )}
-
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => router.back()}
@@ -479,6 +537,8 @@ export default function ComposePage({ groupId = null }) {
               className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none resize-none min-h-[120px]"
               rows={4}
             />
+
+            {/* Image preview */}
             {postImagePreview && (
               <div className="space-y-2">
                 <img
@@ -488,7 +548,7 @@ export default function ComposePage({ groupId = null }) {
                 />
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={openEditor}
+                    onClick={() => openEditorRoute('image')}
                     className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-md text-xs font-medium hover:bg-[var(--color-accent)] hover:text-white transition"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -508,7 +568,39 @@ export default function ComposePage({ groupId = null }) {
                 </div>
               </div>
             )}
-            <div className="flex items-center gap-2">
+
+            {/* Video preview */}
+            {postVideoPreview && (
+              <div className="space-y-2">
+                <video
+                  src={postVideoPreview}
+                  controls
+                  className="max-h-48 rounded-lg border border-[var(--color-border)]"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEditorRoute('video')}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-md text-xs font-medium hover:bg-[var(--color-accent)] hover:text-white transition"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                    Edit
+                  </button>
+                  <button
+                    onClick={removePostVideo}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-rose-bg)] text-[var(--color-rose)] rounded-md text-xs font-medium hover:bg-[var(--color-rose)] hover:text-white transition"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                    </svg>
+                    Remove
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -519,7 +611,7 @@ export default function ComposePage({ groupId = null }) {
                   <circle cx="8.5" cy="8.5" r="1.5" />
                   <path d="M21 15l-5-5L5 21" />
                 </svg>
-                Attach image
+                Image
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -528,9 +620,27 @@ export default function ComposePage({ groupId = null }) {
                   onChange={handlePostImageSelect}
                 />
               </button>
-              {postImagePreview && (
+              <button
+                type="button"
+                onClick={() => videoInputRef.current?.click()}
+                className="text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition text-sm flex items-center gap-1"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <polygon points="23 7 16 12 23 17 23 7" />
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+                Video
+                <input
+                  type="file"
+                  ref={videoInputRef}
+                  className="hidden"
+                  accept="video/*"
+                  onChange={handlePostVideoSelect}
+                />
+              </button>
+              {(postImagePreview || postVideoPreview) && (
                 <span className="text-xs text-[var(--color-txt2)]">
-                  Image attached
+                  {postImagePreview ? 'Image attached' : 'Video attached'}
                 </span>
               )}
             </div>

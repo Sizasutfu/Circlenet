@@ -8,18 +8,6 @@ import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 // ── Helpers ──
-function escHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>"']/g, (m) => {
-    if (m === '&') return '&amp;';
-    if (m === '<') return '&lt;';
-    if (m === '>') return '&gt;';
-    if (m === '"') return '&quot;';
-    if (m === "'") return '&#39;';
-    return m;
-  });
-}
-
 function stringToColor(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -41,10 +29,23 @@ function formatTime(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// ── Main Component ──
 export default function Lightbox({ images, initialIndex = 0, onClose }) {
   const { user } = useAuth();
   const router = useRouter();
+
+  // ── Theme detection ──
+  const [theme, setTheme] = useState('dark');
+  useEffect(() => {
+    const html = document.documentElement;
+    const updateTheme = () => {
+      const isDark = html.classList.contains('dark') || html.getAttribute('data-theme') === 'dark';
+      setTheme(isDark ? 'dark' : 'light');
+    };
+    updateTheme();
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(html, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    return () => observer.disconnect();
+  }, []);
 
   // ── Normalize images ──
   const normalized = images.map((img) => {
@@ -109,48 +110,59 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     }
   }, [postId]);
 
-  // ── Render profile chip ──
+  // ── Render profile chip (theme-aware) ──
   const renderProfile = () => {
-    const meta = currentItem?.meta || {};
-    if (!meta.name) return null;
-    return (
+  const meta = currentItem?.meta || {};
+  if (!meta.name) return null;
+
+  // ── Build the profile URL ──
+  let profileUrl = '#';
+  if (meta.username) {
+    profileUrl = `/profile/${meta.username}`;
+  } else if (meta.userId) {
+    profileUrl = `/profile?userId=${meta.userId}`;
+  } else {
+    return null; // no way to link
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 bg-[var(--lightbox-chip-bg)] backdrop-blur-md px-3 py-1.5 rounded-full cursor-pointer hover:bg-[var(--lightbox-chip-hover)] transition"
+      onClick={() => {
+        if (profileUrl !== '#') {
+          onClose();
+          setTimeout(() => router.push(profileUrl), 200);
+        }
+      }}
+    >
       <div
-        className="flex items-center gap-2 bg-black/55 backdrop-blur-md px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/70 transition"
-        onClick={() => {
-          if (meta.userId) {
-            onClose();
-            setTimeout(() => router.push(`/profile/${meta.userId}`), 200);
-          }
+        className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden flex-shrink-0"
+        style={{
+          background: meta.picture ? 'transparent' : stringToColor(meta.name),
         }}
       >
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden flex-shrink-0"
-          style={{
-            background: meta.picture ? 'transparent' : stringToColor(meta.name),
-          }}
-        >
-          {meta.picture ? (
-            <img src={meta.picture} alt="" className="w-full h-full object-cover" />
-          ) : (
-            meta.name.charAt(0).toUpperCase()
-          )}
-        </div>
-        <div>
-          <div className="text-white text-sm font-bold leading-tight">{meta.name}</div>
-          <div className="text-white/50 text-[10px] leading-tight">View profile</div>
-        </div>
+        {meta.picture ? (
+          <img src={meta.picture} alt="" className="w-full h-full object-cover" />
+        ) : (
+          meta.name.charAt(0).toUpperCase()
+        )}
       </div>
-    );
-  };
+      <div>
+        <div className="text-[var(--color-txt)] text-sm font-bold leading-tight">{meta.name}</div>
+        <div className="text-[var(--color-txt2)] text-[10px] leading-tight">View profile</div>
+      </div>
+    </div>
+  );
+};
 
   // ── Render caption ──
   const renderCaption = () => {
     const cap = currentItem?.meta?.caption || '';
     if (!cap) return null;
-    return <div className="text-white text-sm text-center max-w-[80%] mx-auto mt-2">{cap}</div>;
+    return <div className="text-[var(--color-txt)] text-sm text-center max-w-[80%] mx-auto mt-2">{cap}</div>;
   };
 
-  // ── Navigation ──
+  // ── Navigation (unchanged) ──
   const goTo = useCallback((newIdx) => {
     if (isAnimating || newIdx < 0 || newIdx >= items.length) return;
     setIsAnimating(true);
@@ -192,7 +204,6 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     if (!postId) return;
     try {
       await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
-      // Refresh post data
       const res = await apiClient(`/api/posts/${postId}`);
       setPostData(res.data || res);
     } catch (err) {
@@ -224,13 +235,13 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     if (!text || !postId) return;
     setCommentLoading(true);
     try {
-      const payload = { text };
-      if (replyToId) payload.parentId = replyToId;
-      await apiClient(`/api/posts/${postId}/comment`, { method: 'POST', body: JSON.stringify(payload) });
+      await apiClient(`/api/posts/${postId}/comment`, {
+        method: 'POST',
+        body: { text },
+      });
       setCommentText('');
       setReplyToId(null);
       setReplyToAuthor('');
-      // Refresh post
       const res = await apiClient(`/api/posts/${postId}`);
       setPostData(res.data || res);
     } catch (err) {
@@ -270,7 +281,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     }
   };
 
-  // ── Render comment tree ──
+  // ── Render comment tree (theme-aware) ──
   const renderComments = (comments, depth = 0) => {
     if (!comments || !comments.length) return null;
     return comments.map((c) => {
@@ -293,12 +304,12 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-white text-sm font-bold">{c.author || 'Anonymous'}</span>
-              <span className="text-white/40 text-xs">{formatTime(c.createdAt)}</span>
+              <span className="text-[var(--color-txt)] text-sm font-bold">{c.author || 'Anonymous'}</span>
+              <span className="text-[var(--color-txt2)] text-xs">{formatTime(c.createdAt)}</span>
             </div>
-            <div className="text-white/90 text-sm">{c.text}</div>
+            <div className="text-[var(--color-txt)] text-sm">{c.text}</div>
             <button
-              className="text-white/40 text-xs hover:text-white/70 transition mt-1"
+              className="text-[var(--color-txt3)] text-xs hover:text-[var(--color-accent)] transition mt-1"
               onClick={() => {
                 setReplyToId(c.id);
                 setReplyToAuthor(c.author || 'Anonymous');
@@ -308,7 +319,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
             </button>
             {hasReplies && (
               <details className="mt-1">
-                <summary className="text-white/40 text-xs hover:text-white/70 cursor-pointer">
+                <summary className="text-[var(--color-txt3)] text-xs hover:text-[var(--color-accent)] cursor-pointer">
                   View {replies.length} {replies.length === 1 ? 'reply' : 'replies'}
                 </summary>
                 {renderComments(replies, depth + 1)}
@@ -320,7 +331,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     });
   };
 
-  // ── Gesture handlers ──
+  // ── Gesture handlers (unchanged) ──
   const onPointerDown = (e) => {
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 1) {
@@ -424,7 +435,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
   return createPortal(
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center select-none"
+      className="fixed inset-0 z-[9999] bg-[var(--lightbox-bg)] flex items-center justify-center select-none"
       style={{ display: 'flex' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -438,7 +449,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
       {/* Close button */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 text-white/60 hover:text-white transition z-20 p-2"
+        className="absolute top-4 right-4 text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition z-20 p-2"
         title='Close'
       >
         <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -458,6 +469,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           <video
             key={currentItem.src}
             src={currentItem.src}
+            poster={currentItem.meta?.poster || undefined}
             className="max-w-[90vw] max-h-[90vh] object-contain"
             controls
             autoPlay
@@ -482,7 +494,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           {currentIndex > 0 && (
             <button
               onClick={goPrev}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition p-2 bg-black/30 rounded-full"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition p-2 bg-[var(--lightbox-btn-bg)] rounded-full"
             >
               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M15 18l-6-6 6-6" />
@@ -492,7 +504,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           {currentIndex < items.length - 1 && (
             <button
               onClick={goNext}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition p-2 bg-black/30 rounded-full"
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition p-2 bg-[var(--lightbox-btn-bg)] rounded-full"
             >
               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M9 18l6-6-6-6" />
@@ -504,24 +516,24 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
 
       {/* Counter */}
       {items.length > 1 && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-white/60 text-sm bg-black/40 px-3 py-1 rounded-full">
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-[var(--color-txt2)] text-sm bg-[var(--lightbox-counter-bg)] px-3 py-1 rounded-full">
           {currentIndex + 1} / {items.length}
         </div>
       )}
 
       {/* Caption */}
       {renderCaption() && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-white text-sm max-w-[80%] text-center">
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-[var(--color-txt)] text-sm max-w-[80%] text-center">
           {renderCaption()}
         </div>
       )}
 
-      {/* Action buttons (like, comment, repost, share, download, report) */}
+      {/* Action buttons (theme-aware) */}
       {postData && (
-        <div className="absolute bottom-4 right-4 flex gap-2 z-20 bg-black/40 backdrop-blur-sm rounded-full px-3 py-2">
+        <div className="absolute bottom-4 right-4 flex gap-2 z-20 bg-[var(--lightbox-actions-bg)] backdrop-blur-sm rounded-full px-3 py-2">
           <button
             onClick={handleLike}
-            className={`flex items-center gap-1 text-white/80 hover:text-white transition ${postData.likes?.includes(user?.id) ? 'text-rose-500' : ''}`}
+            className={`flex items-center gap-1 text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition ${postData.likes?.includes(user?.id) ? 'text-rose-500' : ''}`}
             title="Like"
           >
             <svg className="w-5 h-5" fill={postData.likes?.includes(user?.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -531,7 +543,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           </button>
           <button
             onClick={() => setShowComments(!showComments)}
-            className="flex items-center gap-1 text-white/80 hover:text-white transition"
+            className="flex items-center gap-1 text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
             title="Comments"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -541,7 +553,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           </button>
           <button
             onClick={handleRepost}
-            className="flex items-center gap-1 text-white/80 hover:text-white transition"
+            className="flex items-center gap-1 text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
             title="Repost"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -558,7 +570,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
               if (navigator.share) navigator.share({ url });
               else navigator.clipboard.writeText(url).then(() => alert('Link copied!'));
             }}
-            className="text-white/80 hover:text-white transition"
+            className="text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
             title="Share"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -577,7 +589,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
               a.target = '_blank';
               a.click();
             }}
-            className="text-white/80 hover:text-white transition"
+            className="text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
             title="Download"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -588,7 +600,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           </button>
           <button
             onClick={() => setShowReport(!showReport)}
-            className="text-white/80 hover:text-white transition"
+            className="text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
             title="Report"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -600,12 +612,12 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
         </div>
       )}
 
-      {/* Comments panel */}
+      {/* Comments panel (theme-aware) */}
       {showComments && postData && (
-        <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-black/90 backdrop-blur-md border-l border-white/10 p-4 flex flex-col z-30 animate-slideInRight">
+        <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-[var(--lightbox-panel-bg)] backdrop-blur-md border-l border-[var(--color-border)] p-4 flex flex-col z-30 animate-slideInRight">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-white font-bold text-lg">Comments</h3>
-            <button onClick={() => setShowComments(false)} className="text-white/60 hover:text-white">
+            <h3 className="text-[var(--color-txt)] font-bold text-lg">Comments</h3>
+            <button onClick={() => setShowComments(false)} className="text-[var(--color-txt2)] hover:text-[var(--color-txt)]">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -616,13 +628,13 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
             {postData.comments && postData.comments.length > 0 ? (
               renderComments(postData.comments)
             ) : (
-              <div className="text-white/40 text-center py-8">No comments yet.</div>
+              <div className="text-[var(--color-txt3)] text-center py-8">No comments yet.</div>
             )}
           </div>
           {replyToId && (
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-white/60 text-sm">Replying to <span className="text-white font-semibold">{replyToAuthor}</span></span>
-              <button onClick={() => { setReplyToId(null); setReplyToAuthor(''); }} className="text-white/40 hover:text-white">
+              <span className="text-[var(--color-txt2)] text-sm">Replying to <span className="text-[var(--color-txt)] font-semibold">{replyToAuthor}</span></span>
+              <button onClick={() => { setReplyToId(null); setReplyToAuthor(''); }} className="text-[var(--color-txt3)] hover:text-[var(--color-txt)]">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
@@ -636,14 +648,14 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
               placeholder={replyToId ? `Reply to ${replyToAuthor}…` : "Add a comment…"}
-              className="flex-1 bg-white/10 rounded-full px-4 py-2 text-white text-sm outline-none focus:ring-1 focus:ring-white/30"
+              className="flex-1 bg-[var(--color-surface)] rounded-full px-4 py-2 text-[var(--color-txt)] text-sm outline-none focus:ring-1 focus:ring-[var(--color-accent)] border border-[var(--color-border)]"
               disabled={commentLoading}
               onKeyDown={(e) => e.key === 'Enter' && handleCommentSubmit()}
             />
             <button
               onClick={handleCommentSubmit}
               disabled={commentLoading || !commentText.trim()}
-              className="bg-white/20 text-white px-4 py-2 rounded-full text-sm hover:bg-white/30 transition disabled:opacity-50"
+              className="bg-[var(--color-accent)] text-white px-4 py-2 rounded-full text-sm hover:opacity-80 transition disabled:opacity-50"
             >
               {commentLoading ? '…' : 'Post'}
             </button>
@@ -651,12 +663,12 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
         </div>
       )}
 
-      {/* Report panel */}
+      {/* Report panel (theme-aware) */}
       {showReport && postData && (
-        <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-black/90 backdrop-blur-md border-l border-white/10 p-4 flex flex-col z-30 animate-slideInRight">
+        <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-[var(--lightbox-panel-bg)] backdrop-blur-md border-l border-[var(--color-border)] p-4 flex flex-col z-30 animate-slideInRight">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-white font-bold text-lg">Report</h3>
-            <button onClick={() => setShowReport(false)} className="text-white/60 hover:text-white">
+            <h3 className="text-[var(--color-txt)] font-bold text-lg">Report</h3>
+            <button onClick={() => setShowReport(false)} className="text-[var(--color-txt2)] hover:text-[var(--color-txt)]">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -670,8 +682,8 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
                 onClick={() => setReportReason(reason === 'Other' ? 'Other' : reason)}
                 className={`w-full text-left px-4 py-2 rounded-lg text-sm transition ${
                   reportReason === reason
-                    ? 'bg-white/20 text-white'
-                    : 'bg-white/5 text-white/70 hover:bg-white/10'
+                    ? 'bg-[var(--color-accent)] text-white'
+                    : 'bg-[var(--color-surface)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)]'
                 }`}
               >
                 {reason}
@@ -682,7 +694,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
                 value={reportOther}
                 onChange={(e) => setReportOther(e.target.value)}
                 placeholder="Describe the issue (min 5 chars)"
-                className="w-full bg-white/10 rounded-lg px-4 py-2 text-white text-sm outline-none focus:ring-1 focus:ring-white/30 resize-none h-20"
+                className="w-full bg-[var(--color-surface)] rounded-lg px-4 py-2 text-[var(--color-txt)] text-sm outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-none h-20 border border-[var(--color-border)]"
               />
             )}
           </div>

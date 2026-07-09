@@ -1,4 +1,8 @@
 /* src/app/globals.css */
+/* 
+  ⚠️ The @theme rule below is Tailwind CSS v4 syntax.
+  Your editor may show a warning – it's safe to ignore.
+*/
 @import "tailwindcss";
 
 @theme {
@@ -27,7 +31,21 @@
   --radius-radius-sm: 10px;
 }
 
-:root[data-theme='light'] {
+/* ── Default (fallback) ── */
+:root {
+  /* Dark theme fallback (matches your default) */
+  --lightbox-bg: rgba(0, 0, 0, 0.95);
+  --lightbox-chip-bg: rgba(255, 255, 255, 0.08);
+  --lightbox-chip-hover: rgba(255, 255, 255, 0.15);
+  --lightbox-btn-bg: rgba(255, 255, 255, 0.1);
+  --lightbox-counter-bg: rgba(255, 255, 255, 0.08);
+  --lightbox-actions-bg: rgba(0, 0, 0, 0.55);
+  --lightbox-panel-bg: rgba(0, 0, 0, 0.9);
+}
+
+/* ── Light theme ── */
+:root[data-theme='light'],
+.light {
   color-scheme: light;
   --color-bg: #ffffff;
   --color-surface: #f8fafc;
@@ -46,10 +64,30 @@
   --color-txt2: #475569;
   --color-txt3: #64748b;
   --color-shadow: 0 10px 30px rgba(15,23,42,0.08);
+
+  /* Lightbox – light theme */
+  --lightbox-bg: rgba(255, 255, 255, 0.95);
+  --lightbox-chip-bg: rgba(0, 0, 0, 0.06);
+  --lightbox-chip-hover: rgba(0, 0, 0, 0.12);
+  --lightbox-btn-bg: rgba(0, 0, 0, 0.08);
+  --lightbox-counter-bg: rgba(0, 0, 0, 0.06);
+  --lightbox-actions-bg: rgba(255, 255, 255, 0.85);
+  --lightbox-panel-bg: rgba(255, 255, 255, 0.95);
 }
 
-:root[data-theme='dark'] {
+/* ── Dark theme ── */
+:root[data-theme='dark'],
+.dark {
   color-scheme: dark;
+
+  /* Lightbox – dark theme */
+  --lightbox-bg: rgba(0, 0, 0, 0.95);
+  --lightbox-chip-bg: rgba(255, 255, 255, 0.08);
+  --lightbox-chip-hover: rgba(255, 255, 255, 0.15);
+  --lightbox-btn-bg: rgba(255, 255, 255, 0.1);
+  --lightbox-counter-bg: rgba(255, 255, 255, 0.08);
+  --lightbox-actions-bg: rgba(0, 0, 0, 0.55);
+  --lightbox-panel-bg: rgba(0, 0, 0, 0.9);
 }
 
 body {
@@ -58,7 +96,7 @@ body {
   font-family: var(--font-family-body);
   -webkit-font-smoothing: antialiased;
   line-height: 1.7;
-  margin: 0; 
+  margin: 0;
 }
 
 /* Keyframe for animations */
@@ -71,13 +109,15 @@ body {
   animation: artCardIn 0.2s ease both;
 }
 
-/* Utility for line‑clamp (if not provided by Tailwind plugin) */
+/* Utility for line‑clamp – now with both prefixed and standard */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-clamp: 2; /* standard property for future compatibility */
 }
+
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }

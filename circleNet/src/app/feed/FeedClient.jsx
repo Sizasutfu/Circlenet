@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useFeed } from '@/contexts/FeedContext';
 import { useWs } from '@/contexts/WsContext';
-import { useGroups } from '@/contexts/GroupsContext'; // ✅ added
+import { useGroups } from '@/contexts/GroupsContext';
 import PostCard from '@/components/ui/PostCard';
 import ArticleCard from '@/components/articles/ArticleCard';
 import QuoteModal from '@/components/ui/QuoteModal';
@@ -43,15 +43,12 @@ function Toast({ message, type, onClose }) {
   );
 }
 
-// ── Skeleton for a single PostCard ──
 function PostCardSkeleton() {
   return (
     <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] animate-pulse">
       <div className="flex items-start gap-3">
-        {/* Avatar */}
         <div className="h-10 w-10 rounded-full bg-[var(--color-surface)] flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          {/* Header */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="h-4 w-24 bg-[var(--color-surface)] rounded" />
@@ -60,15 +57,12 @@ function PostCardSkeleton() {
             </div>
             <div className="h-4 w-4 bg-[var(--color-surface)] rounded-full" />
           </div>
-          {/* Text lines */}
           <div className="mt-2 space-y-2">
             <div className="h-4 w-full bg-[var(--color-surface)] rounded" />
             <div className="h-4 w-5/6 bg-[var(--color-surface)] rounded" />
             <div className="h-4 w-3/4 bg-[var(--color-surface)] rounded" />
           </div>
-          {/* Image placeholder (optional) */}
           <div className="mt-3 h-48 w-full bg-[var(--color-surface)] rounded-lg" />
-          {/* Action buttons */}
           <div className="mt-3 flex items-center gap-4">
             <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
             <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
@@ -81,7 +75,6 @@ function PostCardSkeleton() {
   );
 }
 
-// ── Skeleton list for feed ──
 function PostSkeletonList({ count = 3 }) {
   return (
     <div className="space-y-4">
@@ -113,11 +106,9 @@ export default function FeedClient({ initialPosts = null }) {
     initialized,
   } = useFeed();
 
-  // ── Use GroupsContext to build group map ──
   const { groupsList, myGroups } = useGroups();
   const groupMap = useMemo(() => {
     const map = new Map();
-    // Combine myGroups and groupsList (deduplicate by id)
     const all = [...myGroups, ...groupsList];
     for (const g of all) {
       if (g.id) {
@@ -361,7 +352,6 @@ export default function FeedClient({ initialPosts = null }) {
     }
 
     // ── Posts feed ──
-    // Show skeleton while loading and no posts yet
     if (loading && posts.length === 0) {
       return <PostSkeletonList count={3} />;
     }
@@ -393,7 +383,7 @@ export default function FeedClient({ initialPosts = null }) {
             <PostCard
               key={post.id}
               post={post}
-              groupMap={groupMap} // ✅ pass group map
+              groupMap={groupMap}
               onLike={handleLike}
               onComment={handleComment}
               onRepost={handleRepost}
@@ -404,7 +394,7 @@ export default function FeedClient({ initialPosts = null }) {
         )}
         {hasMore && (
           <div ref={loadMoreRef} className="text-center py-4 text-[var(--color-txt2)]">
-            {loadingMore ? 'Loading more…' : 'Load more'}
+            {loadingMore ? <PostSkeletonList count={2} /> : 'Load more'}
           </div>
         )}
         {!hasMore && posts.length > 0 && (
@@ -494,7 +484,6 @@ export default function FeedClient({ initialPosts = null }) {
 
       {renderContent()}
 
-      {/* Quote Modal */}
       {quoteTarget && (
         <QuoteModal
           post={quoteTarget}

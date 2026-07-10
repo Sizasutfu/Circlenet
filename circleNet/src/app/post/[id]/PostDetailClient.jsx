@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useWs } from '@/contexts/WsContext';
 import { useGroups } from '@/contexts/GroupsContext';
 import PostCard from '@/components/ui/PostCard';
+import QuoteModal from '@/components/ui/QuoteModal'; // ✅ added
 import Link from 'next/link';
 
 function resolveMediaUrl(url) {
@@ -114,6 +115,9 @@ export default function PostDetailClient({ postId }) {
   const [replyingTo, setReplyingTo] = useState(null);
 
   const [expandedReplies, setExpandedReplies] = useState(new Set());
+
+  // ── Quote state ──
+  const [quoteTarget, setQuoteTarget] = useState(null);
 
   const toggleReplies = (commentId) => {
     setExpandedReplies((prev) => {
@@ -276,6 +280,30 @@ export default function PostDetailClient({ postId }) {
     }
   };
 
+  // ── Quote handler ──
+  const handleQuote = (postId) => {
+    if (!user) {
+      showToast('Please log in to quote.', 'error');
+      return;
+    }
+    // We need the full post object. Since we have `post` state, we can use it.
+    if (post && post.id === postId) {
+      setQuoteTarget(post);
+    } else {
+      // Fallback: fetch the post if needed (unlikely, but safe)
+      apiClient(`/api/posts/${postId}`).then(res => {
+        const data = res.data || res;
+        setQuoteTarget(data);
+      }).catch(() => showToast('Failed to load post for quoting.', 'error'));
+    }
+  };
+
+  const handleQuoteSuccess = () => {
+    setQuoteTarget(null);
+    showToast('Quote posted! 🎉', 'success');
+    // Optionally refresh the post if needed
+  };
+
   const handleComment = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -366,7 +394,6 @@ export default function PostDetailClient({ postId }) {
             )}
           </div>
 
-          {/* ── Clickable comment body – navigates to comment detail ── */}
           <Link
             href={`/comment/${comment.id}`}
             className="flex-1 min-w-0 hover:bg-[var(--color-surface)] rounded-md transition p-1 -m-1"
@@ -383,7 +410,6 @@ export default function PostDetailClient({ postId }) {
           </Link>
         </div>
 
-        {/* ── Buttons outside the link ── */}
         <div className="flex items-center gap-3 mt-1 ml-11">
           <button
             onClick={(e) => { e.stopPropagation(); toggleReply(comment.id); }}
@@ -546,6 +572,7 @@ export default function PostDetailClient({ postId }) {
             onComment={() => document.getElementById('comment-input')?.focus()}
             onRepost={handleRepost}
             onShare={handleShare}
+            onQuote={handleQuote} // ✅ pass quote handler
           />
         )}
       </div>
@@ -605,6 +632,15 @@ export default function PostDetailClient({ postId }) {
           topLevelComments.map((comment) => renderComment(comment))
         )}
       </div>
+
+      {/* ── Quote Modal ── */}
+      {quoteTarget && (
+        <QuoteModal
+          post={quoteTarget}
+          onClose={() => setQuoteTarget(null)}
+          onSuccess={handleQuoteSuccess}
+        />
+      )}
     </div>
   );
 }

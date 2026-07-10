@@ -230,7 +230,7 @@ export default function WhisperInboxClient() {
           messages.map((msg) => (
             <div
               key={msg.id}
-              className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 border-l-4 border-l-[var(--color-accent)]"
+              className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">

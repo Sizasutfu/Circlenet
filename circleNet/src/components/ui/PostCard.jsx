@@ -177,47 +177,43 @@ export default function PostCard({
   const postImageUrl = resolveMediaUrl(image);
   const postVideoUrl = resolveMediaUrl(video);
 
-  // ── Image click: open lightbox with metadata ──
   const handleImageClick = (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (postImageUrl) {
-    const imageItem = {
-      src: postImageUrl,
-      type: 'image',
-      meta: {
-        postId: id,
-        caption: text || '',
-        name: displayName,
-        username: username || undefined,
-        userId: post.user?.id || post.authorId || post.userId,
-        picture: avatarUrl,
-      },
-    };
-    openLightbox([imageItem], 0);
-  }
-};
+    e.preventDefault();
+    e.stopPropagation();
+    if (postImageUrl) {
+      const imageItem = {
+        src: postImageUrl,
+        type: 'image',
+        meta: {
+          postId: id,
+          caption: text || '',
+          name: displayName,
+          userId: post.user?.id || post.authorId || post.userId,
+          picture: avatarUrl,
+        },
+      };
+      openLightbox([imageItem], 0);
+    }
+  };
 
-  // ── Video double-click: open lightbox with metadata ──
   const handleVideoDblClick = (e) => {
-  e.stopPropagation();
-  if (postVideoUrl) {
-    const videoItem = {
-      src: postVideoUrl,
-      type: 'video',
-      meta: {
-        postId: id,
-        caption: text || '',
-        name: displayName,
-        username: username || undefined,
-        userId: post.user?.id || post.authorId || post.userId,
-        picture: avatarUrl,
-        poster: postImageUrl || undefined,
-      },
-    };
-    openLightbox([videoItem], 0);
-  }
-};
+    e.stopPropagation();
+    if (postVideoUrl) {
+      const videoItem = {
+        src: postVideoUrl,
+        type: 'video',
+        meta: {
+          postId: id,
+          caption: text || '',
+          name: displayName,
+          userId: post.user?.id || post.authorId || post.userId,
+          picture: avatarUrl,
+          poster: postImageUrl || undefined,
+        },
+      };
+      openLightbox([videoItem], 0);
+    }
+  };
 
   const handleVideoError = () => {
     console.warn('⚠️ Video failed to load:', postVideoUrl);
@@ -312,7 +308,6 @@ export default function PostCard({
     router.push(`/post/${id}`);
   };
 
-  // ── Render media (image or video) ──
   const renderMedia = () => {
     if (postVideoUrl) {
       return (
@@ -374,7 +369,6 @@ export default function PostCard({
     return null;
   };
 
-  // ── Render link preview ──
   const renderLinkPreview = () => {
     if (postImageUrl || postVideoUrl) return null;
     if (previewLoading) {
@@ -459,7 +453,7 @@ export default function PostCard({
     );
   };
 
-  // ── Render original post as embedded card ──
+  // ── Render original post as embedded card (UPDATED) ──
   const renderOriginalPost = () => {
     if (!originalPost) return null;
     const origAuthor = originalPost.author || 'Unknown';
@@ -479,7 +473,7 @@ export default function PostCard({
 
     return (
       <div
-        className="mt-2 border-l-4 border-l-[var(--color-accent)] pl-3 bg-[var(--color-surface)] rounded-lg overflow-hidden"
+        className="mt-2 pl-3 bg-[var(--color-surface)] rounded-lg overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-3">
@@ -508,11 +502,20 @@ export default function PostCard({
             </div>
           )}
           {(origImageUrl || origVideoUrl) && (
-            <div className="mt-2 rounded-lg overflow-hidden border border-[var(--color-border)] max-h-40">
+            <div className="mt-2 rounded-lg overflow-hidden border border-[var(--color-border)]">
               {origVideoUrl ? (
-                <video src={origVideoUrl} controls playsInline className="w-full h-auto max-h-32 object-contain" />
+                <video
+                  src={origVideoUrl}
+                  controls
+                  playsInline
+                  className="w-full h-auto max-h-96 object-contain"
+                />
               ) : (
-                <img src={origImageUrl} alt="Original post image" className="w-full h-auto max-h-32 object-cover" />
+                <img
+                  src={origImageUrl}
+                  alt="Original post image"
+                  className="w-full h-auto max-h-96 object-cover"
+                />
               )}
             </div>
           )}

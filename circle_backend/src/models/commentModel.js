@@ -1,4 +1,4 @@
-// models/CommentModel.js
+// models/commentModel.js
 const { db } = require('../config/db');
 
 // ── Get a single comment with user info ──
@@ -90,4 +90,29 @@ async function createReply(userId, parentId, text) {
   };
 }
 
-module.exports = { getCommentById, getReplies, createReply };
+// ── NEW: Get all comments for a post (flat list with user data) ──
+async function getCommentsByPostId(postId) {
+  const [rows] = await db.query(
+    `SELECT c.*, u.name, u.username, u.picture
+     FROM comments c
+     JOIN users u ON u.id = c.user_id
+     WHERE c.post_id = ?
+     ORDER BY c.created_at ASC`,
+    [postId]
+  );
+  return rows.map(row => ({
+    id: row.id,
+    text: row.text,
+    createdAt: row.created_at,
+    postId: row.post_id,
+    parentId: row.parent_id,
+    user: {
+      id: row.user_id,
+      name: row.name,
+      username: row.username,
+      picture: row.picture,
+    },
+  }));
+}
+
+module.exports = { getCommentById, getReplies, createReply, getCommentsByPostId };

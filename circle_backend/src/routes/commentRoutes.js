@@ -6,5 +6,6 @@ const { requireAuth } = require('../middleware/auth');
 
 router.get('/:id', commentCtrl.getComment);
 router.post('/:id/reply', requireAuth, commentCtrl.replyToComment);
+router.get('/:postId/comments', commentCtrl.getCommentsByPostId);
 
 module.exports = router;

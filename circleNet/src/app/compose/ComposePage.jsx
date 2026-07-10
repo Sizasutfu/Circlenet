@@ -4,7 +4,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { saveDraft, getDraft, deleteDraft } from '@/lib/drafts';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -119,15 +121,18 @@ function uploadWithProgress(url, formData, onProgress, token, userId) {
   });
 }
 
-export default function ComposePage({ groupId = null }) {
+export default function ComposePage({ groupId: groupIdProp = null }) {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const draftIdParam = searchParams.get('draftId');
 
   const [mode, setMode] = useState('post');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState(null);
+  const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
   const videoInputRef = useRef(null);
 
@@ -137,7 +142,7 @@ export default function ComposePage({ groupId = null }) {
   const [postVideo, setPostVideo] = useState(null);
   const [postVideoPreview, setPostVideoPreview] = useState(null);
   const [editKey, setEditKey] = useState(null);
-  const [editingMediaType, setEditingMediaType] = useState(null); // 'image' or 'video'
+  const [editingMediaType, setEditingMediaType] = useState(null);
 
   const [articleTitle, setArticleTitle] = useState('');
   const [articleExcerpt, setArticleExcerpt] = useState('');
@@ -148,26 +153,79 @@ export default function ComposePage({ groupId = null }) {
   const [articleCover, setArticleCover] = useState(null);
   const [articleCoverPreview, setArticleCoverPreview] = useState(null);
 
+  const [groupId, setGroupId] = useState(groupIdProp);
+  const [currentDraftId, setCurrentDraftId] = useState(null);
+
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+
   const textareaRef = useRef(null);
   const saveTimerRef = useRef(null);
   const draftKey = user ? getDraftKey(user.id, mode, groupId) : null;
 
-  // ── Listen for edited media from editor tab via postMessage ──
+  useEffect(() => {
+    const savedPref = localStorage.getItem('circle_auto_save_enabled');
+    if (savedPref !== null) {
+      setAutoSaveEnabled(savedPref === 'true');
+    }
+  }, []);
+
+  const toggleAutoSave = () => {
+    const newState = !autoSaveEnabled;
+    setAutoSaveEnabled(newState);
+    localStorage.setItem('circle_auto_save_enabled', String(newState));
+    showToast(newState ? 'Auto‑save enabled ✅' : 'Auto‑save disabled ⏸️', 'success');
+  };
+
+  useEffect(() => {
+    if (!draftIdParam || !user) return;
+    const draft = getDraft(draftIdParam);
+    if (!draft) {
+      setError('Draft not found.');
+      return;
+    }
+    setCurrentDraftId(draftIdParam);
+    if (draft.groupId) setGroupId(draft.groupId);
+
+    if (draft.type === 'post') {
+      setMode('post');
+      setPostText(draft.text || '');
+      if (draft.imagePreview) {
+        try {
+          const file = dataURLtoFile(draft.imagePreview, 'draft-image.png');
+          setPostImage(file);
+          setPostImagePreview(draft.imagePreview);
+        } catch (_) {}
+      }
+    } else if (draft.type === 'article') {
+      setMode('article');
+      setArticleTitle(draft.title || '');
+      setArticleExcerpt(draft.excerpt || '');
+      setArticleContent(draft.content || '');
+      setArticleTags(draft.tags || []);
+      setArticlePublished(draft.published || false);
+      if (draft.coverPreview) {
+        try {
+          const file = dataURLtoFile(draft.coverPreview, 'draft-cover.png');
+          setArticleCover(file);
+          setArticleCoverPreview(draft.coverPreview);
+        } catch (_) {}
+      }
+    }
+    showToast(`Loaded draft: ${draft.type === 'post' ? 'Post' : 'Article'}`, 'success');
+  }, [draftIdParam, user]);
+
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.data?.type === 'edited_image' && event.data.key === editKey) {
         const dataUrl = event.data.data;
         if (dataUrl) {
-          // Determine if it's an image or video by the data URL prefix
           if (dataUrl.startsWith('data:video/')) {
-            // It's a video
             const file = dataURLtoFile(dataUrl, 'edited-video.webm');
             setPostVideo(file);
             setPostVideoPreview(URL.createObjectURL(file));
             setPostImage(null);
             setPostImagePreview(null);
           } else {
-            // It's an image
             const file = dataURLtoFile(dataUrl, 'edited-image.png');
             setPostImage(file);
             setPostImagePreview(dataUrl);
@@ -183,9 +241,9 @@ export default function ComposePage({ groupId = null }) {
     return () => window.removeEventListener('message', handleMessage);
   }, [editKey]);
 
-  // ── Load draft from localStorage on mount ──
   useEffect(() => {
     if (!user) return;
+    if (draftIdParam) return;
     try {
       const stored = localStorage.getItem(draftKey);
       if (stored) {
@@ -215,15 +273,24 @@ export default function ComposePage({ groupId = null }) {
         }
       }
     } catch (_) {}
-  }, [user, draftKey, mode]);
+  }, [user, draftKey, mode, draftIdParam]);
 
-  const saveDraft = useCallback(() => {
-    if (!user) return;
+  const saveAutoDraft = useCallback(() => {
+    if (!user || !autoSaveEnabled) return;
+
+    // ── Check content ──
+    let hasContent = false;
+    if (mode === 'post') {
+      hasContent = postText.trim() !== '' || postImagePreview !== null || postVideoPreview !== null;
+    } else {
+      hasContent = articleTitle.trim() !== '' || articleContent.trim() !== '';
+    }
+    if (!hasContent) return;
+
     const draft = {};
     if (mode === 'post') {
       draft.postText = postText;
       if (postImagePreview) draft.postImage = postImagePreview;
-      // Videos not saved to draft (too large)
     } else {
       draft.articleTitle = articleTitle;
       draft.articleExcerpt = articleExcerpt;
@@ -235,19 +302,63 @@ export default function ComposePage({ groupId = null }) {
     try {
       localStorage.setItem(draftKey, JSON.stringify(draft));
     } catch (_) {}
-  }, [user, draftKey, mode, postText, postImagePreview, articleTitle, articleExcerpt, articleContent, articleTags, articlePublished, articleCoverPreview]);
+  }, [user, draftKey, mode, postText, postImagePreview, articleTitle, articleExcerpt, articleContent, articleTags, articlePublished, articleCoverPreview, autoSaveEnabled]);
 
   useEffect(() => {
     if (!user) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(saveDraft, 500);
+    saveTimerRef.current = setTimeout(saveAutoDraft, 500);
     return () => clearTimeout(saveTimerRef.current);
-  }, [saveDraft]);
+  }, [saveAutoDraft]);
 
-  const clearDraft = () => {
+  const clearAutoDraft = () => {
     try {
       localStorage.removeItem(draftKey);
     } catch (_) {}
+  };
+
+  const handleSaveDraft = () => {
+    if (!user) {
+      setError('Please log in to save drafts.');
+      return;
+    }
+
+    // ── Check content ──
+    let hasContent = false;
+    if (mode === 'post') {
+      hasContent = postText.trim() !== '' || postImagePreview !== null || postVideoPreview !== null;
+    } else {
+      hasContent = articleTitle.trim() !== '' || articleContent.trim() !== '';
+    }
+    if (!hasContent) {
+      showToast('Nothing to save – your draft is empty. ✏️', 'error');
+      return;
+    }
+
+    const draftData = {
+      type: mode,
+      groupId: groupId || null,
+      text: postText,
+      imagePreview: postImagePreview || null,
+      title: articleTitle,
+      excerpt: articleExcerpt,
+      content: articleContent,
+      tags: articleTags,
+      published: articlePublished,
+      coverPreview: articleCoverPreview || null,
+    };
+    if (currentDraftId) {
+      draftData.id = currentDraftId;
+    }
+    saveDraft(draftData);
+    showToast('Draft saved! 💾', 'success');
+  };
+
+  const clearDraft = () => {
+    clearAutoDraft();
+    if (currentDraftId) {
+      deleteDraft(currentDraftId);
+    }
   };
 
   const addTag = () => {
@@ -307,7 +418,6 @@ export default function ComposePage({ groupId = null }) {
     if (videoInputRef.current) videoInputRef.current.value = '';
   };
 
-  // ── Open editor for image or video ──
   const openEditorRoute = (mediaType) => {
     const preview = mediaType === 'image' ? postImagePreview : postVideoPreview;
     if (!preview) return;
@@ -457,10 +567,21 @@ export default function ComposePage({ groupId = null }) {
     }
   };
 
+  const showToast = (msg, type = 'success') => {
+    setToast({ message: msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   if (!user) return null;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium" style={{ background: toast.type === 'error' ? 'var(--color-rose)' : 'var(--color-green)' }}>
+          {toast.message}
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => router.back()}
@@ -478,10 +599,54 @@ export default function ComposePage({ groupId = null }) {
             in group
           </span>
         )}
-        <span className="ml-auto text-xs text-[var(--color-txt3)]">💾 Draft saved</span>
+        {currentDraftId && (
+          <span className="ml-2 text-xs bg-[var(--color-accent-bg)] text-[var(--color-accent)] px-2 py-0.5 rounded-full">
+            📝 Draft
+          </span>
+        )}
+        <Link
+          href="/drafts"
+          className="ml-auto text-xs text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition flex items-center gap-1"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M4 4h16v16H4z" />
+            <path d="M8 8h8M8 12h6M8 16h4" />
+          </svg>
+          Drafts
+        </Link>
+
+        <div className="flex items-center gap-2 ml-2">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none" title={autoSaveEnabled ? 'Auto‑save is on' : 'Auto‑save is off'}>
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={autoSaveEnabled}
+                onChange={toggleAutoSave}
+                className="sr-only peer"
+              />
+              <div
+                className={`w-8 h-4 rounded-full transition-colors ${
+                  autoSaveEnabled ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-border)]'
+                }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded-full bg-white transition-transform shadow-sm ${
+                    autoSaveEnabled ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </div>
+            </div>
+            <span
+              className={`text-xs ${
+                autoSaveEnabled ? 'text-[var(--color-txt2)]' : 'text-[var(--color-txt3)]'
+              }`}
+            >
+              {autoSaveEnabled ? 'Auto-save' : 'Auto-save off'}
+            </span>
+          </label>
+        </div>
       </div>
 
-      {/* Mode toggle */}
       <div className="flex border border-[var(--color-border)] rounded-xl overflow-hidden mb-6 bg-[var(--color-surface)] p-1">
         <button
           onClick={() => setMode('post')}
@@ -505,7 +670,6 @@ export default function ComposePage({ groupId = null }) {
         </button>
       </div>
 
-      {/* User info */}
       <div className="flex items-center gap-3 mb-4">
         <div
           className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
@@ -525,7 +689,6 @@ export default function ComposePage({ groupId = null }) {
         </div>
       </div>
 
-      {/* Form */}
       <div className="space-y-4">
         {mode === 'post' && (
           <>
@@ -538,7 +701,6 @@ export default function ComposePage({ groupId = null }) {
               rows={4}
             />
 
-            {/* Image preview */}
             {postImagePreview && (
               <div className="space-y-2">
                 <img
@@ -569,7 +731,6 @@ export default function ComposePage({ groupId = null }) {
               </div>
             )}
 
-            {/* Video preview */}
             {postVideoPreview && (
               <div className="space-y-2">
                 <video
@@ -756,37 +917,42 @@ export default function ComposePage({ groupId = null }) {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 pt-2">
-          <div className="flex gap-3">
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="px-6 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
-            >
-              {isSubmitting ? 'Saving…' : mode === 'post' ? 'Post' : 'Save Article'}
-            </button>
-            <button
-              onClick={() => router.back()}
-              className="px-6 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition"
-            >
-              Cancel
-            </button>
-          </div>
-
-          {isUploading && uploadProgress > 0 && (
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-2 bg-[var(--color-surface)] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[var(--color-accent)] transition-all duration-300 ease-out rounded-full"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-              <span className="text-xs text-[var(--color-txt2)] font-mono">
-                {uploadProgress}%
-              </span>
-            </div>
-          )}
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="px-6 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+          >
+            {isSubmitting ? 'Saving…' : mode === 'post' ? 'Post' : 'Save Article'}
+          </button>
+          <button
+            onClick={handleSaveDraft}
+            disabled={isSubmitting}
+            className="px-4 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition"
+          >
+            💾 Save Draft
+          </button>
+          <button
+            onClick={() => router.back()}
+            className="px-6 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition"
+          >
+            Cancel
+          </button>
         </div>
+
+        {isUploading && uploadProgress > 0 && (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 bg-[var(--color-surface)] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[var(--color-accent)] transition-all duration-300 ease-out rounded-full"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+            <span className="text-xs text-[var(--color-txt2)] font-mono">
+              {uploadProgress}%
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

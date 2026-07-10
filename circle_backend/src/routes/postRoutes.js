@@ -1,11 +1,12 @@
 // ============================================================
 //  routes/postRoutes.js
 //  Defines API endpoints for post, like, comment, repost.
-//  Route handlers are in controllers/postController.js.
+//  Route handlers are in controllers/postController.js and commentController.js.
 // ============================================================
 
 const router                    = require('express').Router();
 const postController            = require('../controllers/postController');
+const commentController         = require('../controllers/commentController'); // ✅ added
 const { requireAuth }           = require('../middleware/auth');
 const upload                    = require('../middleware/upload');
 const { compressUploads }       = require('../middleware/compress');
@@ -27,7 +28,13 @@ router.delete('/:id', requireAuth, postController.deletePost);
 router.post('/:id/like',    requireAuth, postController.toggleLike);
 router.post('/:id/comment', requireAuth, postController.addComment);
 router.post('/:id/repost',   requireAuth, postController.repost);
+
+// ── NEW: Get all comments for a post (including replies) ──
+router.get('/:id/comments', commentController.getCommentsByPostId);
+
+// ── Existing (keep if needed) ──
 router.get('/:id/comments-on-posts', requireAuth, postController.getCommentsOnUserPosts);
+
 //router.delete('/:id/repost', requireAuth, postController.unrepost);
 
 // View count — auth optional (guests tracked by fingerprint)

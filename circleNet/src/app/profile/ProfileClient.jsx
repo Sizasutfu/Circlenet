@@ -41,7 +41,6 @@ function getCacheKey(username, userId) {
 function getCachedProfile(key) {
   const entry = profileCache.get(key);
   if (!entry) return null;
-  // Cache expires after 60 seconds (longer to preserve scroll position)
   if (Date.now() - entry.timestamp > 60000) {
     profileCache.delete(key);
     return null;
@@ -168,16 +167,13 @@ export default function ProfileClient({ username = null, initialUser = null }) {
 
   // ── Fetch profile ──
   useEffect(() => {
-    // If initialUser provided, use it and skip fetch
     if (initialUser) {
       setProfile(initialUser);
       setLoading(false);
-      // Cache it
       setCachedProfile(profileKey, { profile: initialUser, posts, page: postsPage, hasMore: postsHasMore });
       return;
     }
 
-    // If we have cached data, use it
     if (cached && cached.profile) {
       setProfile(cached.profile);
       setPosts(cached.posts || []);
@@ -187,7 +183,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       return;
     }
 
-    // Determine endpoint
     let endpoint;
     if (username) {
       endpoint = `/api/users/by-username/${username}`;
@@ -207,7 +202,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         const res = await apiClient(endpoint);
         const profileData = res.data || res;
         setProfile(profileData);
-        // Cache profile data (posts will be cached separately)
         setCachedProfile(profileKey, { profile: profileData, posts: [], page: 1, hasMore: false });
       } catch (err) {
         console.error('[Profile] Error:', err);
@@ -220,7 +214,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       }
     };
 
-    // Avoid re-fetching if we already have the correct profile
     const profileId = profile?.id;
     const targetId = userIdParam || currentUser?.id;
     if (profileId && (profileId === targetId || profile.username === username)) {
@@ -244,7 +237,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       setPosts(newPosts);
       setPostsHasMore(hasMore);
       setPostsPage(page);
-      // Update cache with the current profile and new posts
       const currentCache = getCachedProfile(profileKey) || { profile: currentProfile };
       setCachedProfile(profileKey, {
         profile: currentCache.profile || currentProfile,
@@ -259,14 +251,12 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   }, [postsLoading, posts, profileKey]);
 
-  // ── Initial load ──
   useEffect(() => {
     if (profile && !cached?.posts && !posts.length) {
       fetchPosts(1, false);
     }
   }, [profile, fetchPosts, cached, posts.length]);
 
-  // ── Infinite scroll ──
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -282,7 +272,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     return () => observer.disconnect();
   }, [postsHasMore, postsLoading, postsPage, fetchPosts]);
 
-  // ── Follow/Unfollow ──
   const handleFollowToggle = async () => {
     if (!currentUser || !profile) return;
     const following = profile.isFollowing;
@@ -296,7 +285,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         followerCount: profile.isFollowing ? (profile.followerCount || 0) - 1 : (profile.followerCount || 0) + 1,
       };
       setProfile(newProfile);
-      // Update cache
       const currentCache = getCachedProfile(profileKey) || {};
       setCachedProfile(profileKey, {
         ...currentCache,
@@ -308,7 +296,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
-  // ── Avatar upload ──
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !currentUser || !isOwnProfile) {
@@ -330,7 +317,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
       const newProfile = refetch.data || refetch;
       setProfile(newProfile);
-      // Update cache
       const currentCache = getCachedProfile(profileKey) || {};
       setCachedProfile(profileKey, {
         ...currentCache,
@@ -346,7 +332,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
-  // ── Cover upload ──
   const handleCoverUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !currentUser || !isOwnProfile) return;
@@ -365,7 +350,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
       const newProfile = refetch.data || refetch;
       setProfile(newProfile);
-      // Update cache
       const currentCache = getCachedProfile(profileKey) || {};
       setCachedProfile(profileKey, {
         ...currentCache,
@@ -381,7 +365,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
-  // ── Open followers/following modal ──
   const openUserList = async (type) => {
     if (!profile) return;
     setListModal({ open: true, type, users: [], isLoading: true });
@@ -400,7 +383,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     setListModal({ open: false, type: '', users: [], isLoading: false });
   };
 
-  // ── Render states ──
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-8 text-center text-[var(--color-txt2)]">
@@ -424,7 +406,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     );
   }
 
-  // ── Profile data ──
   const {
     name,
     username: profileUsername,
@@ -467,59 +448,56 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     { label: 'Joined', value: joinDate },
   ].filter(d => d.value);
 
-  const ToastComponent = ({ message, type }) => (
-    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium ${type === 'error' ? 'bg-[var(--color-rose)]' : 'bg-[var(--color-green)]'}`}>
-      {message}
-    </div>
-  );
-
-  // ── UI ──
   return (
     <div className="max-w-4xl mx-auto">
-      {toast && <ToastComponent message={toast.message} type={toast.type} />}
+      {toast && <Toast message={toast.message} type={toast.type} />}
 
-      {/* ── Cover ── */}
-      <div className="relative h-48 md:h-64 rounded-[var(--radius-radius)] overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)] group">
-        {coverUrl ? (
-          <div
-            className="relative w-full h-full cursor-pointer"
-            onClick={() => openLightbox([coverUrl], 0)}
-          >
-            <img
-              src={coverUrl}
-              alt="Cover"
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-              <span className="bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                View full image
-              </span>
+      {/* ── Cover and Avatar (fixed structure) ── */}
+      <div className="relative"> {/* outer wrapper – no overflow-hidden */}
+        <div className="h-48 md:h-64 rounded-[var(--radius-radius)] overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)] group">
+          {coverUrl ? (
+            <div
+              className="relative w-full h-full cursor-pointer"
+              onClick={() => openLightbox([coverUrl], 0)}
+            >
+              <img
+                src={coverUrl}
+                alt="Cover"
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
+                <span className="bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  View full image
+                </span>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div
-            className="w-full h-full"
-            style={{ background: `linear-gradient(135deg, ${avatarColor}cc 0%, ${avatarColor}55 60%, transparent 100%)` }}
-          />
-        )}
-        {isOwnProfile && (
-          <label
-            htmlFor="cover-upload"
-            className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/50 text-white text-xs px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/70 transition z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
-              <circle cx="12" cy="13" r="4"/>
-            </svg>
-            Change Cover
-            <input type="file" id="cover-upload" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-          </label>
-        )}
+          ) : (
+            <div
+              className="w-full h-full"
+              style={{ background: `linear-gradient(135deg, ${avatarColor}cc 0%, ${avatarColor}55 60%, transparent 100%)` }}
+            />
+          )}
+          {isOwnProfile && (
+            <label
+              htmlFor="cover-upload"
+              className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/50 text-white text-xs px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/70 transition z-10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              Change Cover
+              <input type="file" id="cover-upload" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+            </label>
+          )}
+        </div>
+
+        {/* ── Avatar ── */}
         <div className="absolute -bottom-12 left-6 md:left-8 z-30">
           <div className="relative h-24 w-24 md:h-28 md:w-28">
             <div
@@ -638,7 +616,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
           </div>
         </div>
 
-        {/* ── Stats ── */}
         <div className="mt-4 flex gap-6 text-sm">
           <div><span className="font-bold text-[var(--color-txt)]">{postCount || 0}</span> <span className="text-[var(--color-txt2)]">Posts</span></div>
           <div
@@ -661,7 +638,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
           </div>
         )}
 
-        {/* ── Tabs ── */}
         <div className="mt-6 border-b border-[var(--color-border)] flex gap-6">
           {['posts', 'about'].map((tab) => (
             <button
@@ -677,7 +653,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
           ))}
         </div>
 
-        {/* ── Content ── */}
         <div className="mt-4">
           {activeTab === 'posts' && (
             <div className="space-y-4">

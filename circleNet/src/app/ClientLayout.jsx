@@ -82,6 +82,7 @@ export default function ClientLayout({ children }) {
     '/register',
     '/reset-password',
     '/whisper/inbox',
+    '/drafts',
   ];
   const hideStripRoutes = [...hideFooterRoutes];
   const hideMobileNavRoutes = [...hideFooterRoutes];

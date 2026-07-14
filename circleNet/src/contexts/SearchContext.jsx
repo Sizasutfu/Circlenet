@@ -17,56 +17,92 @@ export function SearchProvider({ children }) {
   const abortControllerRef = useRef(null);
 
   // ── Search ──
-  const search = useCallback(async (q, searchType = type, pageNum = 1, append = false) => {
-    if (!q || q.length < 2) {
-      setResults([]);
-      setHasMore(false);
-      return;
-    }
+  const search = useCallback(
+    async (q, searchType = type, pageNum = 1, append = false) => {
+      console.log('🔍 search() called:', { q, searchType, pageNum, append });
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    abortControllerRef.current = new AbortController();
-
-    setLoading(true);
-
-    try {
-      const res = await apiClient(
-        `/api/search?q=${encodeURIComponent(q)}&type=${searchType}&page=${pageNum}&limit=20`,
-        { signal: abortControllerRef.current.signal }
-      );
-      const data = res.data || [];
-      const hasMoreData = res.meta?.hasMore || data.length === 20;
-
-      setResults((prev) => (append ? [...prev, ...data] : data));
-      setHasMore(hasMoreData);
-      setPage(pageNum + 1);
-      setQuery(q);
-      setType(searchType);
-
-      // Save to history
-      if (q.length >= 2) {
-        setHistory((prev) => {
-          const filtered = prev.filter((h) => h.query !== q || h.tab !== searchType);
-          return [{ query: q, tab: searchType, searched_at: new Date().toISOString() }, ...filtered].slice(0, 20);
-        });
-        // Optionally save to server
-        try {
-          await apiClient('/api/search/history', {
-            method: 'POST',
-            body: JSON.stringify({ query: q, tab: searchType }),
-          });
-        } catch (_) {}
+      if (!q || q.length < 2) {
+        console.log('❌ Query too short – clearing results');
+        setResults([]);
+        setHasMore(false);
+        return;
       }
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      console.error('Search error:', err);
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [type]);
+
+      if (abortControllerRef.current) {
+        console.log('⛔ Aborting previous request');
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      console.log('🆕 New AbortController created');
+
+      setLoading(true);
+
+      const url = `/api/search?q=${encodeURIComponent(q)}&type=${searchType}&page=${pageNum}&limit=20`;
+      console.log('🌐 Fetching URL:', url);
+
+      try {
+        const res = await apiClient(url, { signal: controller.signal });
+        console.log('✅ API response received:', res);
+
+        // ── Normalize response ──
+        let data = [];
+        if (Array.isArray(res.data)) {
+          data = res.data;
+        } else if (res.data && typeof res.data === 'object') {
+          const typeMap = { posts: 'posts', people: 'people', groups: 'groups' };
+          const key = typeMap[searchType] || 'results';
+          data = res.data[key] || res.data.data || res.data.results || res.data.items || [];
+
+          if (!Array.isArray(data) && data && typeof data === 'object') {
+            if (Object.keys(data).every((k) => !isNaN(k))) {
+              data = Object.values(data);
+            } else {
+              data = [];
+            }
+          }
+        }
+        console.log('📦 Extracted data:', data);
+
+        const hasMoreData = res.meta?.hasMore || data.length === 20;
+
+        setResults((prev) => (append ? [...prev, ...data] : data));
+        setHasMore(hasMoreData);
+        setPage(pageNum + 1);
+        setQuery(q);
+        setType(searchType);
+
+        // Save to history
+        if (q.length >= 2) {
+          setHistory((prev) => {
+            const filtered = prev.filter((h) => h.query !== q || h.tab !== searchType);
+            return [
+              { query: q, tab: searchType, searched_at: new Date().toISOString() },
+              ...filtered,
+            ].slice(0, 20);
+          });
+          try {
+            await apiClient('/api/search/history', {
+              method: 'POST',
+              body: JSON.stringify({ query: q, tab: searchType }),
+            });
+          } catch (_) {
+            // silent fail
+          }
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          console.log('⏹️ Request aborted');
+          return;
+        }
+        console.error('❌ Search error:', err);
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [type]
+  );
 
   // ── Load more ──
   const loadMore = useCallback(() => {
@@ -87,7 +123,9 @@ export function SearchProvider({ children }) {
     try {
       const res = await apiClient('/api/search/history');
       setHistory(res.data || []);
-    } catch (_) {}
+    } catch (_) {
+      // silent fail
+    }
   }, []);
 
   // ── Delete history entry ──
@@ -95,7 +133,9 @@ export function SearchProvider({ children }) {
     try {
       if (id) await apiClient(`/api/search/history/${id}`, { method: 'DELETE' });
       setHistory((prev) => prev.filter((h) => !(h.query === q && h.tab === tab)));
-    } catch (_) {}
+    } catch (_) {
+      // silent fail
+    }
   }, []);
 
   // ── Clear all history ──
@@ -103,7 +143,9 @@ export function SearchProvider({ children }) {
     try {
       await apiClient('/api/search/history', { method: 'DELETE' });
       setHistory([]);
-    } catch (_) {}
+    } catch (_) {
+      // silent fail
+    }
   }, []);
 
   const value = {

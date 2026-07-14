@@ -3,7 +3,9 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useDm } from '@/contexts/DmContext';
+import { useDmCall } from '@/contexts/DmCallContext'; // ✅ added
 import { useAuth } from '@/lib/auth';
+import DmVideoCall from './DmVideoCall'; // ✅ added
 
 function escHtml(str) {
   if (!str) return '';
@@ -39,6 +41,13 @@ function stringToColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
+function resolveMediaUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+  return `${base}${url}`;
+}
+
 export default function DmChat() {
   const { user } = useAuth();
   const {
@@ -53,6 +62,9 @@ export default function DmChat() {
     closeConversation,
     otherOnline,
   } = useDm();
+
+  const { startCall, callState, endCall } = useDmCall(); // ✅ added
+  const { isActive: isCallActive } = callState;
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -128,6 +140,16 @@ export default function DmChat() {
 
   let lastDate = '';
 
+  const avatarUrl = resolveMediaUrl(activeOther?.picture);
+  const initial = activeOther?.name?.charAt(0)?.toUpperCase() || '?';
+  const color = stringToColor(activeOther?.name || '');
+
+  // ── Start video call ──
+  const handleStartCall = async () => {
+    if (!activeOther?.id) return;
+    await startCall(activeOther.id);
+  };
+
   return (
     <>
       {/* ── Header ── */}
@@ -143,18 +165,18 @@ export default function DmChat() {
         <div
           className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
           style={{
-            background: activeOther?.picture ? 'transparent' : stringToColor(activeOther?.name || ''),
+            background: avatarUrl ? 'transparent' : color,
             overflow: 'hidden',
           }}
         >
-          {activeOther?.picture ? (
+          {avatarUrl ? (
             <img
-              src={activeOther.picture}
-              alt={activeOther?.name?.charAt(0)}
+              src={avatarUrl}
+              alt={initial}
               className="w-full h-full object-cover rounded-full"
             />
           ) : (
-            activeOther?.name?.charAt(0)?.toUpperCase() || '?'
+            initial
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -178,9 +200,23 @@ export default function DmChat() {
               : 'Offline'}
           </div>
         </div>
-        <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)] rounded-full px-2 py-0.5 cursor-default">
-          🔒 End-to-end encrypted
-        </span>
+        <div className="flex items-center gap-2">
+          {/* ── Video call button ── */}
+          <button
+            onClick={handleStartCall}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-xs font-semibold hover:bg-[var(--color-accent)] hover:text-white transition"
+            title="Start video call"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+            </svg>
+            Video
+          </button>
+          <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)] rounded-full px-2 py-0.5 cursor-default">
+            🔒 End-to-end encrypted
+          </span>
+        </div>
       </div>
 
       {/* ── Messages ── */}
@@ -218,7 +254,6 @@ export default function DmChat() {
               <div className="text-[11px] font-medium text-[var(--color-txt3)] text-right mt-1 mr-0.5">Seen</div>
             ) : null;
 
-          // Unique key to prevent duplicate warnings
           const key = `${msg.id}-${msg.created_at}-${msg.sender_id}-${isTmp ? 'tmp' : 'real'}`;
 
           return (
@@ -280,6 +315,11 @@ export default function DmChat() {
           </svg>
         </button>
       </div>
+
+      {/* ── Video Call Overlay ── */}
+      {isCallActive && (
+        <DmVideoCall onClose={() => endCall()} />
+      )}
     </>
   );
 }

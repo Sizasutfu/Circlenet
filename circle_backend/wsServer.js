@@ -152,7 +152,23 @@ function handleClientMessage(ws, userId, msg) {
       });
       break;
     }
-    default: break;
+
+    // ─── NEW: Direct Call Signaling ──────────────────────────────
+    case 'call:start':
+    case 'call:accept':
+    case 'call:ice':
+    case 'call:end': {
+      const { to } = msg;
+      if (!to) break;
+      // Forward to the target user, attaching the sender's ID
+      const payload = { ...msg, from: userId };
+      delete payload.to; // optional cleanup
+      notify(to, payload);
+      break;
+    }
+
+    default:
+      break;
   }
 }
 

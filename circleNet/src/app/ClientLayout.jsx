@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { AuthProvider } from '@/lib/auth';
 import { WsProvider } from '@/contexts/WsContext';
 import { DmProvider } from '@/contexts/DmContext';
+import { DmCallProvider } from '@/contexts/DmCallContext';
 import { WhisperProvider } from '@/contexts/WhisperContext';
 import { GroupsProvider } from '@/contexts/GroupsContext';
 import { SearchProvider } from '@/contexts/SearchContext';
@@ -18,6 +19,7 @@ import { FeedProvider } from '@/contexts/FeedContext';
 import Lightbox from '@/components/ui/Lightbox';
 import { useLightbox } from '@/hooks/useLightbox';
 import NotificationPanel from '@/components/notification/NotificationPanel';
+import IncomingCallModal from '@/components/dm/IncomingCallModal'; // ✅ added
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import SideBar from '@/components/layout/SideBar';
@@ -28,7 +30,6 @@ import LiveFeedStrip from '@/components/live/LiveFeedStrip';
 import LiveToast from '@/components/live/LiveToast';
 import RightSidebar from '@/components/layout/RightSidebar';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
-
 
 function LightboxWrapper({ children }) {
   const { lightboxState, closeLightbox } = useLightbox();
@@ -117,83 +118,86 @@ export default function ClientLayout({ children }) {
       <WsProvider>
         <PushProvider>
           <DmProvider>
-            <WhisperProvider>
-              <GroupsProvider>
-                <SearchProvider>
-                  <ExploreProvider>
-                    <LiveProvider>
-                      <NotificationProvider>
-                        <LightboxProvider>
-                          <FeedProvider>
-                            <LightboxWrapper>
-                              <div className="flex min-h-screen">
-                                {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
-                                <div
-                                  className={`flex-1 flex flex-col min-h-screen ${
-                                    !isLanding ? 'md:ml-[280px]' : ''
-                                  }`}
-                                >
-                                  <Suspense fallback={<div className="h-14" />}>
-                                    <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
-                                  </Suspense>
-                                  <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center">
-                                    <main
-                                      className={`flex-1 max-w-2xl min-w-0 ${
-                                        isLanding
-                                          ? 'p-0'
-                                          : shouldHideFooter
-                                          ? 'pb-4'
-                                          : 'pb-20 md:pb-4'
-                                      }`}
-                                    >
-                                      {!shouldHideStrip && <LiveFeedStrip />}
-                                      {children}
-                                    </main>
-                                    {!isLanding && !shouldHideSidebar && (
-                                      <div className="hidden lg:block w-[320px] flex-shrink-0">
-                                        <RightSidebar />
-                                      </div>
-                                    )}
-                                  </div>
-                                  {!isLanding && !shouldHideFooter && <Footer />}
-                                </div>
-                              </div>
-
-                              {!isLanding && (
-                                <>
-                                  <NotificationPanel />
-                                  <LiveSetupModal />
-                                  <LiveOverlay />
-                                  <LiveToast />
-                                  {!shouldHideMobileNav && (
-                                    <>
-                                      <MobileNavbar
-                                        className={`transition-transform duration-300 ease-in-out ${
-                                          shouldHide ? 'translate-y-full' : 'translate-y-0'
-                                        }`}
-                                      />
-                                      <div
-                                        className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
-                                          shouldHide
-                                            ? 'opacity-0 scale-90 pointer-events-none'
-                                            : 'opacity-100 scale-100'
+            <DmCallProvider>
+              <WhisperProvider>
+                <GroupsProvider>
+                  <SearchProvider>
+                    <ExploreProvider>
+                      <LiveProvider>
+                        <NotificationProvider>
+                          <LightboxProvider>
+                            <FeedProvider>
+                              <LightboxWrapper>
+                                <div className="flex min-h-screen">
+                                  {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
+                                  <div
+                                    className={`flex-1 flex flex-col min-h-screen ${
+                                      !isLanding ? 'md:ml-[280px]' : ''
+                                    }`}
+                                  >
+                                    <Suspense fallback={<div className="h-14" />}>
+                                      <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
+                                    </Suspense>
+                                    <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center">
+                                      <main
+                                        className={`flex-1 max-w-2xl min-w-0 ${
+                                          isLanding
+                                            ? 'p-0'
+                                            : shouldHideFooter
+                                            ? 'pb-4'
+                                            : 'pb-20 md:pb-4'
                                         }`}
                                       >
-                                        <FloatingComposeButton />
-                                      </div>
-                                    </>
-                                  )}
-                                </>
-                              )}
-                            </LightboxWrapper>
-                          </FeedProvider>
-                        </LightboxProvider>
-                      </NotificationProvider>
-                    </LiveProvider>
-                  </ExploreProvider>
-                </SearchProvider>
-              </GroupsProvider>
-            </WhisperProvider>
+                                        {!shouldHideStrip && <LiveFeedStrip />}
+                                        {children}
+                                      </main>
+                                      {!isLanding && !shouldHideSidebar && (
+                                        <div className="hidden lg:block w-[320px] flex-shrink-0">
+                                          <RightSidebar />
+                                        </div>
+                                      )}
+                                    </div>
+                                    {!isLanding && !shouldHideFooter && <Footer />}
+                                  </div>
+                                </div>
+
+                                {!isLanding && (
+                                  <>
+                                    <IncomingCallModal />
+                                    <NotificationPanel />
+                                    <LiveSetupModal />
+                                    <LiveOverlay />
+                                    <LiveToast />
+                                    {!shouldHideMobileNav && (
+                                      <>
+                                        <MobileNavbar
+                                          className={`transition-transform duration-300 ease-in-out ${
+                                            shouldHide ? 'translate-y-full' : 'translate-y-0'
+                                          }`}
+                                        />
+                                        <div
+                                          className={`fixed bottom-20 right-4 z-30 md:hidden transition-all duration-300 ease-in-out ${
+                                            shouldHide
+                                              ? 'opacity-0 scale-90 pointer-events-none'
+                                              : 'opacity-100 scale-100'
+                                          }`}
+                                        >
+                                          <FloatingComposeButton />
+                                        </div>
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </LightboxWrapper>
+                            </FeedProvider>
+                          </LightboxProvider>
+                        </NotificationProvider>
+                      </LiveProvider>
+                    </ExploreProvider>
+                  </SearchProvider>
+                </GroupsProvider>
+              </WhisperProvider>
+            </DmCallProvider>
           </DmProvider>
         </PushProvider>
       </WsProvider>

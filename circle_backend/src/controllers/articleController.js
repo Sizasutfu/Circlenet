@@ -383,7 +383,7 @@ module.exports = {
   getArticles,
   getArticleById,
   getArticleBySlug,
-  getArticleAnalytics,   // ← new
+  getArticleAnalytics,
   createArticle,
   updateArticle,
   deleteArticle,

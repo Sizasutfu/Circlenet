@@ -8,7 +8,7 @@ export const metadata = {
 };
 
 export default async function Page({ searchParams }) {
-  // 兼容 Next.js 14（同步）和 15（异步 Promise）
+  
   const params = searchParams instanceof Promise ? await searchParams : searchParams;
   const groupId = params?.groupId || null;
 

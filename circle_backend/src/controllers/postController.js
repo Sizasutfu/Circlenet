@@ -626,6 +626,7 @@ module.exports = {
   toggleLike,
   addComment,
   repost,
+
   recordView,
   recordSkip,
   getTopics,

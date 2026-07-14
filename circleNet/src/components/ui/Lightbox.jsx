@@ -270,7 +270,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     try {
       await apiClient('/api/admin/reports', {
         method: 'POST',
-        body: JSON.stringify({ postId, reason }),
+        body: { postId, reason },
       });
       setShowReport(false);
       alert('Report submitted. Thank you! ✅');

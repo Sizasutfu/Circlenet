@@ -6,7 +6,7 @@
 const { db } = require('../config/db');
 const { sendPushToUser } = require('./pushModel');
 
-// ── Human-readable push copy for each notification type ────
+//push copy for each notification type ────
 const PUSH_COPY = {
   like:        (actor, snippet) => ({ title: 'New like ❤️',           body: snippet ? `${actor} liked your post: "${snippet}"` : `${actor} liked your post` }),
   comment:     (actor, snippet) => ({ title: 'New comment 💬',         body: snippet ? `${actor} commented: "${snippet}"` : `${actor} commented on your post` }),

@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
 import { useLightbox } from '@/hooks/useLightbox';
+import { useDm } from '@/contexts/DmContext'; 
 
 // ── Helpers ──
 function resolveMediaUrl(url) {
@@ -134,7 +135,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { openLightbox } = useLightbox();
-
+  const { startConversation } = useDm();
   const userIdParam = searchParams?.get('userId') ? parseInt(searchParams.get('userId')) : null;
   const isOwnProfile = !username && !userIdParam && currentUser;
   const profileKey = getCacheKey(username, userIdParam || currentUser?.id);
@@ -600,17 +601,18 @@ export default function ProfileClient({ username = null, initialUser = null }) {
                 >
                   {isFollowing ? 'Following' : 'Follow'}
                 </button>
-                <button
-                  onClick={() => {
-                    router.push(`/messages?userId=${profile.id}`);
-                  }}
-                  className="px-4 py-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition text-sm font-medium flex items-center gap-1.5"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-                  </svg>
-                  Message
-                </button>
+               <button
+  onClick={() => {
+    startConversation(profile.id);
+    router.push('/messages');
+  }}
+  className="px-4 py-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition text-sm font-medium flex items-center gap-1.5"
+>
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+  </svg>
+  Message
+</button>
               </>
             )}
           </div>

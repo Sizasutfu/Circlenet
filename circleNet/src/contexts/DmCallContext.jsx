@@ -21,10 +21,13 @@ export function DmCallProvider({ children }) {
   const [callState, setCallState] = useState({
     isActive: false,
     isIncoming: false,
+    status: 'idle', // 'idle' | 'ringing' | 'connected'
     callerId: null,
     callerName: '',
     callerAvatar: '',
     peerId: null,
+    peerName: '',
+    peerAvatar: '',
     localStream: null,
     remoteStream: null,
     micMuted: false,
@@ -57,7 +60,7 @@ export function DmCallProvider({ children }) {
   }, []);
 
   // ── Start a call (caller) ──
-  const startCall = useCallback(async (peerId) => {
+  const startCall = useCallback(async (peerId, peerName = '', peerAvatar = '') => {
     if (!user) {
       log('No user');
       return;
@@ -74,8 +77,11 @@ export function DmCallProvider({ children }) {
         ...prev,
         localStream: stream,
         peerId,
+        peerName,
+        peerAvatar,
         isActive: true,
         isIncoming: false,
+        status: 'ringing',
       }));
 
       const pc = createPeerConnection(
@@ -101,7 +107,7 @@ export function DmCallProvider({ children }) {
     } catch (err) {
       console.error('Failed to start call:', err);
       // Reset state
-      setCallState(prev => ({ ...prev, isActive: false }));
+      setCallState(prev => ({ ...prev, isActive: false, status: 'idle' }));
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop());
         localStreamRef.current = null;
@@ -119,8 +125,11 @@ export function DmCallProvider({ children }) {
         ...prev,
         localStream: stream,
         peerId: callerId,
+        peerName: prev.callerName,
+        peerAvatar: prev.callerAvatar,
         isActive: true,
         isIncoming: false,
+        status: 'connected',
       }));
 
       const pc = createPeerConnection(
@@ -141,7 +150,7 @@ export function DmCallProvider({ children }) {
     } catch (err) {
       console.error('Failed to accept call:', err);
       // Reset state
-      setCallState(prev => ({ ...prev, isActive: false, isIncoming: false }));
+      setCallState(prev => ({ ...prev, isActive: false, isIncoming: false, status: 'idle' }));
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop());
         localStreamRef.current = null;
@@ -166,10 +175,13 @@ export function DmCallProvider({ children }) {
     setCallState({
       isActive: false,
       isIncoming: false,
+      status: 'idle',
       callerId: null,
       callerName: '',
       callerAvatar: '',
       peerId: null,
+      peerName: '',
+      peerAvatar: '',
       localStream: null,
       remoteStream: null,
       micMuted: false,
@@ -218,6 +230,7 @@ export function DmCallProvider({ children }) {
         pcRef.current.setRemoteDescription(new RTCSessionDescription(answer))
           .catch(err => console.error('Set remote desc error:', err));
       }
+      setCallState(prev => ({ ...prev, status: 'connected' }));
     });
 
     const unsubIce = registerHandler('call:ice', ({ from, candidate }) => {

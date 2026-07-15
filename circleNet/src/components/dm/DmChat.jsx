@@ -147,7 +147,7 @@ export default function DmChat() {
   // ── Start video call ──
   const handleStartCall = async () => {
     if (!activeOther?.id) return;
-    await startCall(activeOther.id);
+    await startCall(activeOther.id, activeOther.name, activeOther.picture);
   };
 
   return (
@@ -211,7 +211,7 @@ export default function DmChat() {
               <circle cx="12" cy="12" r="10" />
               <circle cx="12" cy="12" r="3" fill="currentColor" />
             </svg>
-            Video
+            Video call
           </button>
           <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)] rounded-full px-2 py-0.5 cursor-default">
             🔒 End-to-end encrypted

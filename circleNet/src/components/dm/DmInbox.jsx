@@ -29,9 +29,9 @@ export default function DmInbox() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full min-w-0 overflow-hidden bg-[var(--color-surface)]">
+    <div className="flex flex-col h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--color-surface)]">
       {/* Header with search */}
-      <div className="flex-shrink-0 p-4 pb-3 border-b border-[var(--color-border)]">
+      <div className="flex-shrink-0 p-3 sm:p-4 pb-3 border-b border-[var(--color-border)]">
         <h2 className="font-head text-lg font-extrabold text-[var(--color-txt)] mb-3">
           Messages
         </h2>
@@ -57,7 +57,7 @@ export default function DmInbox() {
       </div>
 
       {/* Conversation list */}
-      <div className="flex-1 overflow-y-auto py-2">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 min-w-0">
         {!user ? (
           <div className="text-center py-12 px-4 text-[var(--color-txt2)]">
             <svg
@@ -94,11 +94,9 @@ export default function DmInbox() {
             const initial = (conv.other_name || '?').charAt(0).toUpperCase();
             const color = stringToColor(conv.other_name || '');
             const isActive = conv.id === activeConvId;
-            // Truncate preview manually to prevent overflow
-            const rawPreview = conv.last_message
+            const preview = conv.last_message
               ? (conv.last_sender_id === user?.id ? 'You: ' : '') + conv.last_message
               : 'No messages yet';
-            const preview = rawPreview.length > 60 ? rawPreview.slice(0, 60) + '…' : rawPreview;
             const timeStr = conv.last_message_at
               ? new Date(conv.last_message_at).toLocaleTimeString([], {
                   hour: '2-digit',
@@ -109,7 +107,7 @@ export default function DmInbox() {
             return (
               <div
                 key={conv.id}
-                className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors min-w-0 ${
+                className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 cursor-pointer transition-colors w-full min-w-0 max-w-full ${
                   isActive
                     ? 'bg-[var(--color-accent-bg)]'
                     : 'hover:bg-[var(--color-surface)]'
@@ -118,7 +116,7 @@ export default function DmInbox() {
               >
                 {/* Avatar */}
                 <div
-                  className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
+                  className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
                   style={{
                     background: conv.other_picture ? 'transparent' : color,
                   }}
@@ -134,18 +132,18 @@ export default function DmInbox() {
                   )}
                 </div>
 
-                {/* Info – takes remaining space, no overflow */}
-                <div className="flex-1 min-w-0 overflow-hidden">
+                {/* Info – takes remaining space, never lets content push the row wider */}
+                <div className="flex-1 min-w-0 basis-0 overflow-hidden">
                   <div className="text-sm font-semibold text-[var(--color-txt)] truncate">
                     {conv.other_name}
                   </div>
-                  <div className="text-xs text-[var(--color-txt3)] truncate w-full">
+                  <div className="text-xs text-[var(--color-txt3)] truncate block max-w-full">
                     {preview}
                   </div>
                 </div>
 
-                {/* Meta – right aligned */}
-                <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+                {/* Meta – right aligned, fixed width so it never gets squeezed by long previews */}
+                <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-1 sm:ml-2 w-10 sm:w-auto">
                   {timeStr && (
                     <div className="text-[10px] text-[var(--color-txt3)] whitespace-nowrap">
                       {timeStr}
@@ -164,7 +162,7 @@ export default function DmInbox() {
       {/* New Message button */}
       <button
         onClick={openNewModal}
-        className="flex-shrink-0 mx-4 mb-4 py-2.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer w-[calc(100%-2rem)]"
+        className="flex-shrink-0 mx-3 sm:mx-4 mb-3 sm:mb-4 py-2.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer w-[calc(100%-1.5rem)] sm:w-[calc(100%-2rem)]"
       >
         + New Message
       </button>

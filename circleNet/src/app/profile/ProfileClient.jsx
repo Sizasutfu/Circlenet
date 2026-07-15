@@ -7,8 +7,9 @@ import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
+import QuoteModal from '@/components/ui/QuoteModal';
 import { useLightbox } from '@/hooks/useLightbox';
-import { useDm } from '@/contexts/DmContext'; 
+import { useDm } from '@/contexts/DmContext';
 
 // ── Helpers ──
 function resolveMediaUrl(url) {
@@ -25,11 +26,6 @@ function stringToColor(str) {
   }
   const hue = Math.abs(hash % 360);
   return `hsl(${hue}, 70%, 60%)`;
-}
-
-function fmtNum(n) {
-  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-  return String(n || 0);
 }
 
 // ── Profile cache ──
@@ -157,6 +153,9 @@ export default function ProfileClient({ username = null, initialUser = null }) {
 
   const [listModal, setListModal] = useState({ open: false, type: '', users: [], isLoading: false });
 
+  // ── Quote modal state ──
+  const [quoteTarget, setQuoteTarget] = useState(null);
+
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 4000);
@@ -273,6 +272,90 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     return () => observer.disconnect();
   }, [postsHasMore, postsLoading, postsPage, fetchPosts]);
 
+  // ── Post interactions ──
+  const handleLike = async (postId) => {
+    if (!currentUser) {
+      showToast('Log in to like.', 'error');
+      return;
+    }
+    // Optimistic update
+    const postIndex = posts.findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    const post = posts[postIndex];
+    const isLiked = post.likes?.includes(currentUser.id);
+    const newLikes = isLiked
+      ? post.likes.filter(id => id !== currentUser.id)
+      : [...(post.likes || []), currentUser.id];
+    const newPosts = [...posts];
+    newPosts[postIndex] = { ...post, likes: newLikes };
+    setPosts(newPosts);
+
+    try {
+      await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
+    } catch (_) {
+      // Revert on error
+      const revert = [...posts];
+      setPosts(revert);
+      showToast('Failed to like.', 'error');
+    }
+  };
+
+  const handleComment = (postId) => {
+    if (!currentUser) {
+      showToast('Please log in to comment.', 'error');
+      return;
+    }
+    router.push(`/post/${postId}`);
+  };
+
+  const handleRepost = async (postId) => {
+    if (!currentUser) {
+      showToast('Log in to repost.', 'error');
+      return;
+    }
+    try {
+      await apiClient(`/api/posts/${postId}/repost`, { method: 'POST' });
+      showToast('Reposted! 🔁', 'success');
+      // Update repost count locally
+      const postIndex = posts.findIndex(p => p.id === postId);
+      if (postIndex !== -1) {
+        const newPosts = [...posts];
+        newPosts[postIndex] = {
+          ...newPosts[postIndex],
+          repostCount: (newPosts[postIndex].repostCount || 0) + 1,
+        };
+        setPosts(newPosts);
+      }
+    } catch (_) {
+      showToast('Failed to repost.', 'error');
+    }
+  };
+
+  const handleShare = (postId) => {
+    const url = `${window.location.origin}/post/${postId}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Check this post', url });
+    } else {
+      navigator.clipboard.writeText(url).then(() => showToast('Link copied!', 'success'));
+    }
+  };
+
+  const handleQuote = (postId) => {
+    if (!currentUser) {
+      showToast('Please log in to quote.', 'error');
+      return;
+    }
+    const post = posts.find(p => p.id === postId);
+    if (post) setQuoteTarget(post);
+  };
+
+  const handleQuoteSuccess = () => {
+    setQuoteTarget(null);
+    showToast('Quoted successfully! 🎉', 'success');
+    fetchPosts(1, false); // refresh feed
+  };
+
+  // ── Follow ──
   const handleFollowToggle = async () => {
     if (!currentUser || !profile) return;
     const following = profile.isFollowing;
@@ -297,6 +380,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
+  // ── Avatar & Cover upload ──
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !currentUser || !isOwnProfile) {
@@ -366,6 +450,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     }
   };
 
+  // ── User list modal ──
   const openUserList = async (type) => {
     if (!profile) return;
     setListModal({ open: true, type, users: [], isLoading: true });
@@ -384,6 +469,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     setListModal({ open: false, type: '', users: [], isLoading: false });
   };
 
+  // ── Render ──
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-8 text-center text-[var(--color-txt2)]">
@@ -453,8 +539,8 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     <div className="max-w-4xl mx-auto">
       {toast && <Toast message={toast.message} type={toast.type} />}
 
-      {/* ── Cover and Avatar (fixed structure) ── */}
-      <div className="relative"> {/* outer wrapper – no overflow-hidden */}
+      {/* ── Cover and Avatar ── */}
+      <div className="relative">
         <div className="h-48 md:h-64 rounded-[var(--radius-radius)] overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)] group">
           {coverUrl ? (
             <div
@@ -601,18 +687,18 @@ export default function ProfileClient({ username = null, initialUser = null }) {
                 >
                   {isFollowing ? 'Following' : 'Follow'}
                 </button>
-               <button
-  onClick={() => {
-    startConversation(profile.id);
-    router.push('/messages');
-  }}
-  className="px-4 py-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition text-sm font-medium flex items-center gap-1.5"
->
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-  </svg>
-  Message
-</button>
+                <button
+                  onClick={() => {
+                    startConversation(profile.id);
+                    router.push('/messages');
+                  }}
+                  className="px-4 py-2 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition text-sm font-medium flex items-center gap-1.5"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                  </svg>
+                  Message
+                </button>
               </>
             )}
           </div>
@@ -663,7 +749,17 @@ export default function ProfileClient({ username = null, initialUser = null }) {
                   {isOwnProfile ? 'You haven’t posted yet.' : 'No posts yet.'}
                 </p>
               ) : (
-                posts.map((post) => <PostCard key={post.id} post={post} />)
+                posts.map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    onLike={() => handleLike(post.id)}
+                    onComment={() => handleComment(post.id)}
+                    onRepost={() => handleRepost(post.id)}
+                    onShare={() => handleShare(post.id)}
+                    onQuote={() => handleQuote(post.id)}
+                  />
+                ))
               )}
               {postsHasMore && (
                 <div ref={postsLoadMoreRef} className="text-center py-4 text-[var(--color-txt2)]">
@@ -709,6 +805,15 @@ export default function ProfileClient({ username = null, initialUser = null }) {
           users={listModal.users}
           isLoading={listModal.isLoading}
           onClose={closeListModal}
+        />
+      )}
+
+      {/* ── Quote Modal ── */}
+      {quoteTarget && (
+        <QuoteModal
+          post={quoteTarget}
+          onClose={() => setQuoteTarget(null)}
+          onSuccess={handleQuoteSuccess}
         />
       )}
     </div>

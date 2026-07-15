@@ -16,17 +16,13 @@ function FloatingHeart({ x, y, onComplete }) {
   useEffect(() => {
     const start = performance.now();
     const duration = 1000;
-
     const animate = (now) => {
       const progress = Math.min((now - start) / duration, 1);
       setTranslateY(-progress * 120);
       setOpacity(1 - progress);
       setScale(0.5 + progress * 0.8);
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        onComplete();
-      }
+      if (progress < 1) requestAnimationFrame(animate);
+      else onComplete();
     };
     requestAnimationFrame(animate);
   }, [onComplete]);
@@ -57,8 +53,11 @@ export default function LiveOverlay() {
     broadcasterAvatar,
     viewerCount,
     chatMessages,
-    remoteStream,
     localStream,
+    broadcasters,
+    isBroadcaster,
+    requestingToBroadcast,
+    pendingRequests,
     micMuted,
     camOff,
     isOverlayOpen,
@@ -71,14 +70,19 @@ export default function LiveOverlay() {
     floatingReactions,
     likeCount,
     sendLike,
+    requestBroadcast,
+    approveRequest,
+    rejectRequest,
   } = useLive();
 
   const [chatInput, setChatInput] = useState('');
   const [ended, setEnded] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [hearts, setHearts] = useState([]);
-  const videoRef = useRef(null);
+  const [showRequests, setShowRequests] = useState(false);
+  const localVideoRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const videoRefs = useRef({});
 
   const isHost = role === 'host';
   const isViewer = role === 'viewer';
@@ -90,30 +94,34 @@ export default function LiveOverlay() {
     }
   }, [chatMessages]);
 
-  // Attach stream
+  // Attach local stream to local video
   useEffect(() => {
-    const stream = isHost ? localStream : remoteStream;
-    if (videoRef.current) {
-      if (stream) {
-        videoRef.current.srcObject = stream;
-        videoRef.current
-          .play()
-          .catch((err) => console.warn('⚠️ Video play error:', err));
-      } else {
-        videoRef.current.srcObject = null;
-      }
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {});
     }
-  }, [localStream, remoteStream, isHost]);
+  }, [localStream]);
 
-  // Show "retry" if viewer has no stream after 5 seconds
+  // Attach remote streams to each broadcaster video
   useEffect(() => {
-    if (isViewer && !remoteStream) {
+    broadcasters.forEach((b) => {
+      const el = videoRefs.current[b.userId];
+      if (el && b.stream) {
+        el.srcObject = b.stream;
+        el.play().catch(() => {});
+      }
+    });
+  }, [broadcasters]);
+
+  // Show "retry" if viewer has no stream after 5 seconds (only if no broadcasters)
+  useEffect(() => {
+    if (isViewer && broadcasters.length === 0) {
       const timer = setTimeout(() => setLoadingTimeout(true), 5000);
       return () => clearTimeout(timer);
     } else {
       setLoadingTimeout(false);
     }
-  }, [isViewer, remoteStream]);
+  }, [isViewer, broadcasters]);
 
   // Reset ended when overlay opens
   useEffect(() => {
@@ -121,6 +129,7 @@ export default function LiveOverlay() {
       setEnded(false);
       setLoadingTimeout(false);
       setHearts([]);
+      setShowRequests(false);
     }
   }, [isOverlayOpen]);
 
@@ -132,9 +141,9 @@ export default function LiveOverlay() {
     setChatInput('');
   };
 
-  // ── Handle tap on video ──
+  // ── Handle tap on video (only for viewers) ──
   const handleTap = (e) => {
-    if (isHost) return; // host taps don't count as likes
+    if (isBroadcaster) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX || e.touches?.[0]?.clientX || rect.width / 2) - rect.left;
     const y = (e.clientY || e.touches?.[0]?.clientY || rect.height / 2) - rect.top;
@@ -147,7 +156,7 @@ export default function LiveOverlay() {
     setHearts((prev) => prev.filter((h) => h.id !== id));
   };
 
-  const hasStream = isHost ? !!localStream : !!remoteStream;
+  const hasStream = broadcasters.some(b => b.stream !== null) || (isBroadcaster && localStream);
 
   const handleRetry = () => {
     setLoadingTimeout(false);
@@ -156,6 +165,10 @@ export default function LiveOverlay() {
     }
   };
 
+  // Determine grid layout for broadcasters
+  const gridCols = Math.min(broadcasters.length, 2);
+  const gridRows = Math.ceil(broadcasters.length / 2);
+
   return (
     <div className="fixed inset-0 z-[1000] bg-black flex flex-col">
       {/* ── Video container with tap detection ── */}
@@ -163,12 +176,12 @@ export default function LiveOverlay() {
         className="absolute inset-0 bg-black/90 flex items-center justify-center"
         onTouchStart={handleTap}
         onMouseDown={handleTap}
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: isBroadcaster ? 'default' : 'pointer' }}
       >
         {!hasStream ? (
           <div className="text-center">
             <div className="text-white/50 text-sm mb-3">
-              {isHost ? 'Initializing camera…' : 'Connecting to stream…'}
+              {isBroadcaster ? 'Initializing camera…' : 'Connecting to stream…'}
             </div>
             {isViewer && loadingTimeout && (
               <button
@@ -180,14 +193,41 @@ export default function LiveOverlay() {
             )}
           </div>
         ) : (
-          <video
-            ref={videoRef}
-            autoPlay
-            muted={isHost}
-            playsInline
-            className={`w-full h-full object-cover ${isHost ? 'scale-x-[-1]' : ''}`}
-            style={{ background: '#000' }}
-          />
+          <div className="w-full h-full">
+            {/* Grid of broadcaster videos */}
+            <div className={`grid grid-cols-${gridCols} gap-1 w-full h-full`}>
+              {broadcasters.map((b) => (
+                <div key={b.userId} className="relative bg-black/50">
+                  <video
+                    ref={el => { if (el) videoRefs.current[b.userId] = el; }}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover"
+                    style={{ background: '#000' }}
+                  />
+                  <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded text-white text-xs">
+                    {b.name || 'Unknown'}
+                  </div>
+                </div>
+              ))}
+              {/* If no broadcasters, show placeholder */}
+              {broadcasters.length === 0 && (
+                <div className="col-span-2 flex items-center justify-center text-white/50">
+                  Waiting for broadcaster...
+                </div>
+              )}
+            </div>
+            {/* Local video picture-in-picture if broadcaster */}
+            {isBroadcaster && localStream && (
+              <video
+                ref={localVideoRef}
+                className="absolute bottom-4 right-4 w-48 h-36 object-cover rounded-lg border-2 border-white shadow-lg z-10"
+                autoPlay
+                playsInline
+                muted
+              />
+            )}
+          </div>
         )}
 
         {/* Floating hearts (tap likes) */}
@@ -244,6 +284,56 @@ export default function LiveOverlay() {
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
             LIVE
           </span>
+          {isBroadcaster && (
+            <span className="text-[10px] bg-[var(--color-accent)] text-white px-2 py-0.5 rounded-full">
+              Broadcaster
+            </span>
+          )}
+          {/* ── Pending requests dropdown ── */}
+          {isBroadcaster && pendingRequests.length > 0 && (
+            <div className="relative ml-2">
+              <button
+                onClick={() => setShowRequests(!showRequests)}
+                className="flex items-center gap-1 bg-[var(--color-accent)] px-2 py-1 rounded-full text-xs text-white hover:bg-[var(--color-accent-h)] transition"
+              >
+                <span className="animate-pulse">●</span>
+                {pendingRequests.length} request{pendingRequests.length > 1 ? 's' : ''}
+              </button>
+              {showRequests && (
+                <div className="absolute top-full left-0 mt-2 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl p-3 w-64 z-30">
+                  <div className="text-xs font-bold text-[var(--color-txt2)] mb-2">Pending requests</div>
+                  {pendingRequests.map((req) => (
+                    <div key={req.userId} className="flex items-center justify-between gap-2 py-1 border-b border-[var(--color-border)] last:border-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {req.avatar ? (
+                          <img src={req.avatar} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-[var(--color-surface)] flex items-center justify-center text-xs flex-shrink-0">
+                            {req.name?.[0]?.toUpperCase()}
+                          </div>
+                        )}
+                        <span className="text-sm text-[var(--color-txt)] truncate">{req.name || 'Unknown'}</span>
+                      </div>
+                      <div className="flex gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => approveRequest(req.userId)}
+                          className="px-2 py-0.5 bg-[var(--color-green)] text-white text-xs rounded hover:bg-[var(--color-green)]/80"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => rejectRequest(req.userId)}
+                          className="px-2 py-0.5 bg-[var(--color-rose)] text-white text-xs rounded hover:bg-[var(--color-rose)]/80"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-black/45 backdrop-blur-sm border border-white/10 px-3 py-1.5 rounded-full text-white text-xs font-bold">
@@ -266,7 +356,8 @@ export default function LiveOverlay() {
 
       {/* ── Bottom bar ── */}
       <div className="absolute bottom-0 left-0 right-0 z-20 p-4 space-y-3">
-        {isHost && (
+        {/* Host / Broadcaster controls */}
+        {isBroadcaster && (
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={toggleMic}
@@ -312,11 +403,12 @@ export default function LiveOverlay() {
               </svg>
             </button>
             <button onClick={closeLive} className="px-4 py-2 bg-[var(--color-rose)] text-white rounded-full font-bold text-sm hover:bg-[var(--color-rose)]/80 transition">
-              End Stream
+              {role === 'host' ? 'End Stream' : 'Leave'}
             </button>
           </div>
         )}
 
+        {/* Reaction buttons */}
         <div className="flex gap-2">
           {REACTIONS.map((emoji) => (
             <button
@@ -327,8 +419,19 @@ export default function LiveOverlay() {
               {emoji}
             </button>
           ))}
+          {/* Request to co-host (for viewers) */}
+          {isViewer && !isBroadcaster && (
+            <button
+              onClick={requestBroadcast}
+              disabled={requestingToBroadcast}
+              className="px-3 py-1 bg-[var(--color-accent)] text-white rounded-full text-xs font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+            >
+              {requestingToBroadcast ? 'Requesting...' : 'Join as Broadcaster'}
+            </button>
+          )}
         </div>
 
+        {/* Chat area */}
         <div className="space-y-1.5">
           <div
             ref={chatContainerRef}

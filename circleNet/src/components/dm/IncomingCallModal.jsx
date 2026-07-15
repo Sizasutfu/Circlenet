@@ -26,12 +26,14 @@ export default function IncomingCallModal() {
             <button
               onClick={rejectIncoming}
               className="px-6 py-3 bg-[var(--color-rose)] text-white rounded-full font-bold hover:bg-[var(--color-rose)]/80 transition"
+              title="Decline call"
             >
               Decline
             </button>
             <button
               onClick={acceptIncoming}
               className="px-6 py-3 bg-[var(--color-green)] text-white rounded-full font-bold hover:bg-[var(--color-green)]/80 transition"
+              title="Accept call"
             >
               Accept
             </button>

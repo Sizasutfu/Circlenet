@@ -12,6 +12,8 @@ export default function LiveSetupModal() {
     localStream,
     setupError,
     openSetup,
+    collaborationEnabled,
+    setCollaborationEnabled,
   } = useLive();
 
   const [title, setTitle] = useState('');
@@ -58,8 +60,26 @@ export default function LiveSetupModal() {
           onChange={(e) => setTitle(e.target.value)}
           placeholder="What's happening? (e.g. Studio session, Q&A…)"
           maxLength={80}
-          className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition mb-4"
+          className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition mb-3"
         />
+
+        {/* Collaboration toggle */}
+        <div className="flex items-center gap-3 mb-4">
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={collaborationEnabled}
+              onChange={(e) => setCollaborationEnabled(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-[var(--color-border)] rounded-full peer peer-checked:bg-[var(--color-accent)] transition-colors">
+              <div className={`w-4 h-4 bg-white rounded-full absolute top-1 left-1 transition-transform ${collaborationEnabled ? 'translate-x-5' : ''}`}></div>
+            </div>
+          </label>
+          <span className="text-sm text-[var(--color-txt2)]">
+            Enable collaboration (up to 4 broadcasters)
+          </span>
+        </div>
 
         {/* Error message with Retry button */}
         {setupError && (

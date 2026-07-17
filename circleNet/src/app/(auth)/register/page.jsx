@@ -38,6 +38,34 @@ export default function RegisterPage() {
   const [phoneOtpTimer, setPhoneOtpTimer] = useState(0);
   const [canResendPhone, setCanResendPhone] = useState(false);
 
+  // Terms acceptance
+  const [termsAccepted, setTermsAccepted] = useState(false);
+
+  // Password visibility toggles
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // ── Password strength ──
+  const [passwordStrength, setPasswordStrength] = useState({ score: 0, label: '' });
+
+  const checkStrength = (pwd) => {
+    let score = 0;
+    if (pwd.length >= 8) score++;
+    if (pwd.length >= 12) score++;
+    if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+    if (/\d/.test(pwd)) score++;
+    if (/[^a-zA-Z0-9]/.test(pwd)) score++;
+
+    // Cap at 4 for the bar
+    const capped = Math.min(score, 4);
+    const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+    return { score: capped, label: labels[capped] };
+  };
+
+  useEffect(() => {
+    setPasswordStrength(checkStrength(password));
+  }, [password]);
+
   // ── Email registration ──
   const handleEmailRegister = async (e) => {
     e.preventDefault();
@@ -173,6 +201,20 @@ export default function RegisterPage() {
     };
   }, []);
 
+  // Eye icon components
+  const EyeIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  );
+
+  const EyeOffIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+    </svg>
+  );
+
   return (
     <div className="max-w-md mx-auto mt-16 p-6 bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)]">
       <h1 className="text-2xl font-head font-bold text-[var(--color-txt)] mb-6 text-center">Create Account</h1>
@@ -223,29 +265,100 @@ export default function RegisterPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-[var(--color-txt)] focus:border-[var(--color-accent)] focus:outline-none"
-                  required
-                  minLength={6}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 pr-10 text-[var(--color-txt)] focus:border-[var(--color-accent)] focus:outline-none"
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-txt2)] hover:text-[var(--color-txt)] focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+
+                {/* ── Strength meter ── */}
+                {password.length > 0 && (
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-[var(--color-surface)] rounded-full overflow-hidden">
+                        <div
+                          className="h-full transition-all duration-200"
+                          style={{
+                            width: `${(passwordStrength.score / 4) * 100}%`,
+                            backgroundColor:
+                              passwordStrength.score === 0 ? 'var(--color-rose)' :
+                              passwordStrength.score === 1 ? 'var(--color-rose)' :
+                              passwordStrength.score === 2 ? '#f59e0b' : // amber
+                              passwordStrength.score === 3 ? '#3b82f6' : // blue
+                              '#22c55e', // green
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs font-medium text-[var(--color-txt2)] whitespace-nowrap">
+                        {passwordStrength.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[var(--color-txt3)] mt-1">
+                      {passwordStrength.score === 0 && 'Add length, uppercase, lowercase, digits, or special characters.'}
+                      {passwordStrength.score === 1 && 'Add more variety (uppercase, digits, special).'}
+                      {passwordStrength.score === 2 && 'Good – add more length or special characters.'}
+                      {passwordStrength.score === 3 && 'Strong – almost there!'}
+                      {passwordStrength.score === 4 && 'Excellent – this password is very strong.'}
+                    </p>
+                  </div>
+                )}
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Confirm Password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-[var(--color-txt)] focus:border-[var(--color-accent)] focus:outline-none"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 pr-10 text-[var(--color-txt)] focus:border-[var(--color-accent)] focus:outline-none"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-txt2)] hover:text-[var(--color-txt)] focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+                {confirmPassword && password !== confirmPassword && (
+                  <p className="text-xs text-[var(--color-rose)] mt-1">Passwords do not match.</p>
+                )}
               </div>
+
+              {/* Terms of Service checkbox */}
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="terms-email"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="mt-1 accent-[var(--color-accent)]"
+                />
+                <label htmlFor="terms-email" className="text-sm text-[var(--color-txt2)]">
+                  I agree to the <Link href="/terms" className="text-[var(--color-accent)] hover:underline">Terms of Service</Link>
+                </label>
+              </div>
+
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full py-2 bg-[var(--color-accent)] text-white font-medium rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+                disabled={loading || !termsAccepted}
+                className="w-full py-2 bg-[var(--color-accent)] text-white font-medium rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-h)] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Creating…' : 'Create Account'}
               </button>
@@ -326,10 +439,25 @@ export default function RegisterPage() {
                   />
                 </div>
               </div>
+
+              {/* Terms of Service checkbox */}
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="terms-phone"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="mt-1 accent-[var(--color-accent)]"
+                />
+                <label htmlFor="terms-phone" className="text-sm text-[var(--color-txt2)]">
+                  I agree to the <Link href="/terms" className="text-[var(--color-accent)] hover:underline">Terms of Service</Link>
+                </label>
+              </div>
+
               <button
                 onClick={handlePhoneRegisterSend}
-                disabled={phoneLoading}
-                className="w-full py-2 bg-[var(--color-accent)] text-white font-medium rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+                disabled={phoneLoading || !termsAccepted}
+                className="w-full py-2 bg-[var(--color-accent)] text-white font-medium rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-h)] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {phoneLoading ? 'Sending…' : 'Send OTP'}
               </button>

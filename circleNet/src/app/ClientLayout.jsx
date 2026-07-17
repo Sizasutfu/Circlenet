@@ -19,7 +19,7 @@ import { FeedProvider } from '@/contexts/FeedContext';
 import Lightbox from '@/components/ui/Lightbox';
 import { useLightbox } from '@/hooks/useLightbox';
 import NotificationPanel from '@/components/notification/NotificationPanel';
-import IncomingCallModal from '@/components/dm/IncomingCallModal'; // ✅ added
+import IncomingCallModal from '@/components/dm/IncomingCallModal';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import SideBar from '@/components/layout/SideBar';
@@ -75,6 +75,7 @@ export default function ClientLayout({ children }) {
 
   const isLanding = pathname === '/';
 
+  // Route exclusions
   const hideFooterRoutes = [
     '/messages',
     '/live',
@@ -98,6 +99,10 @@ export default function ClientLayout({ children }) {
     '/profile',
     '/settings',
   ];
+
+  // ── Add header hiding for DM chat ──
+  // We hide the header on any route that starts with /messages (including /messages/[id])
+  const shouldHideHeader = isLanding || pathname.startsWith('/messages');
 
   const shouldHideFooter = hideFooterRoutes.includes(pathname);
   const shouldHideStrip = isLanding || hideStripRoutes.includes(pathname);
@@ -132,11 +137,14 @@ export default function ClientLayout({ children }) {
                                   {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
                                   <div
                                     className={`flex-1 flex flex-col min-h-screen ${
-                                      !isLanding ? 'md:ml-[280px]' : ''
+                                      !isLanding && !shouldHideSidebar ? 'md:ml-[280px]' : ''
                                     }`}
                                   >
                                     <Suspense fallback={<div className="h-14" />}>
-                                      <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
+                                      {/* ── Only show Header if not landing and not hiding ── */}
+                                      {!isLanding && !shouldHideHeader && (
+                                        <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
+                                      )}
                                     </Suspense>
                                     <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center">
                                       <main

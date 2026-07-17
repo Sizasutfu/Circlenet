@@ -311,6 +311,71 @@ export function DmProvider({ children }) {
     [sendTyping]
   );
 
+  // ── EDIT MESSAGE ──
+  const editMessage = useCallback(
+    async (messageId, newText) => {
+      if (!userRef.current || !activeConvIdRef.current || !newText.trim()) return;
+      const conv = inboxRef.current.find((c) => c.id === activeConvIdRef.current);
+      if (!conv) return;
+
+      // Optimistically update the local message
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, _plain: newText, body: newText, edited_at: new Date().toISOString() }
+            : m
+        )
+      );
+
+      try {
+        const wireBody = await E2E.encrypt(conv.other_id, newText, apiClient);
+        await apiClient(`/api/dm/messages/${messageId}`, {
+          method: 'PATCH',
+          body: { body: wireBody },
+        });
+        // The WebSocket will broadcast an update; we already updated optimistically.
+        // But we might get a WS 'message_edited' event that will sync with server timestamp.
+        // We'll rely on that to keep consistency.
+        loadInbox(); // refresh inbox (last message might change)
+      } catch (err) {
+        // Revert optimistic update
+        console.error('[DM] Edit failed:', err);
+        // Optionally reload messages or revert – we can just reload the conversation
+        if (activeConvIdRef.current) {
+          openConversation(activeConvIdRef.current);
+        }
+        throw err;
+      }
+    },
+    [loadInbox, openConversation]
+  );
+
+  // ── DELETE MESSAGE ──
+  const deleteMessage = useCallback(
+    async (messageId) => {
+      if (!userRef.current || !activeConvIdRef.current) return;
+
+      // Remove optimistically
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+      try {
+        await apiClient(`/api/dm/messages/${messageId}`, {
+          method: 'DELETE',
+        });
+        // WS 'message_deleted' will also arrive, but we already removed it.
+        loadInbox(); // refresh inbox in case last message changes
+      } catch (err) {
+        console.error('[DM] Delete failed:', err);
+        // Revert – reload conversation
+        if (activeConvIdRef.current) {
+          openConversation(activeConvIdRef.current);
+        }
+        throw err;
+      }
+    },
+    [loadInbox, openConversation]
+  );
+
   // ── WS handlers ──
   const wsInjectMessage = useCallback(async (convId, message) => {
     if (activeConvIdRef.current !== convId) return;
@@ -398,6 +463,43 @@ export function DmProvider({ children }) {
     }
   }, []);
 
+  // ── WS handlers for edit & delete ──
+  const handleMessageEdited = useCallback((data) => {
+    if (activeConvIdRef.current !== data.conversationId) return;
+    // data: { conversationId, messageId, body, edited_at }
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id === data.messageId) {
+          const updated = { ...m, body: data.body, edited_at: data.edited_at };
+          // If we have a _plain, try to decrypt if it's e2e
+          if (data.body?.startsWith('e2e:')) {
+            const conv = inboxRef.current.find((c) => c.id === data.conversationId);
+            if (conv) {
+              E2E.decrypt(conv.other_id, data.body, apiClient)
+                .then((plain) => {
+                  setMessages((prev2) =>
+                    prev2.map((m2) =>
+                      m2.id === data.messageId ? { ...m2, _plain: plain || '[Unable to decrypt]' } : m2
+                    )
+                  );
+                })
+                .catch(() => {});
+            }
+          } else {
+            updated._plain = data.body;
+          }
+          return updated;
+        }
+        return m;
+      })
+    );
+  }, []);
+
+  const handleMessageDeleted = useCallback((data) => {
+    if (activeConvIdRef.current !== data.conversationId) return;
+    setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+  }, []);
+
   // ── Register WS handlers ──
   useEffect(() => {
     const unregNewDM = registerHandler('new_dm', (msg) => {
@@ -407,13 +509,27 @@ export function DmProvider({ children }) {
     const unregMessageSeen = registerHandler('message_seen', handleMessageSeen);
     const unregDMRead = registerHandler('dm_read', handleDMRead);
     const unregTyping = registerHandler('typing', handleTyping);
+    const unregMessageEdited = registerHandler('message_edited', handleMessageEdited);
+    const unregMessageDeleted = registerHandler('message_deleted', handleMessageDeleted);
+
     return () => {
       unregNewDM();
       unregMessageSeen();
       unregDMRead();
       unregTyping();
+      unregMessageEdited();
+      unregMessageDeleted();
     };
-  }, [registerHandler, wsInjectMessage, wsRefreshInbox, handleMessageSeen, handleDMRead, handleTyping]);
+  }, [
+    registerHandler,
+    wsInjectMessage,
+    wsRefreshInbox,
+    handleMessageSeen,
+    handleDMRead,
+    handleTyping,
+    handleMessageEdited,
+    handleMessageDeleted,
+  ]);
 
   // ── Presence polling ──
   useEffect(() => {
@@ -474,11 +590,13 @@ export function DmProvider({ children }) {
     loadInbox,
     openConversation,
     closeConversation,
-    startConversation,   // ✅
+    startConversation,
     sendMessage,
     loadMoreMessages,
     emitTyping,
     pollNewMessages,
+    editMessage,   // ✅ added
+    deleteMessage, // ✅ added
   };
 
   return <DmContext.Provider value={value}>{children}</DmContext.Provider>;

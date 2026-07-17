@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/mkcert.exe
+/localhost+2-key.pem
+/localhost+2.pem

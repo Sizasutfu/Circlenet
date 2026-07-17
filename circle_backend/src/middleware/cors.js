@@ -5,19 +5,16 @@ const ALLOWED_ORIGINS = [
   "http://127.0.0.1:5501",
   "http://localhost:7700",
   "https://sizabeats:5000",
-  "https://192.168.163.203:5000",
-  "https://10.52.11.203:5000",
   "http://localhost:5000",
   "https://circle-app-cm8qwkxqp-sizasutfus-projects.vercel.app",
   "https://www.circlenet.social",
   "https://admin.circlenet.social",
   "http://localhost:3000",
-  "http://10.247.77.203:3000",
-  "http://10.142.127.203:3000",
-  "http://10.156.1.203:3000",
-  "http://10.21.114.203:3000",
+  "https://localhost:3000",
   "https://circlenet-articles.vercel.app/articles",
   "https://blog.circlenet.social",
+  "http://10.95.181.203:5000",
+  "https://10.95.181.203:3000"
 ];
 
 function cors(req, res, next) {

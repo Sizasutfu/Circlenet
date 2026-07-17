@@ -3,9 +3,9 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useDm } from '@/contexts/DmContext';
-import { useDmCall } from '@/contexts/DmCallContext'; // ✅ added
+import { useDmCall } from '@/contexts/DmCallContext';
 import { useAuth } from '@/lib/auth';
-import DmVideoCall from './DmVideoCall'; // ✅ added
+import DmVideoCall from './DmVideoCall';
 
 function escHtml(str) {
   if (!str) return '';
@@ -48,6 +48,12 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
+function isWithin24Hours(createdAt) {
+  const now = Date.now();
+  const msgTime = new Date(createdAt).getTime();
+  return (now - msgTime) < 24 * 60 * 60 * 1000;
+}
+
 export default function DmChat() {
   const { user } = useAuth();
   const {
@@ -61,9 +67,11 @@ export default function DmChat() {
     emitTyping,
     closeConversation,
     otherOnline,
+    editMessage,
+    deleteMessage,
   } = useDm();
 
-  const { startCall, callState, endCall } = useDmCall(); // ✅ added
+  const { startCall, callState, endCall } = useDmCall();
   const { isActive: isCallActive } = callState;
 
   const [input, setInput] = useState('');
@@ -73,12 +81,24 @@ export default function DmChat() {
   const typingTimeoutRef = useRef(null);
   const justLoadedMoreRef = useRef(false);
 
-  // ── Scroll to bottom ──
+  // Editing state
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [editingSaving, setEditingSaving] = useState(false);
+
+  // Dropdown menu state
+  const [menuOpenId, setMenuOpenId] = useState(null);
+
+  // Header helpers
+  const avatarUrl = resolveMediaUrl(activeOther?.picture);
+  const initial = activeOther?.name?.charAt(0)?.toUpperCase() || '?';
+  const color = stringToColor(activeOther?.name || '');
+
+  // ── Scroll ──
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // ── Auto‑scroll on new messages, but skip when loading more ──
   useEffect(() => {
     if (justLoadedMoreRef.current) {
       justLoadedMoreRef.current = false;
@@ -86,10 +106,9 @@ export default function DmChat() {
     }
     if (loadingMore) return;
     scrollToBottom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, loadingMore]);
 
-  // ── Handle sending ──
+  // ── Send ──
   const handleSend = async () => {
     if (!input.trim() || sending) return;
     setSending(true);
@@ -99,7 +118,7 @@ export default function DmChat() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       emitTyping(false);
     } catch (err) {
-      // handle error if needed
+      // handle error
     } finally {
       setSending(false);
     }
@@ -122,14 +141,61 @@ export default function DmChat() {
     }, 2000);
   };
 
-  // ── Load more messages (with scroll suppression) ──
   const handleLoadMore = () => {
     if (!hasMore || loadingMore) return;
     justLoadedMoreRef.current = true;
     loadMoreMessages();
   };
 
-  // ── Determine last sent message for "Seen" label ──
+  // ── Edit handlers ──
+  const startEdit = (msg) => {
+    const text = msg._plain !== undefined ? msg._plain : msg.body;
+    setEditingId(msg.id);
+    setEditText(text);
+    setMenuOpenId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+    setEditingSaving(false);
+  };
+
+  const saveEdit = async (msgId) => {
+    if (!editText.trim() || editingSaving) return;
+    setEditingSaving(true);
+    try {
+      await editMessage(msgId, editText);
+      setEditingId(null);
+      setEditText('');
+    } catch (err) {
+      console.error('Edit failed:', err);
+    } finally {
+      setEditingSaving(false);
+    }
+  };
+
+  // ── Delete handler ──
+  const confirmDelete = (msgId) => {
+    if (!window.confirm('Are you sure you want to delete this message?')) return;
+    deleteMessage(msgId).catch((err) => console.error('Delete failed:', err));
+    setMenuOpenId(null);
+  };
+
+  // ── Close dropdown on outside click ──
+  useEffect(() => {
+    const handleClickOutside = () => setMenuOpenId(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // ── Video call ──
+  const handleStartCall = async () => {
+    if (!activeOther?.id) return;
+    await startCall(activeOther.id, activeOther.name, activeOther.picture);
+  };
+
+  // ── Determine last sent message ──
   let lastSentId = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].sender_id === user?.id && !String(messages[i].id).startsWith('tmp_')) {
@@ -140,19 +206,9 @@ export default function DmChat() {
 
   let lastDate = '';
 
-  const avatarUrl = resolveMediaUrl(activeOther?.picture);
-  const initial = activeOther?.name?.charAt(0)?.toUpperCase() || '?';
-  const color = stringToColor(activeOther?.name || '');
-
-  // ── Start video call ──
-  const handleStartCall = async () => {
-    if (!activeOther?.id) return;
-    await startCall(activeOther.id, activeOther.name, activeOther.picture);
-  };
-
   return (
     <>
-      {/* ── Header ── */}
+      {/* ── HEADER (restored) ── */}
       <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--color-border)] flex-shrink-0 bg-[var(--color-surface)]">
         <button
           className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-[var(--color-txt2)] bg-[var(--color-accent-bg)] border-none cursor-pointer"
@@ -170,11 +226,7 @@ export default function DmChat() {
           }}
         >
           {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={initial}
-              className="w-full h-full object-cover rounded-full"
-            />
+            <img src={avatarUrl} alt={initial} className="w-full h-full object-cover rounded-full" />
           ) : (
             initial
           )}
@@ -193,15 +245,10 @@ export default function DmChat() {
                   : 'bg-[var(--color-txt3)]'
               }`}
             />
-            {typing
-              ? 'Typing...'
-              : otherOnline
-              ? 'Online'
-              : 'Offline'}
+            {typing ? 'Typing...' : otherOnline ? 'Online' : 'Offline'}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* ── Video call button ── */}
           <button
             onClick={handleStartCall}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-xs font-semibold hover:bg-[var(--color-accent)] hover:text-white transition"
@@ -243,33 +290,64 @@ export default function DmChat() {
               </div>
             );
           }
+
           const displayText = msg._plain !== undefined ? msg._plain : msg.body;
           const isE2E = msg.body && msg.body.startsWith('e2e:');
           const isTmp = String(msg.id).startsWith('tmp_');
           const editedLabel = msg.edited_at ? (
             <span className="text-[10px] text-[var(--color-txt3)] ml-1">edited</span>
           ) : null;
+
+          const canModify = mine && !isTmp && isWithin24Hours(msg.created_at);
+          const isEditing = editingId === msg.id;
+
           const seenLabel =
             mine && !isTmp && msg.id === lastSentId && msg.is_read ? (
               <div className="text-[11px] font-medium text-[var(--color-txt3)] text-right mt-1 mr-0.5">Seen</div>
             ) : null;
 
           const key = `${msg.id}-${msg.created_at}-${msg.sender_id}-${isTmp ? 'tmp' : 'real'}`;
+          const showMenu = menuOpenId === msg.id;
 
           return (
             <Fragment key={key}>
               {divider}
               <div className={`flex ${mine ? 'flex-row-reverse' : ''} items-end gap-2 animate-fadeUp`}>
-                {mine && !isTmp && (
+                {/* ── Three‑dot menu trigger ── */}
+                {mine && !isTmp && !isEditing && (
                   <div className="relative">
                     <button
-                      className="text-[var(--color-txt3)] text-base px-1.5 rounded-full opacity-0 hover:opacity-100 transition"
-                      onClick={() => alert('Edit/Delete')}
+                      className="text-[var(--color-txt3)] text-base px-1.5 rounded-full hover:bg-[var(--color-surface)] transition"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpenId(showMenu ? null : msg.id);
+                      }}
                     >
                       ⋯
                     </button>
+                    {showMenu && canModify && (
+                      <div
+                        className="absolute bottom-full right-0 mb-1 w-32 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 z-10"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition"
+                          onClick={() => startEdit(msg)}
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-rose)] hover:bg-[var(--color-surface)] transition"
+                          onClick={() => confirmDelete(msg.id)}
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {/* ── Message bubble ── */}
                 <div
                   className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed break-words ${
                     mine
@@ -277,12 +355,41 @@ export default function DmChat() {
                       : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt)] rounded-bl-[5px]'
                   }`}
                 >
-                  <div dangerouslySetInnerHTML={{ __html: escHtml(displayText).replace(/\n/g, '<br>') }} />
-                  {editedLabel}
-                  <div className={`text-[10px] mt-1 opacity-60 ${mine ? 'text-right' : 'text-left'}`}>
-                    {fmtTime(msg.created_at)}
-                    {isE2E && ' 🔒'}
-                  </div>
+                  {isEditing ? (
+                    <div className="flex flex-col gap-1.5">
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-2 py-1 text-sm text-[var(--color-txt)] focus:border-[var(--color-accent)] outline-none"
+                        autoFocus
+                      />
+                      <div className="flex gap-1.5 justify-end">
+                        <button
+                          onClick={cancelEdit}
+                          className="text-xs px-2 py-0.5 rounded bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-border)]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => saveEdit(msg.id)}
+                          disabled={editingSaving || !editText.trim()}
+                          className="text-xs px-2 py-0.5 rounded bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] disabled:opacity-50"
+                        >
+                          {editingSaving ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div dangerouslySetInnerHTML={{ __html: escHtml(displayText).replace(/\n/g, '<br>') }} />
+                      {editedLabel}
+                      <div className={`text-[10px] mt-1 opacity-60 ${mine ? 'text-right' : 'text-left'}`}>
+                        {fmtTime(msg.created_at)}
+                        {isE2E && ' 🔒'}
+                      </div>
+                    </>
+                  )}
                 </div>
                 {seenLabel}
               </div>
@@ -316,10 +423,7 @@ export default function DmChat() {
         </button>
       </div>
 
-      {/* ── Video Call Overlay ── */}
-      {isCallActive && (
-        <DmVideoCall onClose={() => endCall()} />
-      )}
+      {isCallActive && <DmVideoCall onClose={() => endCall()} />}
     </>
   );
 }

@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  allowedDevOrigins: ['10.142.127.203'],
+  // ── Allow connections from this IP (for network testing) ──
+  allowedDevOrigins: ['10.95.181.203'],
+
+  // ── Development server HTTPS (using mkcert certificates) ──
+  // Only applies to `next dev` – ignored in production (`next start`)
+  server: {
+    https: true,
+    key: './localhost+2-key.pem',    // Adjust path if certs are elsewhere
+    cert: './localhost+2.pem',
+  },
 
   // ── Rewrites – proxy API and uploads to your Circle backend ──
   rewrites() {

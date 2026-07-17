@@ -11,6 +11,9 @@ const PREF_ITEMS = [
   { key: 'profile_pic', label: 'Profile picture updates' },
   { key: 'follows', label: 'New followers' },
   { key: 'mentions', label: 'Mentions' },
+  { key: 'live', label: 'live video'},
+  { key: 'whisper', label: 'new whisper message'},
+  { key: 'message', label: 'new massage'}
 ];
 
 export default function PushPreferences() {

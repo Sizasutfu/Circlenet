@@ -44,4 +44,6 @@ router.post('/:id/view', postController.recordView);
 router.post('/:id/skip', requireAuth, postController.recordSkip);
 router.put('/:id', requireAuth, postController.updatePost);
 
+router.post('/:id/video-view', requireAuth, postController.recordVideoView);
+
 module.exports = router;

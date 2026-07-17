@@ -10,7 +10,8 @@
 //    2. HYDRATE   — add likes / comments / reposts / views
 //    3. ENRICH    — attach topics, seen set, engagement map,
 //                   topic score map, negative signals
-//    4. SCORE     — compute finalScore per post
+//    4. SCORE     — compute finalScore per post (includes
+//                   similarity and collaborative filtering)
 //    5. SORT      — sort by finalScore DESC
 //    6. DIVERSITY — enforce author cap + topic-streak limits
 //    7. EXPLORE   — inject exploration posts at fixed slots
@@ -18,18 +19,11 @@
 //    9. MARK SEEN — write served post IDs to post_views so
 //                   they are excluded from future pages
 //   10. CLEAN     — strip internal fields before returning
-//
-//  Pagination model (no OFFSET):
-//    OFFSET-based pagination over a score-sorted result causes
-//    duplicates because the DB fetch is ordered by created_at
-//    but the serve order is by score. Instead, we fetch the
-//    entire unseen pool each time and exclude already-seen IDs
-//    at the SQL level. "Seen" is written back in stage 9 so
-//    each post is served exactly once per viewer session.
 // ============================================================
 
 const { db }                          = require('../config/db');
 const PostModel                       = require('../models/PostModel');
+const UserModel                       = require('../models/UserModel');
 const TopicPreferenceModel            = require('../models/TopicPreferenceModel');
 const NegativeSignalModel             = require('../models/NegativeSignalModel');
 const { computeScore }                = require('./feedScorer');
@@ -94,18 +88,7 @@ async function getPostsPage(
   const POOL_SIZE = LIMIT * C.FEED_CANDIDATE_MULTIPLIER;
 
   // ── Stage 1: Fetch ─────────────────────────────────────
-  //
-  // For authenticated users: fetch the unseen pool by excluding
-  // post IDs already recorded in post_views. No OFFSET needed —
-  // seen-exclusion is the pagination cursor.
-  //
-  // For guests: fall back to OFFSET-based pagination (no session
-  // state available). Duplicates are possible across guest pages
-  // but acceptable — guests cannot log views.
   const followingIds = await PostModel.getFollowingIds(viewerUserId);
-
-  // Read the viewer's seen set once — used for both the SQL
-  // exclusion clause (fetch) and the scorer (seen penalty).
   const seenPostIds = await PostModel.getSeenPostIds(
     viewerUserId ? String(viewerUserId) : null
   );
@@ -120,31 +103,26 @@ async function getPostsPage(
     conditions.push(`p.user_id IN (${ph})`);
     whereParams.push(...followingIds);
   } else if (feedMode === 'global' && viewerUserId && followingIds.length) {
-    // Hide reposts from strangers — own reposts and followed-user reposts are shown.
     const ph = followingIds.map(() => '?').join(',');
     conditions.push(`(p.is_repost = 0 OR p.user_id = ? OR p.user_id IN (${ph}))`);
     whereParams.push(viewerUserId, ...followingIds);
   } else if (feedMode === 'global' && viewerUserId) {
-    // Viewer follows nobody — hide all reposts except their own.
     conditions.push(`(p.is_repost = 0 OR p.user_id = ?)`);
     whereParams.push(viewerUserId);
   }
-  // Guests (no viewerUserId): no author/repost filter.
 
   // ── Media filter ─────────────────────────────────────────
   if (mediaFilter === 'video') {
     conditions.push(`p.video IS NOT NULL AND p.video != ''`);
   }
 
-  // ── Seen-exclusion cursor (authenticated users only) ──────
-  // Replaces OFFSET — each page fetches the next unseen slice.
+  // ── Seen-exclusion cursor ──────────────────────────────
   let guestOffset = 0;
   if (viewerUserId && seenPostIds.size) {
     const seenPh = [...seenPostIds].map(() => '?').join(',');
     conditions.push(`p.id NOT IN (${seenPh})`);
     whereParams.push(...seenPostIds);
   } else if (!viewerUserId) {
-    // Guest fallback: OFFSET pagination (duplicates possible).
     guestOffset = (page - 1) * LIMIT;
   }
 
@@ -152,12 +130,18 @@ async function getPostsPage(
     ? `WHERE ${conditions.join(' AND ')}`
     : '';
 
+  // ── SQL query with author attributes ─────────────────────
   const [rawPosts] = await db.query(
     `SELECT
        p.id,
        p.user_id          AS userId,
        u.name             AS author,
        u.picture          AS authorPicture,
+       u.location         AS authorLocation,
+       u.school           AS authorSchool,
+       u.occupation       AS authorOccupation,
+       u.gender           AS authorGender,
+       u.date_of_birth    AS authorDateOfBirth,
        p.text,
        p.image,
        p.video,
@@ -194,22 +178,70 @@ async function getPostsPage(
     TopicPreferenceModel.getTopicScoreMap(viewerUserId),
     NegativeSignalModel.getNegativeSignalMap(viewerUserId, postIds),
   ]);
-  // seenPostIds already fetched in Stage 1 — reuse it here.
 
-  // Attach topics to each post (used by scorer + diversity filter).
   hydrated.forEach(p => { p._topics = topicsByPost[p.id] || []; });
 
-  // ── Stage 4: Score ─────────────────────────────────────
-  // Convert followingIds to a Set for O(1) lookup in the scorer.
-  const followingSet = new Set(followingIds);
+  // ── Fetch viewer attributes for similarity ──────────────
+  let viewerAttributes = {};
+  if (viewerUserId) {
+    const profile = await UserModel.findById(viewerUserId);
+    if (profile) {
+      viewerAttributes = {
+        location: profile.location || null,
+        school: profile.school || null,
+        occupation: profile.occupation || null,
+        gender: profile.gender || null,
+        birthDate: profile.dateOfBirth || null,
+      };
+    }
+  }
 
+  // ── Fetch viewer engaged posts and post similarities ──
+  let viewerEngagedPosts = new Set();
+  let postSimilarityMap = {};
+  if (viewerUserId) {
+    // Get up to MAX_ENGAGED_POSTS most recent interactions
+    const [engaged] = await db.query(
+      `(SELECT post_id FROM likes    WHERE user_id = ?)
+       UNION
+       (SELECT post_id FROM comments WHERE user_id = ?)
+       UNION
+       (SELECT original_post_id AS post_id FROM reposts WHERE user_id = ?)
+       ORDER BY post_id DESC LIMIT ?`,
+      [viewerUserId, viewerUserId, viewerUserId, C.MAX_ENGAGED_POSTS]
+    );
+    viewerEngagedPosts = new Set(engaged.map(r => r.post_id));
+
+    // Fetch similarities for all candidate post IDs
+    if (postIds.length && viewerEngagedPosts.size) {
+      const ph = postIds.map(() => '?').join(',');
+      const [simRows] = await db.query(
+        `SELECT post_id, similar_post_id, score
+         FROM post_similarities
+         WHERE post_id IN (${ph})
+           AND similar_post_id IN (${[...viewerEngagedPosts].map(() => '?').join(',')})`,
+        [...postIds, ...viewerEngagedPosts]
+      );
+      // Build map: post_id -> [ { similar_post_id, score } ]
+      simRows.forEach(({ post_id, similar_post_id, score }) => {
+        if (!postSimilarityMap[post_id]) postSimilarityMap[post_id] = [];
+        postSimilarityMap[post_id].push({ post_id: similar_post_id, score });
+      });
+    }
+  }
+
+  // ── Stage 4: Score ─────────────────────────────────────
+  const followingSet = new Set(followingIds);
   const scoringContext = {
     viewerUserId,
     followingIds: followingSet,
     engagementMap,
     topicScoreMap,
-    seenPostIds,   // Set<number> — scorer applies seen penalty
+    seenPostIds,
     negativeMap,
+    viewerAttributes,
+    viewerEngagedPosts,
+    postSimilarityMap,
   };
 
   hydrated.forEach(p => {
@@ -227,16 +259,11 @@ async function getPostsPage(
   const explorationNeeded = Math.floor(LIMIT / C.EXPLORE_EVERY_N);
 
   // ── Stage 8: Exploration ───────────────────────────────
-  // Only inject exploration for authenticated users on the global feed.
-  // excludeIds covers the full scored pool so exploration posts never
-  // duplicate personalised posts. seenPostIds is also unioned in so
-  // exploration posts served on prior pages are never re-served.
   let finalPosts = personalisedSlice;
-
   if (viewerUserId && feedMode === 'global' && explorationNeeded > 0) {
     const excludeIds = new Set([
       ...diversified.map(p => p.id),
-      ...seenPostIds,             // exclude anything served on prior pages
+      ...seenPostIds,
     ]);
     const explorationPosts = await fetchExplorationPosts(
       viewerUserId,
@@ -249,15 +276,11 @@ async function getPostsPage(
 
   const hasMore = diversified.length > LIMIT || poolHasMore;
 
-  // ── Stage 9: Mark served posts as seen ─────────────────
-  // Write all served post IDs (personalised + exploration) to
-  // post_views. This is the pagination cursor — future pages
-  // exclude these IDs at the SQL level, preventing duplicates.
+  // ── Stage 9: Mark seen ──────────────────────────────────
   const servedIds = finalPosts.map(p => p.id);
   await markPostsAsSeen(viewerUserId, servedIds);
 
   // ── Stage 10: Clean ────────────────────────────────────
-  // Strip internal scoring fields before sending to client.
   finalPosts.forEach(p => {
     delete p._score;
     delete p._topics;

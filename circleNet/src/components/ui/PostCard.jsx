@@ -126,6 +126,10 @@ export default function PostCard({
 
   const { openLightbox } = useLightbox();
   const videoRef = useRef(null);
+  const videoViewRecorded = useRef(false);
+
+  // ── Local view count state (starts from prop) ──
+  const [viewCountState, setViewCountState] = useState(viewCount || 0);
 
   const initial = displayName.charAt(0).toUpperCase();
   const avatarColor = stringToColor(displayName);
@@ -153,6 +157,78 @@ export default function PostCard({
       .catch(() => setPreviewError(true))
       .finally(() => setPreviewLoading(false));
   }, [id, text, image, video]);
+
+  // ── Record video view when 80% watched & update local count ──
+  useEffect(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl || !currentUser) return;
+
+    const handleTimeUpdate = () => {
+      if (videoViewRecorded.current) return;
+      const duration = videoEl.duration;
+      if (!duration || isNaN(duration) || duration === Infinity) return;
+      const percent = videoEl.currentTime / duration;
+      if (percent >= 0.8) {
+        videoViewRecorded.current = true;
+        const watchedSeconds = videoEl.currentTime;
+        // Send the required body fields
+        apiClient(`/api/posts/${id}/video-view`, {
+          method: 'POST',
+          body: {
+            watchedSeconds,
+            duration,
+          },
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+          .then((res) => {
+            const data = res.data || res;
+            // Update view count with the server's returned count
+            if (typeof data.views === 'number') {
+              setViewCountState(data.views);
+            } else {
+              // fallback: increment by 1
+              setViewCountState(prev => prev + 1);
+            }
+          })
+          .catch(err => console.warn('Failed to record video view:', err));
+      }
+    };
+
+    videoEl.addEventListener('timeupdate', handleTimeUpdate);
+
+    // Also listen for 'ended' as a fallback (100% watched)
+    const handleEnded = () => {
+      if (videoViewRecorded.current) return;
+      const duration = videoEl.duration;
+      if (!duration || isNaN(duration)) return;
+      videoViewRecorded.current = true;
+      apiClient(`/api/posts/${id}/video-view`, {
+        method: 'POST',
+        body: JSON.stringify({
+          watchedSeconds: duration,
+          duration,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
+        .then((res) => {
+          const data = res.data || res;
+          if (typeof data.views === 'number') {
+            setViewCountState(data.views);
+          } else {
+            setViewCountState(prev => prev + 1);
+          }
+        })
+        .catch(err => console.warn('Failed to record video view (ended):', err));
+    };
+    videoEl.addEventListener('ended', handleEnded);
+
+    return () => {
+      videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+      videoEl.removeEventListener('ended', handleEnded);
+    };
+  }, [id, currentUser]);
 
   // ── Close dropdown on outside click ──
   useEffect(() => {
@@ -439,21 +515,20 @@ export default function PostCard({
     );
   };
 
-  // ── View count badge ──
+  // ── View count badge (always visible, placed in top-right corner) ──
   const renderViewCount = () => {
-    if (!viewCount || viewCount <= 0) return null;
     return (
-      <span className="flex items-center gap-1 text-[var(--color-txt3)]" title="Total views">
+      <span className="flex items-center gap-1 text-[var(--color-txt3)] text-xs" title="Total views">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
           <circle cx="12" cy="12" r="3" />
         </svg>
-        {formatNumber(viewCount)}
+        {formatNumber(viewCountState)}
       </span>
     );
   };
 
-  // ── Render original post as embedded card (UPDATED) ──
+  // ── Render original post as embedded card ──
   const renderOriginalPost = () => {
     if (!originalPost) return null;
     const origAuthor = originalPost.author || 'Unknown';
@@ -586,75 +661,78 @@ export default function PostCard({
                 {renderGroupBadge()}
               </div>
 
-              <div className="relative flex-shrink-0" ref={dropdownRef}>
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
-                  className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
-                  title="More actions"
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="6" r="2" />
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="12" cy="18" r="2" />
-                  </svg>
-                </button>
-                {isDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
-                    <button
-                      onClick={handleDownloadPostImage}
-                      disabled={imageLoading}
-                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
-                      </svg>
-                      {imageLoading ? 'Generating…' : 'Download as Image'}
-                    </button>
-                    <button
-                      onClick={handleSharePostImage}
-                      disabled={imageLoading}
-                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <circle cx="18" cy="5" r="3" />
-                        <circle cx="6" cy="12" r="3" />
-                        <circle cx="18" cy="19" r="3" />
-                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                      </svg>
-                      Share as Image
-                    </button>
-                    {postImageUrl && (
-                      <>
-                        <div className="border-t border-[var(--color-border)] my-1" />
-                        <button
-                          onClick={handleDownloadOriginalImage}
-                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
-                          Download Original
-                        </button>
-                      </>
-                    )}
-                    {isAuthor && (
-                      <>
-                        <div className="border-t border-[var(--color-border)] my-1" />
-                        <button
-                          onClick={handleEditPost}
-                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-                          </svg>
-                          Edit Post
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {renderViewCount()}  {/* View count on the right */}
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                    className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
+                    title="More actions"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <circle cx="12" cy="6" r="2" />
+                      <circle cx="12" cy="12" r="2" />
+                      <circle cx="12" cy="18" r="2" />
+                    </svg>
+                  </button>
+                  {isDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
+                      <button
+                        onClick={handleDownloadPostImage}
+                        disabled={imageLoading}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                        </svg>
+                        {imageLoading ? 'Generating…' : 'Download as Image'}
+                      </button>
+                      <button
+                        onClick={handleSharePostImage}
+                        disabled={imageLoading}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        </svg>
+                        Share as Image
+                      </button>
+                      {postImageUrl && (
+                        <>
+                          <div className="border-t border-[var(--color-border)] my-1" />
+                          <button
+                            onClick={handleDownloadOriginalImage}
+                            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            Download Original
+                          </button>
+                        </>
+                      )}
+                      {isAuthor && (
+                        <>
+                          <div className="border-t border-[var(--color-border)] my-1" />
+                          <button
+                            onClick={handleEditPost}
+                            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                            Edit Post
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -680,7 +758,6 @@ export default function PostCard({
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-              {renderViewCount()}
             </div>
           </div>
         </div>
@@ -735,10 +812,83 @@ export default function PostCard({
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
                 {renderGroupBadge()}
               </div>
-              <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                LIVE
-              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {renderViewCount()}  {/* View count on the right */}
+                <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  LIVE
+                </span>
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                    className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
+                    title="More actions"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <circle cx="12" cy="6" r="2" />
+                      <circle cx="12" cy="12" r="2" />
+                      <circle cx="12" cy="18" r="2" />
+                    </svg>
+                  </button>
+                  {isDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
+                      <button
+                        onClick={handleDownloadPostImage}
+                        disabled={imageLoading}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                        </svg>
+                        {imageLoading ? 'Generating…' : 'Download as Image'}
+                      </button>
+                      <button
+                        onClick={handleSharePostImage}
+                        disabled={imageLoading}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        </svg>
+                        Share as Image
+                      </button>
+                      {postImageUrl && (
+                        <>
+                          <div className="border-t border-[var(--color-border)] my-1" />
+                          <button
+                            onClick={handleDownloadOriginalImage}
+                            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            Download Original
+                          </button>
+                        </>
+                      )}
+                      {isAuthor && (
+                        <>
+                          <div className="border-t border-[var(--color-border)] my-1" />
+                          <button
+                            onClick={handleEditPost}
+                            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                            Edit Post
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
               <span dangerouslySetInnerHTML={{ __html: formatPostText(text) }} />
@@ -765,7 +915,6 @@ export default function PostCard({
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-              {renderViewCount()}
             </div>
           </div>
         </div>
@@ -828,75 +977,78 @@ export default function PostCard({
                 {renderGroupBadge()}
               </div>
 
-              <div className="relative flex-shrink-0" ref={dropdownRef}>
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
-                  className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
-                  title="More actions"
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="6" r="2" />
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="12" cy="18" r="2" />
-                  </svg>
-                </button>
-                {isDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
-                    <button
-                      onClick={handleDownloadPostImage}
-                      disabled={imageLoading}
-                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
-                      </svg>
-                      {imageLoading ? 'Generating…' : 'Download as Image'}
-                    </button>
-                    <button
-                      onClick={handleSharePostImage}
-                      disabled={imageLoading}
-                      className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <circle cx="18" cy="5" r="3" />
-                        <circle cx="6" cy="12" r="3" />
-                        <circle cx="18" cy="19" r="3" />
-                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                      </svg>
-                      Share as Image
-                    </button>
-                    {postImageUrl && (
-                      <>
-                        <div className="border-t border-[var(--color-border)] my-1" />
-                        <button
-                          onClick={handleDownloadOriginalImage}
-                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
-                          Download Original
-                        </button>
-                      </>
-                    )}
-                    {isAuthor && (
-                      <>
-                        <div className="border-t border-[var(--color-border)] my-1" />
-                        <button
-                          onClick={handleEditPost}
-                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-                          </svg>
-                          Edit Post
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {renderViewCount()}  {/* View count on the right */}
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                    className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
+                    title="More actions"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <circle cx="12" cy="6" r="2" />
+                      <circle cx="12" cy="12" r="2" />
+                      <circle cx="12" cy="18" r="2" />
+                    </svg>
+                  </button>
+                  {isDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[170px] z-20">
+                      <button
+                        onClick={handleDownloadPostImage}
+                        disabled={imageLoading}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                        </svg>
+                        {imageLoading ? 'Generating…' : 'Download as Image'}
+                      </button>
+                      <button
+                        onClick={handleSharePostImage}
+                        disabled={imageLoading}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        </svg>
+                        Share as Image
+                      </button>
+                      {postImageUrl && (
+                        <>
+                          <div className="border-t border-[var(--color-border)] my-1" />
+                          <button
+                            onClick={handleDownloadOriginalImage}
+                            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            Download Original
+                          </button>
+                        </>
+                      )}
+                      {isAuthor && (
+                        <>
+                          <div className="border-t border-[var(--color-border)] my-1" />
+                          <button
+                            onClick={handleEditPost}
+                            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                            Edit Post
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -934,7 +1086,6 @@ export default function PostCard({
               </svg>
             </button>
             <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-            {renderViewCount()}
           </div>
         </div>
       </div>

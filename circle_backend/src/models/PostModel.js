@@ -67,7 +67,7 @@ async function hydratePosts(posts) {
   const ids = posts.map(p => p.id);
   const ph  = ids.map(() => '?').join(',');
 
-  const [[allLikes], [allReposts], [allComments], [allViews]] = await Promise.all([
+  const [[allLikes], [allReposts], [allComments], [allViews], [allVideoViews]] = await Promise.all([
     db.query(`SELECT user_id, post_id FROM likes WHERE post_id IN (${ph})`, ids),
     db.query(
       `SELECT r.user_id, r.original_post_id FROM reposts r
@@ -90,14 +90,19 @@ async function hydratePosts(posts) {
       `SELECT post_id, COUNT(*) AS view_count FROM post_views WHERE post_id IN (${ph}) GROUP BY post_id`,
       ids
     ),
+    db.query(
+      `SELECT post_id, COUNT(*) AS view_count FROM video_views WHERE post_id IN (${ph}) GROUP BY post_id`,
+      ids
+    ),
   ]);
 
-  const lMap = {}, rMap = {}, cMap = {}, vMap = {};
-  ids.forEach(id => { lMap[id] = []; rMap[id] = []; cMap[id] = []; vMap[id] = 0; });
+  const lMap = {}, rMap = {}, cMap = {}, vMap = {}, vvMap = {};
+  ids.forEach(id => { lMap[id] = []; rMap[id] = []; cMap[id] = []; vMap[id] = 0; vvMap[id] = 0; });
   allLikes.forEach(l   => lMap[l.post_id]?.push(l.user_id));
   allReposts.forEach(r => rMap[r.original_post_id]?.push(r.user_id));
   allComments.forEach(c => cMap[c.post_id]?.push(c));
   allViews.forEach(v   => { if (vMap[v.post_id] !== undefined) vMap[v.post_id] = Number(v.view_count); });
+  allVideoViews.forEach(v => { if (vvMap[v.post_id] !== undefined) vvMap[v.post_id] = Number(v.view_count); });
 
   const origIds = [
     ...new Set(
@@ -136,6 +141,7 @@ async function hydratePosts(posts) {
     p.reposts  = rMap[p.id] || [];
     p.comments = nestComments(cMap[p.id] || []);
     p.views    = vMap[p.id] || 0;
+    p.videoViews = vvMap[p.id] || 0;
     if (p.isRepost && p.originalPostId)
       p.originalPost = origMap[p.originalPostId] || null;
     if (p.groupId && groupMap[p.groupId]) {
@@ -530,6 +536,47 @@ async function getViewCount(postId) {
   return Number(total);
 }
 
+// ── Video views (watch-threshold based) ────────────────────
+// Distinct from post_views above, which is impression-based and
+// used for feed dedup/scoring. A "video view" only counts once
+// the viewer has actually watched the clip, not just scrolled
+// past it.
+//
+// Threshold: watched >= 3s, OR watched >= 50% of the video for
+// clips shorter than 6s (so short clips can still register a view).
+// Dedup: one counted view per viewer per post per calendar day.
+function meetsViewThreshold(watchedSeconds, duration) {
+  if (!duration || duration <= 0) return watchedSeconds >= 3;
+  const threshold = Math.min(3, duration * 0.5);
+  return watchedSeconds >= threshold;
+}
+
+async function recordVideoView(postId, viewerId, watchedSeconds, duration) {
+  if (!meetsViewThreshold(watchedSeconds, duration)) {
+    return { counted: false, views: await getVideoViewCount(postId) };
+  }
+
+  const dateOnly = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  const [result] = await db.query(
+    `INSERT IGNORE INTO video_views (post_id, viewer_key, date_only)
+     VALUES (?, ?, ?)`,
+    [postId, String(viewerId), dateOnly]
+  );
+
+  const isNewView = result.affectedRows > 0;
+  const views = await getVideoViewCount(postId);
+  return { counted: isNewView, views };
+}
+
+async function getVideoViewCount(postId) {
+  const [[{ total }]] = await db.query(
+    'SELECT COUNT(*) AS total FROM video_views WHERE post_id = ?',
+    [postId]
+  );
+  return Number(total);
+}
+
 // ── Topic stopwords (unchanged) ───────────────────────────
 const TOPIC_STOPWORDS = new Set([
   'the','and','for','are','but','not','you','all','can','her','was','one',
@@ -742,6 +789,8 @@ module.exports = {
   getGroupPosts,
   recordView,
   getViewCount,
+  recordVideoView,
+  getVideoViewCount,
   getCommentCount,
   getRepostCount,
 };

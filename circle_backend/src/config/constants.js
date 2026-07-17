@@ -10,6 +10,8 @@
 //    • Exploration posts bypass scoring and are injected at
 //      fixed slots to guarantee variety.
 //    • All weights are grouped and commented so tuning is easy.
+//    • NEW: user‑attribute similarity boosts posts from authors
+//      who share location, school, occupation, gender, or age.
 // ============================================================
 
 module.exports = {
@@ -78,6 +80,23 @@ module.exports = {
   // ── Feed pipeline ────────────────────────────────────────
   FEED_PAGE_SIZE:              20,
   FEED_CANDIDATE_MULTIPLIER:   6,   // candidates = page_size × this
+
+  // ── User‑attribute similarity ────────────────────────────
+  // Each match contributes a weight; the total is added to 1.0.
+  // The final multiplier is capped at SIMILARITY_MAX_MULTIPLIER.
+  SIMILARITY_LOCATION_WEIGHT:   0.30,   // same location (string match)
+  SIMILARITY_SCHOOL_WEIGHT:     0.25,   // same school
+  SIMILARITY_OCCUPATION_WEIGHT: 0.15,   // same occupation
+  SIMILARITY_GENDER_WEIGHT:     0.10,   // same gender
+  SIMILARITY_AGE_WEIGHT:        0.20,   // age similarity (decay over years)
+  AGE_SIMILARITY_DECAY:         5,      // years: diff ≥ 5 → similarity = 0
+  SIMILARITY_MAX_MULTIPLIER:    2.00,   // cap to avoid over‑boost
+
+  // ── Collaborative filtering ──────────────────────────────
+// Boost posts similar to those the user has engaged with.
+COLLABORATIVE_SCALE:       2.0,   // multiplier = 1.0 + (avgSim * scale)
+COLLABORATIVE_MAX_BOOST:   2.0,   // cap multiplier at this value
+MAX_ENGAGED_POSTS:         200,   // limit recent interactions for performance
 
   // ── Score debug flag ─────────────────────────────────────
   // Set to true to attach _scoreDebug to each post object.

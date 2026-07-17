@@ -517,6 +517,43 @@ async function recordSkip(req, res) {
   }
 }
 
+// POST /api/posts/:id/video-view
+// Body: { fingerprint?: string, watchedSeconds: number, duration: number }
+// Auth optional — same viewer identification pattern as recordView.
+// A view only counts once the client reports the video was watched
+// past the threshold (see PostModel.meetsViewThreshold). This is
+// separate from the impression-based post_views/recordView above.
+async function recordVideoView(req, res) {
+  const postId = parseInt(req.params.id);
+  if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
+
+  const watchedSeconds = Number(req.body.watchedSeconds);
+  const duration       = Number(req.body.duration);
+  if (isNaN(watchedSeconds) || watchedSeconds < 0) {
+    return sendError(res, 400, 'watchedSeconds is required.');
+  }
+
+  const userId   = req.actorId;
+  const viewerId = userId || req.body.fingerprint || req.ip;
+
+  try {
+    const post = await PostModel.findById(postId);
+    if (!post) return sendError(res, 404, 'Post not found.');
+    if (!post.video && !post.youtube_id) {
+      return sendError(res, 400, 'This post has no video.');
+    }
+
+    const { counted, views } = await PostModel.recordVideoView(
+      postId, viewerId, watchedSeconds, duration
+    );
+
+    return sendOk(res, 200, 'Video view recorded.', { counted, views });
+  } catch (err) {
+    console.error('recordVideoView error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // GET /api/topics?limit=<n>
 async function getTopics(req, res) {
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
@@ -628,6 +665,7 @@ module.exports = {
   repost,
 
   recordView,
+  recordVideoView,
   recordSkip,
   getTopics,
   getPostsByTopic,

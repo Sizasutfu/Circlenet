@@ -1,8 +1,30 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import { resolveMediaUrl, stringToColor } from './utils';
+import { resolveMediaUrl } from './utils';
 import ReplyInput from './ReplyInput';
+
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'h-8 w-8', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
+}
 
 function getUser(comment) {
   if (comment.user) {
@@ -27,8 +49,6 @@ export default function CommentItem({ comment, allComments, postId, onCommentAdd
 
   const { name, username, picture } = getUser(comment);
   const avatarUrl = resolveMediaUrl(picture);
-  const initial = name.charAt(0).toUpperCase();
-  const color = stringToColor(name);
 
   const toggleReplies = () => setExpanded(!expanded);
   const toggleReply = () => setReplying(!replying);
@@ -36,12 +56,17 @@ export default function CommentItem({ comment, allComments, postId, onCommentAdd
   return (
     <div className="border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
       <div className="flex gap-3">
-        <div
-          className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-          style={{ background: avatarUrl ? 'transparent' : color }}
-        >
-          {avatarUrl ? <img src={avatarUrl} alt={name} className="w-full h-full object-cover" /> : initial}
-        </div>
+        {/* ─── Avatar ───────────────────────────────────────── */}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={name}
+            className="flex-shrink-0 h-8 w-8 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="h-8 w-8" />
+        )}
+
         <Link href={`/comment/${comment.id}`} className="flex-1 min-w-0 hover:bg-[var(--color-surface)] rounded-md transition p-1 -m-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>

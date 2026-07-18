@@ -1,3 +1,4 @@
+// src/components/dm/DmNewModal.jsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -5,13 +6,26 @@ import { useDm } from '@/contexts/DmContext';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
+// ─── Uniform avatar placeholder ──────────────────────────────────────────
+function AvatarPlaceholder({ size = 'w-10 h-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 export default function DmNewModal() {
@@ -92,19 +106,15 @@ export default function DmNewModal() {
                 className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[var(--color-accent-bg)] transition"
                 onClick={() => handlePick(u)}
               >
-                <div
-                  className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                  style={{
-                    background: u.picture ? 'transparent' : stringToColor(u.name),
-                    overflow: 'hidden',
-                  }}
-                >
-                  {u.picture ? (
-                    <img src={u.picture} alt={u.name.charAt(0)} className="w-full h-full object-cover rounded-full" />
-                  ) : (
-                    u.name.charAt(0).toUpperCase()
-                  )}
-                </div>
+                {u.picture ? (
+                  <img
+                    src={u.picture}
+                    alt={u.name}
+                    className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
+                  />
+                ) : (
+                  <AvatarPlaceholder size="w-10 h-10" />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-[var(--color-txt)]">{u.name}</div>
                   <div className="text-xs text-[var(--color-txt2)] truncate">{u.email}</div>

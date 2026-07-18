@@ -62,13 +62,26 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 60%)`;
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'h-20 w-20', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 function Toast({ message, type, onClose }) {
@@ -334,18 +347,15 @@ export default function SettingsClient() {
 
       {/* ── Profile Picture ── */}
       <div className="mb-8 flex items-center gap-4">
-        <div
-          className="h-20 w-20 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-md overflow-hidden"
-          style={{
-            background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
-          }}
-        >
-          {user?.picture ? (
-            <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full object-cover" />
-          ) : (
-            (user?.name?.charAt(0)?.toUpperCase() || '?')
-          )}
-        </div>
+        {user?.picture ? (
+          <img
+            src={resolveMediaUrl(user.picture)}
+            alt={user.name}
+            className="h-20 w-20 rounded-full object-cover shadow-md"
+          />
+        ) : (
+          <AvatarPlaceholder size="h-20 w-20" />
+        )}
         <div>
           <p className="font-medium text-[var(--color-txt)]">{user?.name}</p>
           <p className="text-sm text-[var(--color-txt2)]">@{user?.username}</p>

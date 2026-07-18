@@ -90,6 +90,7 @@
   --lightbox-panel-bg: rgba(0, 0, 0, 0.9);
 }
 
+/* ── Base body ── */
 body {
   background-color: var(--color-bg);
   color: var(--color-txt);
@@ -99,7 +100,31 @@ body {
   margin: 0;
 }
 
-/* Keyframe for animations */
+/* ─── Prevent horizontal overflow ─── */
+html {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ─── Prevent iOS zoom on inputs ─── */
+input,
+textarea,
+select,
+button {
+  font-size: 16px !important; /* iOS requires ≥16px to avoid zoom on focus */
+}
+
+/* ─── Consistent focus outlines ─── */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Keyframe for animations ─── */
 @keyframes artCardIn {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -109,7 +134,7 @@ body {
   animation: artCardIn 0.2s ease both;
 }
 
-/* Utility for line‑clamp – now with both prefixed and standard */
+/* ─── Utility for line‑clamp ─── */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -122,8 +147,7 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* live emojies */
-
+/* ─── Live emoji float ─── */
 @keyframes floatUp {
   0% {
     opacity: 1;

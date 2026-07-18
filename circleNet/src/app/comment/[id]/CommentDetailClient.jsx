@@ -14,16 +14,6 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-function stringToColor(str) {
-  if (!str) return '#888';
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
-
 function timeAgo(dateString) {
   const now = Date.now();
   const then = new Date(dateString).getTime();
@@ -36,6 +26,28 @@ function timeAgo(dateString) {
   if (hours > 0) return `${hours}h ago`;
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
+}
+
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 function getCommentUser(comment) {
@@ -116,8 +128,6 @@ export default function CommentDetailClient({ commentId, initialComment }) {
 
   const { name, username, picture } = getCommentUser(comment);
   const avatarUrl = resolveMediaUrl(picture);
-  const initial = name.charAt(0).toUpperCase();
-  const color = stringToColor(name);
   const postedTime = timeAgo(comment.createdAt);
 
   return (
@@ -132,14 +142,18 @@ export default function CommentDetailClient({ commentId, initialComment }) {
         Back
       </button>
 
+      {/* ─── Main Comment ───────────────────────────────────── */}
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
         <div className="flex gap-3">
-          <div
-            className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-            style={{ background: avatarUrl ? 'transparent' : color }}
-          >
-            {avatarUrl ? <img src={avatarUrl} alt={name} className="w-full h-full object-cover" /> : initial}
-          </div>
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={name}
+              className="flex-shrink-0 h-10 w-10 rounded-full object-cover"
+            />
+          ) : (
+            <AvatarPlaceholder size="h-10 w-10" />
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
               <Link href={`/profile/${username}`} className="font-semibold text-sm hover:underline">
@@ -161,21 +175,18 @@ export default function CommentDetailClient({ commentId, initialComment }) {
         </div>
       </div>
 
-      {/* Reply composer */}
+      {/* ─── Reply composer ────────────────────────────────── */}
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
         <form onSubmit={handleReply} className="flex gap-3">
-          <div
-            className="flex-shrink-0 h-9 w-9 rounded-full flex items-center justify-center text-white font-bold text-sm"
-            style={{
-              background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
-            }}
-          >
-            {user?.picture ? (
-              <img src={resolveMediaUrl(user.picture)} alt={user?.name} className="w-full h-full rounded-full object-cover" />
-            ) : (
-              user?.name?.charAt(0)?.toUpperCase() || '?'
-            )}
-          </div>
+          {user?.picture ? (
+            <img
+              src={resolveMediaUrl(user.picture)}
+              alt={user?.name}
+              className="flex-shrink-0 h-9 w-9 rounded-full object-cover"
+            />
+          ) : (
+            <AvatarPlaceholder size="h-9 w-9" />
+          )}
           <input
             type="text"
             value={replyText}
@@ -199,7 +210,7 @@ export default function CommentDetailClient({ commentId, initialComment }) {
         )}
       </div>
 
-      {/* Replies */}
+      {/* ─── Replies ────────────────────────────────────────── */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-[var(--color-txt2)]">Replies ({replies.length})</h3>
         {replies.length === 0 ? (
@@ -208,18 +219,19 @@ export default function CommentDetailClient({ commentId, initialComment }) {
           replies.map((reply) => {
             const { name: rName, username: rUsername, picture: rPicture } = getCommentUser(reply);
             const rAvatarUrl = resolveMediaUrl(rPicture);
-            const rInitial = rName.charAt(0).toUpperCase();
-            const rColor = stringToColor(rName);
             const rTime = timeAgo(reply.createdAt);
             return (
               <div key={reply.id} className="border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
                 <div className="flex gap-3">
-                  <div
-                    className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                    style={{ background: rAvatarUrl ? 'transparent' : rColor }}
-                  >
-                    {rAvatarUrl ? <img src={rAvatarUrl} alt={rName} className="w-full h-full object-cover" /> : rInitial}
-                  </div>
+                  {rAvatarUrl ? (
+                    <img
+                      src={rAvatarUrl}
+                      alt={rName}
+                      className="flex-shrink-0 h-8 w-8 rounded-full object-cover"
+                    />
+                  ) : (
+                    <AvatarPlaceholder size="h-8 w-8" />
+                  )}
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm text-[var(--color-txt)]">{rName}</span>

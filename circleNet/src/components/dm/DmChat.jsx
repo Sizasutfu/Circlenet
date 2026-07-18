@@ -32,15 +32,6 @@ function fmtDate(ts) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
-
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -69,6 +60,28 @@ function timeAgo(timestamp) {
   return `${days}d ago`;
 }
 
+// ─── Uniform avatar placeholder ──────────────────────────────────────────
+function AvatarPlaceholder({ size = 'w-10 h-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
+}
+
 export default function DmChat() {
   const { user } = useAuth();
   const {
@@ -82,7 +95,7 @@ export default function DmChat() {
     emitTyping,
     closeConversation,
     otherOnline,
-    otherLastActive,          // 👈 new
+    otherLastActive,
     editMessage,
     deleteMessage,
   } = useDm();
@@ -108,8 +121,6 @@ export default function DmChat() {
 
   // Header helpers
   const avatarUrl = resolveMediaUrl(activeOther?.picture);
-  const initial = activeOther?.name?.charAt(0)?.toUpperCase() || '?';
-  const color = stringToColor(activeOther?.name || '');
 
   // ── Scroll ──
   const scrollToBottom = () => {
@@ -239,19 +250,18 @@ export default function DmChat() {
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
-        <div
-          className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-          style={{
-            background: avatarUrl ? 'transparent' : color,
-            overflow: 'hidden',
-          }}
-        >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={initial} className="w-full h-full object-cover rounded-full" />
-          ) : (
-            initial
-          )}
-        </div>
+
+        {/* ─── Avatar ─── */}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={activeOther?.name || 'User'}
+            className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="w-10 h-10" />
+        )}
+
         <div className="flex-1 min-w-0">
           <div className="font-head text-base font-extrabold text-[var(--color-txt)]">
             {activeOther?.name || '...'}

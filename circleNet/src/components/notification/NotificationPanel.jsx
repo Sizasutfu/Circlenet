@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation'; // ✅ added
+import { useRouter } from 'next/navigation';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAuth } from '@/lib/auth';
 
@@ -46,13 +46,26 @@ function formatTime(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 60%)`;
+// ─── Uniform avatar placeholder ──────────────────────────────────────────
+function AvatarPlaceholder({ size = 'w-10 h-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 const NOTIF_COPY = {
@@ -73,24 +86,20 @@ const NOTIF_COPY = {
 function NotificationItem({ notification, onClick }) {
   const { id, type, actorName, actorPicture, message, postSnippet, createdAt, isRead, actorId, sessionId, postId } = notification;
   const isSystem = !actorId;
-  const color = stringToColor(actorName || '?');
   const initial = (actorName || '?').charAt(0).toUpperCase();
 
   const avatarHtml = isSystem ? (
     <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg bg-[var(--color-accent-bg)] text-[var(--color-accent)]">
       🛡️
     </div>
+  ) : actorPicture ? (
+    <img
+      src={actorPicture}
+      alt={initial}
+      className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
+    />
   ) : (
-    <div
-      className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-      style={{ background: actorPicture ? 'transparent' : color }}
-    >
-      {actorPicture ? (
-        <img src={actorPicture} alt={initial} className="w-full h-full object-cover" />
-      ) : (
-        initial
-      )}
-    </div>
+    <AvatarPlaceholder size="w-10 h-10" />
   );
 
   const notifText = message ? escHtml(message) : (NOTIF_COPY[type] || NOTIF_COPY.like)(actorName || 'Someone');
@@ -156,12 +165,9 @@ export default function NotificationPanel() {
       router.push(`/live/${notif.sessionId}`);
     } else if (notif.actorId) {
       // For follow or profile-related notifications, go to the actor's profile
-      // We don't know the username, but we can use userId – we'll navigate to /profile?userId=...
       router.push(`/profile?userId=${notif.actorId}`);
-    } else {
-      // Fallback: close panel only (or navigate to notifications page)
-      // We could also do nothing.
     }
+    // else: fallback – just close panel
   };
 
   if (!user) return null;

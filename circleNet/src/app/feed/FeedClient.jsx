@@ -21,16 +21,6 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-function stringToColor(str) {
-  if (!str) return '#888';
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
-
 function timeAgo(dateString) {
   const now = Date.now();
   const then = new Date(dateString).getTime();
@@ -49,6 +39,28 @@ function timeAgo(dateString) {
   else if (weeks < 4) return `${weeks}w ago`;
   else if (months < 12) return `${months}mo ago`;
   else return `${years}y ago`;
+}
+
+// ─── Uniform avatar placeholder ──────────────────────────────────────────
+function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 // ─── Toast ──────────────────────────────────────────────────────────────
@@ -118,8 +130,6 @@ function CommentPreview({ comment }) {
   const displayName = comment.author || comment.user?.name || 'Anonymous';
   const username = comment.user?.username || '';
   const avatarUrl = resolveMediaUrl(comment.authorPicture || comment.user?.picture || null);
-  const initial = displayName.charAt(0).toUpperCase();
-  const avatarColor = stringToColor(displayName);
   const text = comment.text || comment.body || '';
   const truncated = text.length > 80 ? text.slice(0, 80) + '…' : text;
   const time = comment.createdAt ? timeAgo(comment.createdAt) : '';
@@ -127,16 +137,11 @@ function CommentPreview({ comment }) {
   return (
     <div className="flex items-start gap-2 py-2 hover:bg-[var(--color-accent-bg)] transition rounded-lg">
       <Link href={`/profile/${username}`} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-        <div
-          className="h-6 w-6 rounded-full flex items-center justify-center text-white font-bold text-[10px] overflow-hidden"
-          style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-        >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
-          ) : (
-            initial
-          )}
-        </div>
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={displayName} className="h-6 w-6 rounded-full object-cover" />
+        ) : (
+          <AvatarPlaceholder size="h-6 w-6" />
+        )}
       </Link>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1 text-xs">
@@ -537,16 +542,12 @@ export default function FeedClient({ initialPosts = null }) {
       {user && activeTab !== 'articles' && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6 shadow-sm mx-4">
           <div className="flex items-start gap-3">
-            <div
-              className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-              style={{
-                background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
-              }}
-            >
+            {/* ─── Composer avatar ───────────────────────────────────── */}
+            <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm">
               {user?.picture ? (
                 <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full rounded-full object-cover" />
               ) : (
-                user?.name?.charAt(0)?.toUpperCase() || '?'
+                <AvatarPlaceholder size="h-10 w-10" />
               )}
             </div>
             <div className="flex-1">

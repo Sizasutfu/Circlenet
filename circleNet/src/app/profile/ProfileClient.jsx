@@ -19,13 +19,26 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 60%)`;
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'w-10 h-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 // ── Profile cache ──
@@ -85,24 +98,21 @@ function UserListModal({ title, users, onClose, isLoading }) {
           ) : (
             users.map((user) => {
               const avatarUrl = resolveMediaUrl(user.picture);
-              const initial = (user.name || '?').charAt(0).toUpperCase();
-              const color = stringToColor(user.name || '');
               return (
                 <div
                   key={user.id}
                   className="flex items-center gap-3 p-3 hover:bg-[var(--color-surface)] rounded-xl cursor-pointer transition"
                   onClick={() => handleUserClick(user)}
                 >
-                  <div
-                    className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-                    style={{ background: avatarUrl ? 'transparent' : color }}
-                  >
-                    {avatarUrl ? (
-                      <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-                    ) : (
-                      initial
-                    )}
-                  </div>
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={user.name || 'User'}
+                      className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <AvatarPlaceholder size="w-10 h-10" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-[var(--color-txt)] text-sm">{user.name}</div>
                     <div className="text-xs text-[var(--color-txt2)]">@{user.username}</div>
@@ -517,7 +527,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const avatarUrl = resolveMediaUrl(picture);
   const coverUrl = resolveMediaUrl(coverImage);
   const initial = name?.charAt(0)?.toUpperCase() || '?';
-  const avatarColor = stringToColor(name || '');
   const joinDate = joined ? new Date(joined).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : null;
 
   const aboutDetails = [
@@ -563,10 +572,8 @@ export default function ProfileClient({ username = null, initialUser = null }) {
               </div>
             </div>
           ) : (
-            <div
-              className="w-full h-full"
-              style={{ background: `linear-gradient(135deg, ${avatarColor}cc 0%, ${avatarColor}55 60%, transparent 100%)` }}
-            />
+            // ─── Fallback cover: static gradient using theme colors ───
+            <div className="w-full h-full bg-gradient-to-r from-[var(--color-accent)]/30 to-[var(--color-accent)]/60" />
           )}
           {isOwnProfile && (
             <label
@@ -587,16 +594,15 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         {/* ── Avatar ── */}
         <div className="absolute -bottom-12 left-6 md:left-8 z-30">
           <div className="relative h-24 w-24 md:h-28 md:w-28">
-            <div
-              className="w-full h-full rounded-full border-4 border-[var(--color-card)] bg-[var(--color-surface)] flex items-center justify-center text-3xl font-bold text-white shadow-lg shadow-[var(--color-shadow)] overflow-hidden"
-              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-            >
-              {avatarUrl ? (
+            {avatarUrl ? (
+              <div className="w-full h-full rounded-full border-4 border-[var(--color-card)] overflow-hidden shadow-lg shadow-[var(--color-shadow)]">
                 <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
-              ) : (
-                initial
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="w-full h-full rounded-full border-4 border-[var(--color-card)] shadow-lg shadow-[var(--color-shadow)]">
+                <AvatarPlaceholder size="w-full h-full" />
+              </div>
+            )}
             {isOwnProfile && (
               <>
                 <label

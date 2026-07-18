@@ -180,14 +180,26 @@ function resolveMediaUrl(url) {
   return `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000"}${url}`;
 }
 
-function stringToColor(str) {
-  if (!str) return "#888";
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = "h-10 w-10", className = "" }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 export default function SideBar({ isOpen = false, onClose = () => {} }) {
@@ -263,8 +275,6 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
   };
 
   const avatarUrl = user?.picture ? resolveMediaUrl(user.picture) : null;
-  const initial = user?.name?.charAt(0)?.toUpperCase() || "?";
-  const avatarColor = user?.name ? stringToColor(user.name) : "#888";
 
   return (
     <>
@@ -433,20 +443,15 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
         {user ? (
           <div className="border-t border-[var(--color-border)] p-4">
             <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface)] p-2 transition-colors hover:bg-[var(--color-accent-bg)]">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white shadow-md shadow-[var(--color-accent-glow)] flex-shrink-0 overflow-hidden"
-                style={{ background: avatarUrl ? "transparent" : avatarColor }}
-              >
-                {avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt={user.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  initial
-                )}
-              </div>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={user.name}
+                  className="h-10 w-10 rounded-full object-cover flex-shrink-0 shadow-md shadow-[var(--color-accent-glow)]"
+                />
+              ) : (
+                <AvatarPlaceholder size="h-10 w-10" />
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[var(--color-txt)] truncate">
                   {user.name}

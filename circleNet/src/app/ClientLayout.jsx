@@ -136,7 +136,7 @@ export default function ClientLayout({ children }) {
                                 <div className="flex min-h-screen">
                                   {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
                                   <div
-                                    className={`flex-1 flex flex-col min-h-screen ${
+                                    className={`flex-1 flex flex-col min-h-screen w-full ${
                                       !isLanding && !shouldHideSidebar ? 'md:ml-[280px]' : ''
                                     }`}
                                   >
@@ -146,9 +146,9 @@ export default function ClientLayout({ children }) {
                                         <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
                                       )}
                                     </Suspense>
-                                    <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center">
+                                    <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center w-full">
                                       <main
-                                        className={`flex-1 max-w-2xl min-w-0 ${
+                                        className={`flex-1 max-w-2xl min-w-0 w-full ${
                                           isLanding
                                             ? 'p-0'
                                             : shouldHideFooter

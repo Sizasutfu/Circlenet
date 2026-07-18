@@ -3,7 +3,29 @@ import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import Link from 'next/link';
-import { resolveMediaUrl, stringToColor } from './utils';
+import { resolveMediaUrl } from './utils';
+
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'h-9 w-9', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
+}
 
 export default function CommentInput({ postId, onCommentAdd, showToast }) {
   const { user } = useAuth();
@@ -35,18 +57,17 @@ export default function CommentInput({ postId, onCommentAdd, showToast }) {
   return (
     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6">
       <form onSubmit={handleSubmit} className="flex gap-3">
-        <div
-          className="flex-shrink-0 h-9 w-9 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-          style={{
-            background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
-          }}
-        >
-          {user?.picture ? (
-            <img src={resolveMediaUrl(user.picture)} alt={user?.name} className="w-full h-full rounded-full object-cover" />
-          ) : (
-            user?.name?.charAt(0)?.toUpperCase() || '?'
-          )}
-        </div>
+        {/* ─── Avatar ───────────────────────────────────────── */}
+        {user?.picture ? (
+          <img
+            src={resolveMediaUrl(user.picture)}
+            alt={user?.name}
+            className="flex-shrink-0 h-9 w-9 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="h-9 w-9" />
+        )}
+
         <input
           id="comment-input"
           type="text"

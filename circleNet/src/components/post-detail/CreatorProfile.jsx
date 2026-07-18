@@ -1,21 +1,44 @@
 'use client';
 import Link from 'next/link';
-import { resolveMediaUrl, stringToColor, fmtNum } from './utils';
+import { resolveMediaUrl, fmtNum } from './utils';
+
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'w-14 h-14', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
+}
 
 export default function CreatorProfile({ creator, isFollowing, followerCount, onFollowToggle }) {
   const avatarUrl = resolveMediaUrl(creator.picture);
-  const initial = creator.name?.charAt(0).toUpperCase() || '?';
-  const color = stringToColor(creator.name);
 
   return (
     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6 flex items-start gap-4">
       <Link href={`/profile/${creator.username}`} className="flex-shrink-0">
-        <div
-          className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg overflow-hidden"
-          style={{ background: avatarUrl ? 'transparent' : color }}
-        >
-          {avatarUrl ? <img src={avatarUrl} alt={creator.name} className="w-full h-full object-cover" /> : initial}
-        </div>
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={creator.name}
+            className="w-14 h-14 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="w-14 h-14" />
+        )}
       </Link>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

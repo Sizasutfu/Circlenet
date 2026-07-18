@@ -5,13 +5,26 @@ import { useState } from 'react';
 import { useDm } from '@/contexts/DmContext';
 import { useAuth } from '@/lib/auth';
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
+// ─── Uniform avatar placeholder ──────────────────────────────────────────
+function AvatarPlaceholder({ size = 'w-9 h-9 sm:w-10 sm:h-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 export default function DmInbox() {
@@ -91,8 +104,6 @@ export default function DmInbox() {
         ) : (
           filtered.map((conv) => {
             const unread = conv.unread_count || 0;
-            const initial = (conv.other_name || '?').charAt(0).toUpperCase();
-            const color = stringToColor(conv.other_name || '');
             const isActive = conv.id === activeConvId;
             const preview = conv.last_message
               ? (conv.last_sender_id === user?.id ? 'You: ' : '') + conv.last_message
@@ -114,23 +125,16 @@ export default function DmInbox() {
                 } ${unread ? 'font-bold' : ''}`}
                 onClick={() => openConversation(conv.id)}
               >
-                {/* Avatar */}
-                <div
-                  className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-                  style={{
-                    background: conv.other_picture ? 'transparent' : color,
-                  }}
-                >
-                  {conv.other_picture ? (
-                    <img
-                      src={conv.other_picture}
-                      alt={initial}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    initial
-                  )}
-                </div>
+                {/* ─── Avatar ─── */}
+                {conv.other_picture ? (
+                  <img
+                    src={conv.other_picture}
+                    alt={conv.other_name || 'User'}
+                    className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover"
+                  />
+                ) : (
+                  <AvatarPlaceholder size="w-9 h-9 sm:w-10 sm:h-10" />
+                )}
 
                 {/* Info – takes remaining space, never lets content push the row wider */}
                 <div className="flex-1 min-w-0 basis-0 overflow-hidden">

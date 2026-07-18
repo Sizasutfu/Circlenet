@@ -9,15 +9,7 @@ import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
-
+// ─── Helpers ──────────────────────────────────────────────────────────────
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -30,6 +22,29 @@ function fmtNum(n) {
   return String(n || 0);
 }
 
+// ─── Uniform avatar placeholder ──────────────────────────────────────────
+function AvatarPlaceholder({ size = 'w-12 h-12', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── Main component ──────────────────────────────────────────────────────
 export default function RightSidebar() {
   const { user } = useAuth();
   const router = useRouter();
@@ -153,6 +168,21 @@ export default function RightSidebar() {
       }
     } catch (_) {}
   };
+
+  // ─── Render avatar helper ─────────────────────────────────────────────
+  function renderAvatar(picture, name, size = 'w-12 h-12') {
+    const avatarUrl = resolveMediaUrl(picture);
+    if (avatarUrl) {
+      return (
+        <img
+          src={avatarUrl}
+          alt={name || 'User'}
+          className={`${size} rounded-full object-cover flex-shrink-0`}
+        />
+      );
+    }
+    return <AvatarPlaceholder size={size} />;
+  }
 
   return (
     <aside className="hidden lg:block flex-shrink-0 space-y-6 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-y-auto scrollbar-hide pb-6">
@@ -291,18 +321,7 @@ export default function RightSidebar() {
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <Link href={`/profile/${author.username}`} className="flex-shrink-0">
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg overflow-hidden"
-                    style={{
-                      background: author.picture ? 'transparent' : stringToColor(author.name || ''),
-                    }}
-                  >
-                    {author.picture ? (
-                      <img src={resolveMediaUrl(author.picture)} alt={author.name} className="w-full h-full object-cover" />
-                    ) : (
-                      (author.name?.charAt(0)?.toUpperCase() || '?')
-                    )}
-                  </div>
+                  {renderAvatar(author.picture, author.name, 'w-12 h-12')}
                 </Link>
                 <div className="flex-1 min-w-0">
                   <Link href={`/profile/${author.username}`} className="font-head font-bold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition text-sm">
@@ -350,117 +369,94 @@ export default function RightSidebar() {
       )}
 
       {/* ── People to Follow ── */}
-{!isPostDetail && !isArticles && user && (
-  <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-    <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
-      {/* Users icon */}
-      <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 00-3-3.87" />
-        <path d="M16 3.13a4 4 0 010 7.75" />
-      </svg>
-      Who to Follow
-    </h3>
-    {peopleLoading ? (
-      Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 rounded-full bg-[var(--color-surface)] animate-pulse" />
-          <div className="flex-1 h-3 bg-[var(--color-surface)] animate-pulse rounded" />
+      {!isPostDetail && !isArticles && user && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+            {/* Users icon */}
+            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 00-3-3.87" />
+              <path d="M16 3.13a4 4 0 010 7.75" />
+            </svg>
+            Who to Follow
+          </h3>
+          {peopleLoading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-full bg-[var(--color-surface)] animate-pulse" />
+                <div className="flex-1 h-3 bg-[var(--color-surface)] animate-pulse rounded" />
+              </div>
+            ))
+          ) : people.length === 0 ? (
+            <p className="text-xs text-[var(--color-txt3)]">No suggestions</p>
+          ) : (
+            <ul className="space-y-3">
+              {people.slice(0, 4).map((p) => {
+                const profileHref = p.username ? `/profile/${p.username}` : `/profile?userId=${p.id}`;
+                return (
+                  <li key={p.id} className="flex items-center gap-2">
+                    <Link href={profileHref} className="flex-shrink-0">
+                      {renderAvatar(p.picture, p.name, 'w-8 h-8')}
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link
+                        href={profileHref}
+                        className="text-sm font-semibold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
+                      >
+                        {p.name}
+                      </Link>
+                      <p className="text-xs text-[var(--color-txt3)] truncate">
+                        @{p.username || 'user'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleFollow(p.id)}
+                      className="px-3 py-1 text-xs font-medium bg-[var(--color-accent)] text-white rounded-full hover:bg-[var(--color-accent-h)] transition"
+                    >
+                      Follow
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Link href="/explore" className="block text-xs text-[var(--color-accent)] hover:underline mt-2">
+            Explore more →
+          </Link>
         </div>
-      ))
-    ) : people.length === 0 ? (
-      <p className="text-xs text-[var(--color-txt3)]">No suggestions</p>
-    ) : (
-      <ul className="space-y-3">
-        {people.slice(0, 4).map((p) => {
-          const avatarUrl = resolveMediaUrl(p.picture);
-          const initial = (p.name || '?').charAt(0).toUpperCase();
-          const color = stringToColor(p.name || '');
-          const profileHref = p.username ? `/profile/${p.username}` : `/profile?userId=${p.id}`;
-          return (
-            <li key={p.id} className="flex items-center gap-2">
-              <Link
-                href={profileHref}
-                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                style={{ background: avatarUrl ? 'transparent' : color }}
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-                ) : (
-                  initial
-                )}
-              </Link>
-              <div className="flex-1 min-w-0">
-                <Link
-                  href={profileHref}
-                  className="text-sm font-semibold text-[var(--color-txt)] hover:text-[var(--color-accent)] transition truncate"
-                >
-                  {p.name}
-                </Link>
-                <p className="text-xs text-[var(--color-txt3)] truncate">
-                  @{p.username || 'user'}
-                </p>
-              </div>
-              <button
-                onClick={() => handleFollow(p.id)}
-                className="px-3 py-1 text-xs font-medium bg-[var(--color-accent)] text-white rounded-full hover:bg-[var(--color-accent-h)] transition"
-              >
-                Follow
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    )}
-    <Link href="/explore" className="block text-xs text-[var(--color-accent)] hover:underline mt-2">
-      Explore more →
-    </Link>
-  </div>
-)}
+      )}
 
-{/* ── New Members ── */}
-{user && newMembers.length > 0 && (
-  <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
-    <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
-      {/* Sparkles icon */}
-      <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
-        <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
-        <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
-      </svg>
-      New Members
-    </h3>
-    <ul className="space-y-2">
-      {newMembers.slice(0, 4).map((u) => {
-        const avatarUrl = resolveMediaUrl(u.picture);
-        const initial = (u.name || '?').charAt(0).toUpperCase();
-        const color = stringToColor(u.name || '');
-        const profileHref = u.username ? `/profile/${u.username}` : `/profile?userId=${u.id}`;
-        return (
-          <li key={u.id}>
-            <Link
-              href={profileHref}
-              className="flex items-center gap-2 text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition"
-            >
-              <div
-                className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-                style={{ background: avatarUrl ? 'transparent' : color }}
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-                ) : (
-                  initial
-                )}
-              </div>
-              <span className="truncate">{u.name}</span>
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
-  </div>
-)} 
-</aside>
+      {/* ── New Members ── */}
+      {user && newMembers.length > 0 && (
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4">
+          <h3 className="font-head font-bold text-[var(--color-txt)] text-sm mb-3 flex items-center gap-2">
+            {/* Sparkles icon */}
+            <svg className="w-4 h-4 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+              <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
+              <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
+            </svg>
+            New Members
+          </h3>
+          <ul className="space-y-2">
+            {newMembers.slice(0, 4).map((u) => {
+              const profileHref = u.username ? `/profile/${u.username}` : `/profile?userId=${u.id}`;
+              return (
+                <li key={u.id}>
+                  <Link
+                    href={profileHref}
+                    className="flex items-center gap-2 text-sm text-[var(--color-txt)] hover:text-[var(--color-accent)] transition"
+                  >
+                    {renderAvatar(u.picture, u.name, 'w-6 h-6')}
+                    <span className="truncate">{u.name}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </aside>
   );
 }

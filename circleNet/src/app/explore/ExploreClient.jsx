@@ -49,16 +49,29 @@ function SparklesIcon() {
   );
 }
 
-// ── Helpers ──
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'w-12 h-12', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
+// ── Helpers ──
 function escHtml(str) {
   if (!str) return '';
   return str.replace(/[&<>"']/g, (m) => {
@@ -80,7 +93,6 @@ function joinedAgo(dateStr) {
 
 function PeopleCard({ user, onFollow, isFollowing }) {
   const { user: currentUser } = useAuth();
-  const color = stringToColor(user.name || '');
   const initial = (user.name || '?').charAt(0).toUpperCase();
   const avatarUrl = user.picture;
 
@@ -94,16 +106,15 @@ function PeopleCard({ user, onFollow, isFollowing }) {
 
   return (
     <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer" onClick={handleClick}>
-      <div
-        className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base overflow-hidden"
-        style={{ background: avatarUrl ? 'transparent' : color }}
-      >
-        {avatarUrl ? (
-          <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-        ) : (
-          initial
-        )}
-      </div>
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={initial}
+          className="flex-shrink-0 w-12 h-12 rounded-full object-cover"
+        />
+      ) : (
+        <AvatarPlaceholder size="w-12 h-12" />
+      )}
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-[var(--color-txt)]">{user.name}</div>
         <div className="text-sm text-[var(--color-txt2)]">@{user.username || 'user'}</div>
@@ -362,7 +373,6 @@ export default function ExploreClient() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {newMembers.map((u) => {
-              const color = stringToColor(u.name || '');
               const initial = (u.name || '?').charAt(0).toUpperCase();
               const avatarUrl = u.picture;
 
@@ -382,16 +392,15 @@ export default function ExploreClient() {
                 >
                   <span className="absolute -top-2 -right-2 bg-[var(--color-green)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">NEW</span>
                   <div className="flex items-center gap-3">
-                    <div
-                      className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base overflow-hidden"
-                      style={{ background: avatarUrl ? 'transparent' : color }}
-                    >
-                      {avatarUrl ? (
-                        <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-                      ) : (
-                        initial
-                      )}
-                    </div>
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={initial}
+                        className="flex-shrink-0 w-12 h-12 rounded-full object-cover"
+                      />
+                    ) : (
+                      <AvatarPlaceholder size="w-12 h-12" />
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-[var(--color-txt)]">{u.name}</div>
                       <div className="text-xs text-[var(--color-green)]">{joinedAgo(u.createdAt)}</div>

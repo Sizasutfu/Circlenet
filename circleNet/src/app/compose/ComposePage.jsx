@@ -15,14 +15,26 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-function stringToColor(str) {
-  if (!str) return '#888';
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
+// ─── Uniform avatar placeholder ──────────────────────────
+function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 function dataURLtoFile(dataUrl, filename) {
@@ -671,18 +683,15 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <div
-          className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-          style={{
-            background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
-          }}
-        >
-          {user?.picture ? (
-            <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full object-cover" />
-          ) : (
-            user?.name?.charAt(0)?.toUpperCase() || '?'
-          )}
-        </div>
+        {user?.picture ? (
+          <img
+            src={resolveMediaUrl(user.picture)}
+            alt={user.name}
+            className="flex-shrink-0 h-10 w-10 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="h-10 w-10" />
+        )}
         <div>
           <p className="text-sm font-semibold text-[var(--color-txt)]">{user?.name || 'You'}</p>
           {mode === 'article' && <p className="text-xs text-[var(--color-txt2)]">Article will appear in Articles</p>}

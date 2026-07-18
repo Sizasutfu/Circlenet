@@ -24,13 +24,28 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
+// ─── Removed stringToColor – we now use a uniform placeholder ───
+
+// ─── Shared avatar placeholder – simple user icon inside a gray circle ───
+function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
+  return (
+    <div
+      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    >
+      <svg
+        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </div>
+  );
 }
 
 function formatNumber(num) {
@@ -68,9 +83,7 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
-// ─── Shared card classes: full width on all screens,
-//      only a bottom border separator, no side borders or rounded corners.
-//      Hover shadow is kept as a subtle interaction cue.
+// ─── Shared card classes ───
 const cardClasses =
   'px-4 py-3 border-b border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200';
 
@@ -147,8 +160,6 @@ export default function PostCard({
   const [regularViewsState, setRegularViewsState] = useState(views || 0);
   const [videoViewsState, setVideoViewsState] = useState(videoViews || 0);
 
-  const initial = displayName.charAt(0).toUpperCase();
-  const avatarColor = stringToColor(displayName);
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
 
   // ── Pause other videos when this one starts playing ──
@@ -489,7 +500,7 @@ export default function PostCard({
                 src={postVideoUrl}
                 controls
                 playsInline
-                className="w-full h-auto max-h-96 object-contain"
+                className="w-full h-auto object-contain max-h-96 sm:max-h-[500px]"
                 poster={postImageUrl || undefined}
                 onError={handleVideoError}
                 preload="metadata"
@@ -522,7 +533,7 @@ export default function PostCard({
           <img
             src={postImageUrl}
             alt="Post image"
-            className="w-full h-auto max-h-96 object-cover cursor-pointer hover:opacity-90 transition"
+            className="w-full h-auto object-cover max-h-96 sm:max-h-[500px] cursor-pointer hover:opacity-90 transition"
             onClick={handleImageClick}
           />
         </div>
@@ -680,8 +691,6 @@ export default function PostCard({
     const origVideo = originalPost.video || '';
     const origCreated = originalPost.createdAt || new Date().toISOString();
 
-    const origInitial = origAuthor.charAt(0).toUpperCase();
-    const origColor = stringToColor(origAuthor);
     const origAvatarUrl = resolveMediaUrl(origAvatar);
     const origRelativeTime = timeAgo(origCreated);
     const origImageUrl = resolveMediaUrl(origImage);
@@ -694,16 +703,11 @@ export default function PostCard({
       >
         <div className="p-3">
           <div className="flex items-center gap-2">
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden"
-              style={{ background: origAvatarUrl ? 'transparent' : origColor }}
-            >
-              {origAvatarUrl ? (
-                <img src={origAvatarUrl} alt={origInitial} className="w-full h-full object-cover" />
-              ) : (
-                origInitial
-              )}
-            </div>
+            {origAvatarUrl ? (
+              <img src={origAvatarUrl} alt={origAuthor} className="w-6 h-6 rounded-full object-cover" />
+            ) : (
+              <AvatarPlaceholder size="h-6 w-6" />
+            )}
             <span className="font-semibold text-xs text-[var(--color-txt)]">{origAuthor}</span>
             {origUsername && (
               <span className="text-xs text-[var(--color-txt2)]">@{origUsername}</span>
@@ -722,13 +726,13 @@ export default function PostCard({
                   src={origVideoUrl}
                   controls
                   playsInline
-                  className="w-full h-auto max-h-96 object-contain"
+                  className="w-full h-auto object-contain max-h-96 sm:max-h-[500px]"
                 />
               ) : (
                 <img
                   src={origImageUrl}
                   alt="Original post image"
-                  className="w-full h-auto max-h-96 object-cover"
+                  className="w-full h-auto object-cover max-h-96 sm:max-h-[500px]"
                 />
               )}
             </div>
@@ -745,6 +749,20 @@ export default function PostCard({
     );
   };
 
+  // ── Render avatar ──
+  const renderAvatar = (size = 'h-10 w-10', className = '') => {
+    if (avatarUrl) {
+      return (
+        <img
+          src={avatarUrl}
+          alt={displayName}
+          className={`${size} rounded-full object-cover ${className}`}
+        />
+      );
+    }
+    return <AvatarPlaceholder size={size} className={className} />;
+  };
+
   // ── Repost layout ──
   if (isRepost && originalPost) {
     return (
@@ -752,28 +770,10 @@ export default function PostCard({
         <div className="flex items-start gap-3">
           {profileUrl ? (
             <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-              <div
-                className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-                style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-                ) : (
-                  initial
-                )}
-              </div>
+              {renderAvatar('h-10 w-10')}
             </Link>
           ) : (
-            <div
-              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-            >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-              ) : (
-                initial
-              )}
-            </div>
+            renderAvatar('h-10 w-10')
           )}
 
           <div className="flex-1 min-w-0">
@@ -959,28 +959,10 @@ export default function PostCard({
         <div className="flex items-start gap-3">
           {profileUrl ? (
             <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="flex-shrink-0">
-              <div
-                className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-                style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-                ) : (
-                  initial
-                )}
-              </div>
+              {renderAvatar('h-10 w-10')}
             </Link>
           ) : (
-            <div
-              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-            >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-              ) : (
-                initial
-              )}
-            </div>
+            renderAvatar('h-10 w-10')
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
@@ -1171,28 +1153,10 @@ export default function PostCard({
       <div className="flex items-start gap-3">
         {profileUrl ? (
           <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <div
-              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-              style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-            >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-              ) : (
-                initial
-              )}
-            </div>
+            {renderAvatar('h-10 w-10')}
           </Link>
         ) : (
-          <div
-            className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-            style={{ background: avatarUrl ? 'transparent' : avatarColor }}
-          >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
-            ) : (
-              initial
-            )}
-          </div>
+          renderAvatar('h-10 w-10')
         )}
 
         <div className="flex-1 min-w-0">

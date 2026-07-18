@@ -61,7 +61,12 @@ async function getRepostCount(postId) {
 }
 
 // ── Hydrate raw post rows with engagement data ─────────────
-async function hydratePosts(posts) {
+// Options:
+//   { followingIds: number[] | null, includeFullComments: boolean }
+// - includeFullComments: when false, returns `recentComments` (max 3)
+//   from followed users instead of the full comment tree.
+async function hydratePosts(posts, options = {}) {
+  const { followingIds = null, includeFullComments = true } = options;
   if (!posts.length) return posts;
 
   const ids = posts.map(p => p.id);
@@ -104,6 +109,7 @@ async function hydratePosts(posts) {
   allViews.forEach(v   => { if (vMap[v.post_id] !== undefined) vMap[v.post_id] = Number(v.view_count); });
   allVideoViews.forEach(v => { if (vvMap[v.post_id] !== undefined) vvMap[v.post_id] = Number(v.view_count); });
 
+  // ── Fetch original posts for reposts ──────────────────────
   const origIds = [
     ...new Set(
       posts.filter(p => p.isRepost && p.originalPostId).map(p => p.originalPostId)
@@ -124,7 +130,7 @@ async function hydratePosts(posts) {
     origRows.forEach(o => { origMap[o.id] = o; });
   }
 
-  // ── Resolve group names for any post that has a group_id ──
+  // ── Resolve group names ──────────────────────────────────
   const groupIds = [...new Set(posts.map(p => p.groupId).filter(Boolean))];
   let groupMap = {};
   if (groupIds.length) {
@@ -136,12 +142,31 @@ async function hydratePosts(posts) {
     gRows.forEach(g => { groupMap[g.id] = g; });
   }
 
+  // ── Process each post ────────────────────────────────────
   posts.forEach(p => {
     p.likes    = lMap[p.id] || [];
     p.reposts  = rMap[p.id] || [];
-    p.comments = nestComments(cMap[p.id] || []);
-    p.views    = vMap[p.id] || 0;
+    const commentsList = cMap[p.id] || [];
+    p.commentCount = commentsList.length;
+
+    if (!includeFullComments && followingIds) {
+      const followingSet = new Set(followingIds);
+      const followedComments = commentsList.filter(c => followingSet.has(c.userId));
+      // Sort newest first, take max 3
+      followedComments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      p.recentComments = followedComments.slice(0, 3);
+      p.comments = []; // no full tree
+    } else {
+      p.comments = nestComments(commentsList);
+      // For backward compatibility, keep recentComments empty or as full? We'll keep it empty.
+      p.recentComments = [];
+    }
+
+    // Views
+    p.views = vMap[p.id] || 0;
     p.videoViews = vvMap[p.id] || 0;
+    p.viewCount = p.videoViews; // as before
+
     if (p.isRepost && p.originalPostId)
       p.originalPost = origMap[p.originalPostId] || null;
     if (p.groupId && groupMap[p.groupId]) {
@@ -163,7 +188,6 @@ async function hydratePosts(posts) {
 }
 
 // ── Fetch IDs the viewer follows ──────────────────────────
-// Still used by feedPipeline.js via PostModel.getFollowingIds()
 async function getFollowingIds(viewerUserId) {
   if (!viewerUserId) return [];
   const [rows] = await db.query(
@@ -174,7 +198,6 @@ async function getFollowingIds(viewerUserId) {
 }
 
 // ── Fetch viewer's personal engagement with each author ───
-// Still used by feedPipeline.js via PostModel.getEngagementMap()
 async function getEngagementMap(viewerUserId) {
   if (!viewerUserId) return {};
   const [rows] = await db.query(
@@ -203,7 +226,6 @@ async function getEngagementMap(viewerUserId) {
 }
 
 // ── Fetch post IDs the viewer has already seen ────────────
-// Still used by feedPipeline.js via PostModel.getSeenPostIds()
 async function getSeenPostIds(viewerKey) {
   if (!viewerKey) return new Set();
   const [rows] = await db.query(
@@ -250,8 +272,6 @@ async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) 
 }
 
 // ── Create a post ──────────────────────────────────────────
-// groupId (optional) scopes the post to a group.
-// isLive and liveSessionId are optional for live posts.
 async function createPost(userId, text, image, video, groupId = null, isLive = false, liveSessionId = null, youtubeId = null) {
   const [result] = await db.query(
     `INSERT INTO posts (user_id, text, image, video, group_id, is_live, live_session_id, youtube_id)
@@ -262,8 +282,6 @@ async function createPost(userId, text, image, video, groupId = null, isLive = f
 }
 
 // ── Fetch posts scoped to a group ──────────────────────────
-// Returns only posts whose group_id matches — no membership
-// check here; the controller enforces that.
 async function getGroupPosts(groupId, page = 1, limit = 20) {
   const OFFSET = (page - 1) * limit;
   const [rawPosts] = await db.query(
@@ -301,7 +319,6 @@ async function deletePost(postId) {
 }
 
 // ── Update a post's text ───────────────────────────────────
-// Also updates is_live, live_session_id, and youtube_id if provided.
 async function updatePost(postId, text, isLive = null, liveSessionId = null, youtubeId = null) {
   let query = 'UPDATE posts SET text = ?, edited = 1, updated_at = NOW()';
   const params = [text];
@@ -323,7 +340,6 @@ async function updatePost(postId, text, isLive = null, liveSessionId = null, you
   const [result] = await db.query(query, params);
   if (!result.affectedRows) throw new Error('Post not found.');
 
-  // Re-extract and sync topics: delete stale ones, insert fresh ones
   await db.query('DELETE FROM post_topics WHERE post_id = ?', [postId]);
   await savePostTopics(postId, text);
 
@@ -537,14 +553,6 @@ async function getViewCount(postId) {
 }
 
 // ── Video views (watch-threshold based) ────────────────────
-// Distinct from post_views above, which is impression-based and
-// used for feed dedup/scoring. A "video view" only counts once
-// the viewer has actually watched the clip, not just scrolled
-// past it.
-//
-// Threshold: watched >= 3s, OR watched >= 50% of the video for
-// clips shorter than 6s (so short clips can still register a view).
-// Dedup: one counted view per viewer per post per calendar day.
 function meetsViewThreshold(watchedSeconds, duration) {
   if (!duration || duration <= 0) return watchedSeconds >= 3;
   const threshold = Math.min(3, duration * 0.5);
@@ -553,10 +561,11 @@ function meetsViewThreshold(watchedSeconds, duration) {
 
 async function recordVideoView(postId, viewerId, watchedSeconds, duration) {
   if (!meetsViewThreshold(watchedSeconds, duration)) {
-    return { counted: false, views: await getVideoViewCount(postId) };
+    const views = await getVideoViewCount(postId);
+    return { counted: false, views };
   }
 
-  const dateOnly = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const dateOnly = new Date().toISOString().slice(0, 10);
 
   const [result] = await db.query(
     `INSERT IGNORE INTO video_views (post_id, viewer_key, date_only)
@@ -564,9 +573,8 @@ async function recordVideoView(postId, viewerId, watchedSeconds, duration) {
     [postId, String(viewerId), dateOnly]
   );
 
-  const isNewView = result.affectedRows > 0;
   const views = await getVideoViewCount(postId);
-  return { counted: isNewView, views };
+  return { counted: result.affectedRows > 0, views };
 }
 
 async function getVideoViewCount(postId) {
@@ -577,7 +585,7 @@ async function getVideoViewCount(postId) {
   return Number(total);
 }
 
-// ── Topic stopwords (unchanged) ───────────────────────────
+// ── Topic stopwords ─────────────────────────────────────────
 const TOPIC_STOPWORDS = new Set([
   'the','and','for','are','but','not','you','all','can','her','was','one',
   'our','out','day','get','has','him','his','how','its','let','may','new',
@@ -599,7 +607,6 @@ const TOPIC_STOPWORDS = new Set([
   'with','from','that','this','have','been',
 ]);
 
-// ── Helper: normalise text (diacritics + punctuation) ─────
 function normalizeText(str) {
   return str
     .normalize('NFKD')
@@ -621,17 +628,14 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// ── Improved topic extraction (avoids redundant n-grams) ──
 function extractTopics(text) {
   if (!text) return [];
 
   const topics = new Set();
 
-  // 1. Hashtags (always kept as single‑word topics)
   const hashtags = text.match(/#([a-zA-Z0-9_]+)/g) || [];
   hashtags.forEach(tag => topics.add(tag.slice(1).toLowerCase()));
 
-  // 2. Clean body: remove hashtags, normalise, tokenise
   const body = text.replace(/#[a-zA-Z0-9_]+/g, '');
   const normalized = normalizeText(body);
   const tokens = normalized.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
@@ -640,18 +644,15 @@ function extractTopics(text) {
 
   const candidates = new Set();
 
-  // Single words (length ≥ 3, not a stopword)
   tokens.forEach(word => {
     if (word.length >= 3 && !isStopword(word)) {
       candidates.add(word);
     }
   });
 
-  // Bigrams and trigrams
   for (let n = 2; n <= 3; n++) {
     for (let i = 0; i <= tokens.length - n; i++) {
       const slice = tokens.slice(i, i + n);
-      // Trim leading/trailing stopwords
       let start = 0, end = n - 1;
       while (start <= end && isStopword(slice[start])) start++;
       while (end >= start && isStopword(slice[end])) end--;
@@ -659,21 +660,19 @@ function extractTopics(text) {
       if (trimmed.length < 2) continue;
       if (!hasMeaningfulWord(trimmed)) continue;
       const phrase = trimmed.join(' ');
-      if (phrase.length >= 5) { // minimum length for a phrase
+      if (phrase.length >= 5) {
         candidates.add(phrase);
       }
     }
   }
 
-  // 3. Remove redundant topics (shorter ones that are substrings of longer ones)
   let topicArray = [...candidates];
-  topicArray.sort((a, b) => b.length - a.length); // longest first
+  topicArray.sort((a, b) => b.length - a.length);
 
   const filtered = [];
   for (const topic of topicArray) {
     let isRedundant = false;
     for (const kept of filtered) {
-      // Check if kept contains `topic` as a whole word sequence
       const regex = new RegExp(`\\b${escapeRegex(topic)}\\b`, 'i');
       if (regex.test(kept)) {
         isRedundant = true;
@@ -685,12 +684,10 @@ function extractTopics(text) {
     }
   }
 
-  // 4. Merge with hashtags
   filtered.forEach(t => topics.add(t));
   return [...topics];
 }
 
-// ── Save topics for a post ─────────────────────────────────
 async function savePostTopics(postId, text) {
   const topics = extractTopics(text);
   if (!topics.length) return;
@@ -701,7 +698,6 @@ async function savePostTopics(postId, text) {
   );
 }
 
-// ── Save comment topics back to the parent post ────────────
 async function saveCommentTopics(postId, text) {
   const topics = extractTopics(text);
   if (!topics.length) return;
@@ -713,7 +709,6 @@ async function saveCommentTopics(postId, text) {
   );
 }
 
-// ── Get trending topics ────────────────────────────────────
 async function getTopics(limit = 20) {
   const [rows] = await db.query(
     `SELECT topic, COUNT(*) AS post_count
@@ -727,7 +722,6 @@ async function getTopics(limit = 20) {
   return rows;
 }
 
-// ── Get posts for a topic ──────────────────────────────────
 async function getPostsByTopic(topic, page = 1, limit = 20) {
   const OFFSET = (page - 1) * limit;
   const [rawPosts] = await db.query(

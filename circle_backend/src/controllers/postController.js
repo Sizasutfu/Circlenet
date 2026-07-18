@@ -14,6 +14,7 @@ const PushModel             = require('../models/pushModel');
 const TopicPreferenceModel  = require('../models/TopicPreferenceModel');
 const NegativeSignalModel   = require('../models/NegativeSignalModel');
 const GroupModel            = require('../models/GroupModel');
+const ContentTypePreference = require('../models/ContentTypePreferenceModel'); // ← NEW
 
 const { getPostsPage }      = require('../feed/feedPipeline');
 const { db }                = require('../config/db');
@@ -110,7 +111,7 @@ async function getPostById(req, res) {
          p.created_at       AS createdAt,
          p.is_live,
          p.live_session_id,
-         p.youtube_id       AS youtubeId  -- ✅ added
+         p.youtube_id       AS youtubeId
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id = ?`,
@@ -176,7 +177,7 @@ async function createPost(req, res) {
       groupId,
       isLive,
       liveSessionId,
-      youtubeId  // ✅ pass youtubeId
+      youtubeId
     );
 
     // ── Extract and save hashtags ──────────────────────────────
@@ -231,7 +232,7 @@ async function createPost(req, res) {
       groupTopic:    groupId ? group.topic       : null,
       isLive,
       liveSessionId,
-      youtubeId,     // ✅ include in response
+      youtubeId,
       likes: [],
       reposts: [],
       comments: [],
@@ -277,6 +278,9 @@ async function toggleLike(req, res) {
     } else {
       await PostModel.addLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
+
+      // ── Record content type engagement ──
+      await ContentTypePreference.incrementEngagement(userId, postId);
 
       const post = await PostModel.findById(postId);
       if (post && post.user_id !== userId) {
@@ -326,6 +330,9 @@ async function addComment(req, res) {
     if (!user) return sendError(res, 404, 'User not found.');
 
     const commentId = await PostModel.addComment(postId, userId, text, parentIdInt);
+
+    // ── Record content type engagement ──
+    await ContentTypePreference.incrementEngagement(userId, postId);
 
     // ── Build comment data for response & broadcast ──
     const commentData = {
@@ -396,6 +403,9 @@ async function repost(req, res) {
     const repostId  = await PostModel.createRepost(userId, text, origId);
     const origEmbed = await PostModel.getOriginalPostEmbed(origId);
 
+    // ── Record content type engagement ──
+    await ContentTypePreference.incrementEngagement(userId, origId);
+
     if (original.user_id !== userId) {
       await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
 
@@ -406,8 +416,6 @@ async function repost(req, res) {
         postId:    origId,
       });
     }
-
-   
 
     // ── Bump topic affinity ──────────────────────────────────
     const topics = await TopicPreferenceModel.getPostTopics(origId);
@@ -454,8 +462,7 @@ async function broadcastPostCounts(postId) {
   });
 }
 
-
- async function getCommentsOnUserPosts(req, res) {
+async function getCommentsOnUserPosts(req, res) {
   const userId = parseInt(req.params.id);
   const limit = Math.min(50, parseInt(req.query.limit) || 3);
   if (!userId) return sendError(res, 400, 'Invalid user ID.');
@@ -546,6 +553,11 @@ async function recordVideoView(req, res) {
     const { counted, views } = await PostModel.recordVideoView(
       postId, viewerId, watchedSeconds, duration
     );
+
+    // ── If a new view was counted, record content type engagement ──
+    if (counted && userId) {
+      await ContentTypePreference.incrementEngagement(userId, postId);
+    }
 
     return sendOk(res, 200, 'Video view recorded.', { counted, views });
   } catch (err) {
@@ -663,7 +675,6 @@ module.exports = {
   toggleLike,
   addComment,
   repost,
-
   recordView,
   recordVideoView,
   recordSkip,
@@ -671,6 +682,5 @@ module.exports = {
   getPostsByTopic,
   getGroupPosts,
   updatePost,
-  getCommentsOnUserPosts, // ✅ export the new function
-
+  getCommentsOnUserPosts,
 };

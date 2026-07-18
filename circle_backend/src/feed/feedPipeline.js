@@ -8,10 +8,13 @@
 //                   excluding already-seen post IDs so the
 //                   same post never appears on two pages
 //    2. HYDRATE   — add likes / comments / reposts / views
+//                   (now also builds recentComments for followed users)
 //    3. ENRICH    — attach topics, seen set, engagement map,
-//                   topic score map, negative signals
+//                   topic score map, negative signals,
+//                   content‑type preferences
 //    4. SCORE     — compute finalScore per post (includes
-//                   similarity and collaborative filtering)
+//                   similarity, collaborative filtering,
+//                   and content‑type boost)
 //    5. SORT      — sort by finalScore DESC
 //    6. DIVERSITY — enforce author cap + topic-streak limits
 //    7. EXPLORE   — inject exploration posts at fixed slots
@@ -26,7 +29,8 @@ const PostModel                       = require('../models/PostModel');
 const UserModel                       = require('../models/UserModel');
 const TopicPreferenceModel            = require('../models/TopicPreferenceModel');
 const NegativeSignalModel             = require('../models/NegativeSignalModel');
-const { computeScore }                = require('./feedScorer');
+const ContentTypePreference           = require('../models/ContentTypePreferenceModel');
+const { computeScore, generateReasons } = require('./feedScorer');
 const { applyDiversity }              = require('./feedDiversity');
 const { fetchExplorationPosts,
         injectExplorationPosts }       = require('./feedExploration');
@@ -162,7 +166,11 @@ async function getPostsPage(
   if (!candidates.length) return { posts: [], hasMore: false, page, limit };
 
   // ── Stage 2: Hydrate ───────────────────────────────────
-  const hydrated = await PostModel.hydratePosts(candidates);
+  // Pass followingIds and request recentComments only (not full tree)
+  const hydrated = await PostModel.hydratePosts(candidates, {
+    followingIds: followingIds,
+    includeFullComments: false,
+  });
 
   // ── Stage 3: Enrich ────────────────────────────────────
   const postIds = hydrated.map(p => p.id);
@@ -200,7 +208,6 @@ async function getPostsPage(
   let viewerEngagedPosts = new Set();
   let postSimilarityMap = {};
   if (viewerUserId) {
-    // Get up to MAX_ENGAGED_POSTS most recent interactions
     const [engaged] = await db.query(
       `(SELECT post_id FROM likes    WHERE user_id = ?)
        UNION
@@ -212,7 +219,6 @@ async function getPostsPage(
     );
     viewerEngagedPosts = new Set(engaged.map(r => r.post_id));
 
-    // Fetch similarities for all candidate post IDs
     if (postIds.length && viewerEngagedPosts.size) {
       const ph = postIds.map(() => '?').join(',');
       const [simRows] = await db.query(
@@ -222,12 +228,18 @@ async function getPostsPage(
            AND similar_post_id IN (${[...viewerEngagedPosts].map(() => '?').join(',')})`,
         [...postIds, ...viewerEngagedPosts]
       );
-      // Build map: post_id -> [ { similar_post_id, score } ]
       simRows.forEach(({ post_id, similar_post_id, score }) => {
         if (!postSimilarityMap[post_id]) postSimilarityMap[post_id] = [];
         postSimilarityMap[post_id].push({ post_id: similar_post_id, score });
       });
     }
+  }
+
+  // ── Content‑type preferences ─────────────────────────────
+  let contentTypeBoost = { text: 0.5, image: 0.5, video: 0.5 };
+  if (viewerUserId) {
+    await ContentTypePreference.incrementImpressions(viewerUserId, hydrated);
+    contentTypeBoost = await ContentTypePreference.getContentTypeBoost(viewerUserId);
   }
 
   // ── Stage 4: Score ─────────────────────────────────────
@@ -242,10 +254,12 @@ async function getPostsPage(
     viewerAttributes,
     viewerEngagedPosts,
     postSimilarityMap,
+    contentTypeBoost,
   };
 
   hydrated.forEach(p => {
     p._score = computeScore(p, scoringContext);
+    p._reasons = generateReasons(p, scoringContext);
   });
 
   // ── Stage 5: Sort ──────────────────────────────────────
@@ -282,10 +296,12 @@ async function getPostsPage(
 
   // ── Stage 10: Clean ────────────────────────────────────
   finalPosts.forEach(p => {
+    p.reasons = p._reasons || [];
     delete p._score;
     delete p._topics;
     delete p._trendScore;
     delete p._explore;
+    delete p._reasons;
     if (!C.DEBUG_SCORES) delete p._scoreDebug;
   });
 

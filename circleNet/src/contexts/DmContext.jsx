@@ -24,6 +24,7 @@ export function DmProvider({ children }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [typing, setTyping] = useState(false);
   const [otherOnline, setOtherOnline] = useState(false);
+  const [otherLastActive, setOtherLastActive] = useState(null); // 👈 new
 
   const userRef = useRef(user);
   const activeConvIdRef = useRef(activeConvId);
@@ -103,6 +104,7 @@ export function DmProvider({ children }) {
     try {
       const res = await apiClient(`/api/dm/conversations/${convId}/presence`);
       setOtherOnline(res.data?.online || false);
+      setOtherLastActive(res.data?.last_active_at || null); // 👈 new
     } catch (_) {}
   }, []);
 
@@ -124,6 +126,7 @@ export function DmProvider({ children }) {
     setLatestId(null);
     setTyping(false);
     setOtherOnline(false);
+    setOtherLastActive(null); // 👈 reset
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -204,6 +207,7 @@ export function DmProvider({ children }) {
     setHasMore(false);
     setTyping(false);
     setOtherOnline(false);
+    setOtherLastActive(null); // 👈 reset
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -318,7 +322,6 @@ export function DmProvider({ children }) {
       const conv = inboxRef.current.find((c) => c.id === activeConvIdRef.current);
       if (!conv) return;
 
-      // Optimistically update the local message
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
@@ -329,18 +332,13 @@ export function DmProvider({ children }) {
 
       try {
         const wireBody = await E2E.encrypt(conv.other_id, newText, apiClient);
-        await apiClient(`/api/dm/messages/${messageId}`, {
+        await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages/${messageId}`, {
           method: 'PATCH',
           body: { body: wireBody },
         });
-        // The WebSocket will broadcast an update; we already updated optimistically.
-        // But we might get a WS 'message_edited' event that will sync with server timestamp.
-        // We'll rely on that to keep consistency.
-        loadInbox(); // refresh inbox (last message might change)
+        loadInbox();
       } catch (err) {
-        // Revert optimistic update
         console.error('[DM] Edit failed:', err);
-        // Optionally reload messages or revert – we can just reload the conversation
         if (activeConvIdRef.current) {
           openConversation(activeConvIdRef.current);
         }
@@ -355,18 +353,15 @@ export function DmProvider({ children }) {
     async (messageId) => {
       if (!userRef.current || !activeConvIdRef.current) return;
 
-      // Remove optimistically
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
 
       try {
-        await apiClient(`/api/dm/messages/${messageId}`, {
+        await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages/${messageId}`, {
           method: 'DELETE',
         });
-        // WS 'message_deleted' will also arrive, but we already removed it.
-        loadInbox(); // refresh inbox in case last message changes
+        loadInbox();
       } catch (err) {
         console.error('[DM] Delete failed:', err);
-        // Revert – reload conversation
         if (activeConvIdRef.current) {
           openConversation(activeConvIdRef.current);
         }
@@ -463,15 +458,12 @@ export function DmProvider({ children }) {
     }
   }, []);
 
-  // ── WS handlers for edit & delete ──
   const handleMessageEdited = useCallback((data) => {
     if (activeConvIdRef.current !== data.conversationId) return;
-    // data: { conversationId, messageId, body, edited_at }
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id === data.messageId) {
           const updated = { ...m, body: data.body, edited_at: data.edited_at };
-          // If we have a _plain, try to decrypt if it's e2e
           if (data.body?.startsWith('e2e:')) {
             const conv = inboxRef.current.find((c) => c.id === data.conversationId);
             if (conv) {
@@ -587,6 +579,7 @@ export function DmProvider({ children }) {
     loadingMore,
     typing,
     otherOnline,
+    otherLastActive,  // 👈 exposed
     loadInbox,
     openConversation,
     closeConversation,
@@ -595,8 +588,8 @@ export function DmProvider({ children }) {
     loadMoreMessages,
     emitTyping,
     pollNewMessages,
-    editMessage,   // ✅ added
-    deleteMessage, // ✅ added
+    editMessage,
+    deleteMessage,
   };
 
   return <DmContext.Provider value={value}>{children}</DmContext.Provider>;

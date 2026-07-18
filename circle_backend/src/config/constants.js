@@ -98,6 +98,10 @@ COLLABORATIVE_SCALE:       2.0,   // multiplier = 1.0 + (avgSim * scale)
 COLLABORATIVE_MAX_BOOST:   2.0,   // cap multiplier at this value
 MAX_ENGAGED_POSTS:         200,   // limit recent interactions for performance
 
+// ── Content‑type preference ───────────────────────────────
+CONTENT_TYPE_BOOST_MIN: 0.8,
+CONTENT_TYPE_BOOST_MAX: 1.2,
+
   // ── Score debug flag ─────────────────────────────────────
   // Set to true to attach _scoreDebug to each post object.
   DEBUG_SCORES:  false,

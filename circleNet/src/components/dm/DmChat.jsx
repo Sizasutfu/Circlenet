@@ -54,6 +54,21 @@ function isWithin24Hours(createdAt) {
   return (now - msgTime) < 24 * 60 * 60 * 1000;
 }
 
+// ─── Relative time helper ──────────────────────────────────────────────
+function timeAgo(timestamp) {
+  if (!timestamp) return null;
+  const now = Date.now();
+  const diff = now - new Date(timestamp).getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export default function DmChat() {
   const { user } = useAuth();
   const {
@@ -67,6 +82,7 @@ export default function DmChat() {
     emitTyping,
     closeConversation,
     otherOnline,
+    otherLastActive,          // 👈 new
     editMessage,
     deleteMessage,
   } = useDm();
@@ -88,6 +104,7 @@ export default function DmChat() {
 
   // Dropdown menu state
   const [menuOpenId, setMenuOpenId] = useState(null);
+  const menuRef = useRef(null);
 
   // Header helpers
   const avatarUrl = resolveMediaUrl(activeOther?.picture);
@@ -184,9 +201,13 @@ export default function DmChat() {
 
   // ── Close dropdown on outside click ──
   useEffect(() => {
-    const handleClickOutside = () => setMenuOpenId(null);
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpenId(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // ── Video call ──
@@ -208,7 +229,7 @@ export default function DmChat() {
 
   return (
     <>
-      {/* ── HEADER (restored) ── */}
+      {/* ── HEADER ── */}
       <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--color-border)] flex-shrink-0 bg-[var(--color-surface)]">
         <button
           className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-[var(--color-txt2)] bg-[var(--color-accent-bg)] border-none cursor-pointer"
@@ -235,6 +256,7 @@ export default function DmChat() {
           <div className="font-head text-base font-extrabold text-[var(--color-txt)]">
             {activeOther?.name || '...'}
           </div>
+          {/* ── Status line ── */}
           <div className="text-xs flex items-center gap-1">
             <span
               className={`inline-block w-1.5 h-1.5 rounded-full ${
@@ -245,7 +267,13 @@ export default function DmChat() {
                   : 'bg-[var(--color-txt3)]'
               }`}
             />
-            {typing ? 'Typing...' : otherOnline ? 'Online' : 'Offline'}
+            {typing
+              ? 'Typing...'
+              : otherOnline
+              ? 'Online'
+              : otherLastActive
+              ? `Last seen ${timeAgo(otherLastActive)}`
+              : 'Offline'}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -267,7 +295,10 @@ export default function DmChat() {
       </div>
 
       {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5" id="dm-messages">
+      <div
+        className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5"
+        id="dm-messages"
+      >
         {hasMore && (
           <button
             onClick={handleLoadMore}
@@ -314,33 +345,56 @@ export default function DmChat() {
               {divider}
               <div className={`flex ${mine ? 'flex-row-reverse' : ''} items-end gap-2 animate-fadeUp`}>
                 {/* ── Three‑dot menu trigger ── */}
-                {mine && !isTmp && !isEditing && (
-                  <div className="relative">
+                {mine && !isTmp && !isEditing && canModify && (
+                  <div className="relative" ref={showMenu ? menuRef : null}>
                     <button
-                      className="text-[var(--color-txt3)] text-base px-1.5 rounded-full hover:bg-[var(--color-surface)] transition"
                       onClick={(e) => {
+                        e.preventDefault();
                         e.stopPropagation();
                         setMenuOpenId(showMenu ? null : msg.id);
                       }}
+                      className="text-[var(--color-txt3)] text-base px-1.5 rounded-full hover:bg-[var(--color-surface)] transition"
                     >
                       ⋯
                     </button>
-                    {showMenu && canModify && (
+                    {showMenu && (
                       <div
                         className="absolute bottom-full right-0 mb-1 w-32 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 z-10"
-                        onClick={(e) => e.stopPropagation()}
                       >
                         <button
-                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition"
+                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition flex items-center gap-2"
                           onClick={() => startEdit(msg)}
                         >
-                          ✏️ Edit
+                          <svg
+                            className="w-4 h-4 flex-shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            viewBox="0 0 24 24"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                          </svg>
+                          Edit
                         </button>
                         <button
-                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-rose)] hover:bg-[var(--color-surface)] transition"
+                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-rose)] hover:bg-[var(--color-surface)] transition flex items-center gap-2"
                           onClick={() => confirmDelete(msg.id)}
                         >
-                          🗑️ Delete
+                          <svg
+                            className="w-4 h-4 flex-shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            viewBox="0 0 24 24"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                          Delete
                         </button>
                       </div>
                     )}

@@ -15,6 +15,8 @@ import CommentButton from './CommentButton';
 import RepostButton from './RepostButton';
 import ShareButton from './ShareButton';
 
+let currentlyPlayingVideo = null;
+
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -66,14 +68,20 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
-export default function PostCard({ 
-  post, 
-  onLike, 
-  onComment, 
-  onRepost, 
-  onShare, 
+// ─── Shared card classes: full width on all screens,
+//      only a bottom border separator, no side borders or rounded corners.
+//      Hover shadow is kept as a subtle interaction cue.
+const cardClasses =
+  'px-4 py-3 border-b border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200';
+
+export default function PostCard({
+  post,
+  onLike,
+  onComment,
+  onRepost,
+  onShare,
   onQuote,
-  groupMap = new Map()
+  groupMap = new Map(),
 }) {
   if (!post) return null;
 
@@ -92,6 +100,8 @@ export default function PostCard({
     reposts = [],
     shares = 0,
     viewCount = 0,
+    views = 0,
+    videoViews = 0,
     isLive = false,
     liveSessionId = null,
     commentCount,
@@ -99,6 +109,7 @@ export default function PostCard({
     isRepost = false,
     originalPost = null,
     groupId = null,
+    reasons = [],
   } = post;
 
   const groupInfo = groupId ? groupMap.get(groupId) : null;
@@ -108,9 +119,8 @@ export default function PostCard({
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
 
-  const initialLiked = currentUser && likes.length > 0
-    ? likes.some(id => id === currentUser.id)
-    : false;
+  const initialLiked =
+    currentUser && likes.length > 0 ? likes.some((id) => id === currentUser.id) : false;
 
   const [isLiked, setIsLiked] = useState(initialLiked);
   const [likeCount, setLikeCount] = useState(likes.length || 0);
@@ -120,20 +130,82 @@ export default function PostCard({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // ── Reason popover state ──
+  const [showReasons, setShowReasons] = useState(false);
+  const reasonRef = useRef(null);
+
   const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(false);
 
   const { openLightbox } = useLightbox();
   const videoRef = useRef(null);
+  const videoContainerRef = useRef(null);
   const videoViewRecorded = useRef(false);
 
-  // ── Local view count state (starts from prop) ──
-  const [viewCountState, setViewCountState] = useState(viewCount || 0);
+  // ── Local view counts ──
+  const [regularViewsState, setRegularViewsState] = useState(views || 0);
+  const [videoViewsState, setVideoViewsState] = useState(videoViews || 0);
 
   const initial = displayName.charAt(0).toUpperCase();
   const avatarColor = stringToColor(displayName);
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
+
+  // ── Pause other videos when this one starts playing ──
+  useEffect(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    const handlePlay = () => {
+      if (currentlyPlayingVideo && currentlyPlayingVideo !== videoEl) {
+        currentlyPlayingVideo.pause();
+      }
+      currentlyPlayingVideo = videoEl;
+    };
+
+    const handlePause = () => {
+      if (currentlyPlayingVideo === videoEl) {
+        currentlyPlayingVideo = null;
+      }
+    };
+
+    videoEl.addEventListener('play', handlePlay);
+    videoEl.addEventListener('pause', handlePause);
+
+    return () => {
+      videoEl.removeEventListener('play', handlePlay);
+      videoEl.removeEventListener('pause', handlePause);
+      if (currentlyPlayingVideo === videoEl) {
+        currentlyPlayingVideo = null;
+      }
+    };
+  }, []);
+
+  // ── Pause video when it leaves the viewport ──
+  useEffect(() => {
+    const container = videoContainerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) {
+            const videoEl = videoRef.current;
+            if (videoEl && !videoEl.paused) {
+              videoEl.pause();
+            }
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   // ── Fetch link preview ──
   useEffect(() => {
@@ -158,7 +230,7 @@ export default function PostCard({
       .finally(() => setPreviewLoading(false));
   }, [id, text, image, video]);
 
-  // ── Record video view when 80% watched & update local count ──
+  // ── Record video view when 30% watched ──
   useEffect(() => {
     const videoEl = videoRef.current;
     if (!videoEl || !currentUser) return;
@@ -168,37 +240,27 @@ export default function PostCard({
       const duration = videoEl.duration;
       if (!duration || isNaN(duration) || duration === Infinity) return;
       const percent = videoEl.currentTime / duration;
-      if (percent >= 0.8) {
+      if (percent >= 0.3) {
         videoViewRecorded.current = true;
         const watchedSeconds = videoEl.currentTime;
-        // Send the required body fields
         apiClient(`/api/posts/${id}/video-view`, {
           method: 'POST',
-          body: {
-            watchedSeconds,
-            duration,
-          },
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          body: { watchedSeconds, duration },
         })
           .then((res) => {
             const data = res.data || res;
-            // Update view count with the server's returned count
             if (typeof data.views === 'number') {
-              setViewCountState(data.views);
+              setVideoViewsState(data.views);
             } else {
-              // fallback: increment by 1
-              setViewCountState(prev => prev + 1);
+              setVideoViewsState((prev) => prev + 1);
             }
           })
-          .catch(err => console.warn('Failed to record video view:', err));
+          .catch((err) => console.warn('Failed to record video view:', err));
       }
     };
 
     videoEl.addEventListener('timeupdate', handleTimeUpdate);
 
-    // Also listen for 'ended' as a fallback (100% watched)
     const handleEnded = () => {
       if (videoViewRecorded.current) return;
       const duration = videoEl.duration;
@@ -206,21 +268,17 @@ export default function PostCard({
       videoViewRecorded.current = true;
       apiClient(`/api/posts/${id}/video-view`, {
         method: 'POST',
-        body: JSON.stringify({
-          watchedSeconds: duration,
-          duration,
-        }),
-        headers: { 'Content-Type': 'application/json' },
+        body: { watchedSeconds: duration, duration },
       })
         .then((res) => {
           const data = res.data || res;
           if (typeof data.views === 'number') {
-            setViewCountState(data.views);
+            setVideoViewsState(data.views);
           } else {
-            setViewCountState(prev => prev + 1);
+            setVideoViewsState((prev) => prev + 1);
           }
         })
-        .catch(err => console.warn('Failed to record video view (ended):', err));
+        .catch((err) => console.warn('Failed to record video view (ended):', err));
     };
     videoEl.addEventListener('ended', handleEnded);
 
@@ -235,6 +293,17 @@ export default function PostCard({
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ── Close reason popover on outside click ──
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (reasonRef.current && !reasonRef.current.contains(e.target)) {
+        setShowReasons(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -302,7 +371,7 @@ export default function PostCard({
     setIsDropdownOpen(false);
     try {
       const canvas = await generatePostCard(post, currentUser?.username);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -325,7 +394,7 @@ export default function PostCard({
     setIsDropdownOpen(false);
     try {
       const canvas = await generatePostCard(post, currentUser?.username);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       const file = new File([blob], `post-${id}.png`, { type: 'image/png' });
       if (navigator.share) {
         await navigator.share({
@@ -388,16 +457,28 @@ export default function PostCard({
     if (postVideoUrl) {
       return (
         <div
+          ref={videoContainerRef}
           className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative cursor-pointer"
           onDoubleClick={handleVideoDblClick}
         >
           {videoError ? (
             <div className="p-6 text-center text-[var(--color-txt2)] text-sm">
-              <svg className="w-10 h-10 mx-auto mb-2 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <svg
+                className="w-10 h-10 mx-auto mb-2 text-[var(--color-txt3)]"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                viewBox="0 0 24 24"
+              >
                 <path d="M15 10l4.553-2.277A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
               <p>Video failed to load</p>
-              <a href={postVideoUrl} target="_blank" rel="noopener" className="text-[var(--color-accent)] hover:underline text-xs">
+              <a
+                href={postVideoUrl}
+                target="_blank"
+                rel="noopener"
+                className="text-[var(--color-accent)] hover:underline text-xs"
+              >
                 View directly
               </a>
             </div>
@@ -415,7 +496,13 @@ export default function PostCard({
                 onClick={(e) => e.stopPropagation()}
               />
               <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 pointer-events-none">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <svg
+                  className="w-3 h-3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
                   <polyline points="15 3 21 3 21 9" />
                   <polyline points="9 21 3 21 3 15" />
                   <line x1="21" y1="3" x2="14" y2="10" />
@@ -484,9 +571,7 @@ export default function PostCard({
               </div>
             )}
             {siteName && (
-              <div className="text-xs text-[var(--color-txt3)] mt-2">
-                {siteName}
-              </div>
+              <div className="text-xs text-[var(--color-txt3)] mt-2">{siteName}</div>
             )}
           </div>
         </div>
@@ -494,12 +579,17 @@ export default function PostCard({
     );
   };
 
-  const isAuthor = currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
+  const isAuthor =
+    currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
   // ── Profile URL ──
   const userId = post.user?.id || post.authorId || post.userId;
   const usernameForProfile = post.user?.username || post.authorUsername || post.username;
-  const profileUrl = usernameForProfile ? `/profile/${usernameForProfile}` : (userId ? `/profile?userId=${userId}` : null);
+  const profileUrl = usernameForProfile
+    ? `/profile/${usernameForProfile}`
+    : userId
+    ? `/profile?userId=${userId}`
+    : null;
 
   // ── Render group badge ──
   const renderGroupBadge = () => {
@@ -515,16 +605,67 @@ export default function PostCard({
     );
   };
 
-  // ── View count badge (always visible, placed in top-right corner) ──
-  const renderViewCount = () => {
-    return (
-      <span className="flex items-center gap-1 text-[var(--color-txt3)] text-xs" title="Total views">
+  // ── View count badges ──
+  const renderViewCounts = () => {
+    const regularBadge = (
+      <span className="flex items-center gap-1" title="Total page views">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
           <circle cx="12" cy="12" r="3" />
         </svg>
-        {formatNumber(viewCountState)}
+        {formatNumber(regularViewsState)}
       </span>
+    );
+
+    const videoBadge = postVideoUrl ? (
+      <span className="flex items-center gap-1" title="Video views">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <polygon points="5,3 19,12 5,21" />
+        </svg>
+        {formatNumber(videoViewsState)}
+      </span>
+    ) : null;
+
+    return (
+      <div className="flex items-center gap-2 text-[var(--color-txt3)] text-xs flex-shrink-0">
+        {regularBadge}
+        {videoBadge}
+      </div>
+    );
+  };
+
+  // ── Reason popover button ──
+  const renderReasonButton = () => {
+    if (!reasons || reasons.length === 0) return null;
+    return (
+      <div className="relative" ref={reasonRef}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowReasons(!showReasons);
+          }}
+          className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-accent)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
+          title="Why this post?"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+        </button>
+        {showReasons && (
+          <div className="absolute right-0 top-full mt-1 z-20 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg p-3 min-w-[200px] max-w-[280px]">
+            <div className="text-xs text-[var(--color-txt2)] font-medium mb-1">
+              Why you're seeing this
+            </div>
+            <ul className="text-xs text-[var(--color-txt)] space-y-1 list-disc list-inside">
+              {reasons.map((reason, i) => (
+                <li key={i}>{reason}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -563,9 +704,7 @@ export default function PostCard({
                 origInitial
               )}
             </div>
-            <span className="font-semibold text-xs text-[var(--color-txt)]">
-              {origAuthor}
-            </span>
+            <span className="font-semibold text-xs text-[var(--color-txt)]">{origAuthor}</span>
             {origUsername && (
               <span className="text-xs text-[var(--color-txt2)]">@{origUsername}</span>
             )}
@@ -609,7 +748,7 @@ export default function PostCard({
   // ── Repost layout ──
   if (isRepost && originalPost) {
     return (
-      <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
+      <div className={cardClasses}>
         <div className="flex items-start gap-3">
           {profileUrl ? (
             <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -617,7 +756,11 @@ export default function PostCard({
                 className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
                 style={{ background: avatarUrl ? 'transparent' : avatarColor }}
               >
-                {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  initial
+                )}
               </div>
             </Link>
           ) : (
@@ -625,7 +768,11 @@ export default function PostCard({
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
               style={{ background: avatarUrl ? 'transparent' : avatarColor }}
             >
-              {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                initial
+              )}
             </div>
           )}
 
@@ -644,8 +791,8 @@ export default function PostCard({
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {username && (
-                  profileUrl ? (
+                {username &&
+                  (profileUrl ? (
                     <Link
                       href={profileUrl}
                       className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
@@ -655,17 +802,21 @@ export default function PostCard({
                     </Link>
                   ) : (
                     <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
-                  )
-                )}
+                  ))}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
                 {renderGroupBadge()}
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                {renderViewCount()}  {/* View count on the right */}
+                {renderViewCounts()}
+                {renderReasonButton()}
                 <div className="relative" ref={dropdownRef}>
                   <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDropdownOpen(!isDropdownOpen);
+                    }}
                     className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
                     title="More actions"
                   >
@@ -682,7 +833,13 @@ export default function PostCard({
                         disabled={imageLoading}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
                           <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
                         </svg>
                         {imageLoading ? 'Generating…' : 'Download as Image'}
@@ -692,7 +849,13 @@ export default function PostCard({
                         disabled={imageLoading}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
                           <circle cx="18" cy="5" r="3" />
                           <circle cx="6" cy="12" r="3" />
                           <circle cx="18" cy="19" r="3" />
@@ -707,7 +870,13 @@ export default function PostCard({
                             onClick={handleDownloadOriginalImage}
                             className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
                               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                               <polyline points="7 10 12 15 17 10" />
                               <line x1="12" y1="15" x2="12" y2="3" />
@@ -723,7 +892,13 @@ export default function PostCard({
                             onClick={handleEditPost}
                             className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
                               <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
                             </svg>
                             Edit Post
@@ -746,10 +921,19 @@ export default function PostCard({
 
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
               <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
-              <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
-              <RepostButton count={repostCount ?? reposts.length} onClick={() => onRepost && onRepost(id)} />
+              <CommentButton
+                count={commentCount ?? comments.length}
+                onClick={() => onComment && onComment(id)}
+              />
+              <RepostButton
+                count={repostCount ?? reposts.length}
+                onClick={() => onRepost && onRepost(id)}
+              />
               <button
-                onClick={(e) => { e.stopPropagation(); if (onQuote) onQuote(id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onQuote) onQuote(id);
+                }}
                 className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
                 title="Quote this post"
               >
@@ -769,7 +953,7 @@ export default function PostCard({
   if (isLive && liveSessionId) {
     return (
       <div
-        className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-rose)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200 cursor-pointer bg-[var(--color-rose-bg)]"
+        className={`${cardClasses} bg-[var(--color-rose-bg)]`}
         onClick={handleLiveClick}
       >
         <div className="flex items-start gap-3">
@@ -779,7 +963,11 @@ export default function PostCard({
                 className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
                 style={{ background: avatarUrl ? 'transparent' : avatarColor }}
               >
-                {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  initial
+                )}
               </div>
             </Link>
           ) : (
@@ -787,40 +975,56 @@ export default function PostCard({
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
               style={{ background: avatarUrl ? 'transparent' : avatarColor }}
             >
-              {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                initial
+              )}
             </div>
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
                 {profileUrl ? (
-                  <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition">
+                  <Link
+                    href={profileUrl}
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                  >
                     {displayName}
                   </Link>
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {username && (
-                  profileUrl ? (
-                    <Link href={profileUrl} onClick={(e) => e.stopPropagation()} className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition">
+                {username &&
+                  (profileUrl ? (
+                    <Link
+                      href={profileUrl}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
+                    >
                       @{username}
                     </Link>
                   ) : (
                     <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
-                  )
-                )}
+                  ))}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
                 {renderGroupBadge()}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                {renderViewCount()}  {/* View count on the right */}
+                {renderViewCounts()}
+                {renderReasonButton()}
                 <span className="flex items-center gap-1 bg-[var(--color-rose)] text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                   LIVE
                 </span>
                 <div className="relative" ref={dropdownRef}>
                   <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDropdownOpen(!isDropdownOpen);
+                    }}
                     className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
                     title="More actions"
                   >
@@ -837,7 +1041,13 @@ export default function PostCard({
                         disabled={imageLoading}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
                           <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
                         </svg>
                         {imageLoading ? 'Generating…' : 'Download as Image'}
@@ -847,7 +1057,13 @@ export default function PostCard({
                         disabled={imageLoading}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
                           <circle cx="18" cy="5" r="3" />
                           <circle cx="6" cy="12" r="3" />
                           <circle cx="18" cy="19" r="3" />
@@ -862,7 +1078,13 @@ export default function PostCard({
                             onClick={handleDownloadOriginalImage}
                             className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
                               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                               <polyline points="7 10 12 15 17 10" />
                               <line x1="12" y1="15" x2="12" y2="3" />
@@ -878,7 +1100,13 @@ export default function PostCard({
                             onClick={handleEditPost}
                             className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
                               <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
                             </svg>
                             Edit Post
@@ -894,7 +1122,13 @@ export default function PostCard({
               <span dangerouslySetInnerHTML={{ __html: formatPostText(text) }} />
             </div>
             <div className="mt-2 flex items-center justify-center gap-2 bg-black/10 dark:bg-white/10 rounded-lg p-3">
-              <svg className="w-8 h-8 text-[var(--color-rose)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg
+                className="w-8 h-8 text-[var(--color-rose)]"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
                 <circle cx="12" cy="12" r="10" />
                 <polygon points="10,8 16,12 10,16" fill="currentColor" />
               </svg>
@@ -903,10 +1137,19 @@ export default function PostCard({
 
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
               <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
-              <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
-              <RepostButton count={repostCount ?? reposts.length} onClick={() => onRepost && onRepost(id)} />
+              <CommentButton
+                count={commentCount ?? comments.length}
+                onClick={() => onComment && onComment(id)}
+              />
+              <RepostButton
+                count={repostCount ?? reposts.length}
+                onClick={() => onRepost && onRepost(id)}
+              />
               <button
-                onClick={(e) => { e.stopPropagation(); if (onQuote) onQuote(id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onQuote) onQuote(id);
+                }}
                 className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
                 title="Quote this post"
               >
@@ -924,7 +1167,7 @@ export default function PostCard({
 
   // ── Regular post layout ──
   return (
-    <div className="p-4 rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200">
+    <div className={cardClasses}>
       <div className="flex items-start gap-3">
         {profileUrl ? (
           <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -932,7 +1175,11 @@ export default function PostCard({
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
               style={{ background: avatarUrl ? 'transparent' : avatarColor }}
             >
-              {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                initial
+              )}
             </div>
           </Link>
         ) : (
@@ -940,7 +1187,11 @@ export default function PostCard({
             className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
             style={{ background: avatarUrl ? 'transparent' : avatarColor }}
           >
-            {avatarUrl ? <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" /> : initial}
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={initial} className="h-full w-full rounded-full object-cover" />
+            ) : (
+              initial
+            )}
           </div>
         )}
 
@@ -960,8 +1211,8 @@ export default function PostCard({
                 ) : (
                   <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
                 )}
-                {username && (
-                  profileUrl ? (
+                {username &&
+                  (profileUrl ? (
                     <Link
                       href={profileUrl}
                       className="text-[var(--color-txt2)] text-xs hover:underline hover:text-[var(--color-accent)] transition"
@@ -971,17 +1222,21 @@ export default function PostCard({
                     </Link>
                   ) : (
                     <span className="text-[var(--color-txt2)] text-xs">@{username}</span>
-                  )
-                )}
+                  ))}
                 <span className="text-[var(--color-txt3)] text-xs">· {relativeTime}</span>
                 {renderGroupBadge()}
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                {renderViewCount()}  {/* View count on the right */}
+                {renderViewCounts()}
+                {renderReasonButton()}
                 <div className="relative" ref={dropdownRef}>
                   <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDropdownOpen(!isDropdownOpen);
+                    }}
                     className="p-1 text-[var(--color-txt3)] hover:text-[var(--color-txt)] rounded-full hover:bg-[var(--color-accent-bg)] transition"
                     title="More actions"
                   >
@@ -998,7 +1253,13 @@ export default function PostCard({
                         disabled={imageLoading}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
                           <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
                         </svg>
                         {imageLoading ? 'Generating…' : 'Download as Image'}
@@ -1008,7 +1269,13 @@ export default function PostCard({
                         disabled={imageLoading}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
                           <circle cx="18" cy="5" r="3" />
                           <circle cx="6" cy="12" r="3" />
                           <circle cx="18" cy="19" r="3" />
@@ -1023,7 +1290,13 @@ export default function PostCard({
                             onClick={handleDownloadOriginalImage}
                             className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
                               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                               <polyline points="7 10 12 15 17 10" />
                               <line x1="12" y1="15" x2="12" y2="3" />
@@ -1039,7 +1312,13 @@ export default function PostCard({
                             onClick={handleEditPost}
                             className="flex items-center gap-2 w-full px-4 py-2 text-sm text-[var(--color-txt)] hover:bg-[var(--color-accent-bg)] transition"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
                               <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
                             </svg>
                             Edit Post
@@ -1060,7 +1339,11 @@ export default function PostCard({
               )}
               {text?.length > 200 && (
                 <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleExpand();
+                  }}
                   className="ml-1 text-[var(--color-accent)] hover:underline text-xs font-medium"
                 >
                   {isExpanded ? 'Show less' : 'Show more'}
@@ -1074,10 +1357,19 @@ export default function PostCard({
 
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
-            <CommentButton count={commentCount ?? comments.length} onClick={() => onComment && onComment(id)} />
-            <RepostButton count={repostCount ?? reposts.length} onClick={() => onRepost && onRepost(id)} />
+            <CommentButton
+              count={commentCount ?? comments.length}
+              onClick={() => onComment && onComment(id)}
+            />
+            <RepostButton
+              count={repostCount ?? reposts.length}
+              onClick={() => onRepost && onRepost(id)}
+            />
             <button
-              onClick={(e) => { e.stopPropagation(); if (onQuote) onQuote(id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onQuote) onQuote(id);
+              }}
               className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
               title="Quote this post"
             >

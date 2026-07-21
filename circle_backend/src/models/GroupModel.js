@@ -337,7 +337,7 @@ async function getGroupFeed(groupId, { page = 1, limit = 20, userId = null } = {
   const hasMore   = rawPosts.length > limit;
   const pagePosts = rawPosts.slice(0, limit);
 
-  const PostModel = require('./PostModel');
+  const PostModel = require('./postModel');
   const hydrated  = await PostModel.hydratePosts(pagePosts);
 
   return { posts: hydrated, hasMore, page, limit };

@@ -12,7 +12,7 @@ const { db }          = require('../config/db');
 const {
   FEED_PAGE_SIZE,
 } = require('../config/constants');
-const TopicPreferenceModel = require('./TopicPreferenceModel');
+const TopicPreferenceModel = require('./topicPreferenceModel');
 
 // ── Normalise a stored media URL to a relative path ──────────
 function toRelativePath(url) {

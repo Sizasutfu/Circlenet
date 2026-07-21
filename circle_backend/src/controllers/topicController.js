@@ -9,8 +9,8 @@
 //    GET    /api/topics/feed                  → personalised topic feed
 // ============================================================
 
-const PostModel             = require('../models/PostModel');
-const TopicPreferenceModel  = require('../models/TopicPreferenceModel');
+const PostModel             = require('../models/postModel');
+const TopicPreferenceModel  = require('../models/topicPreferenceModel');
 const { sendOk, sendError } = require('../middleware/response');
 
 // GET /api/topics?limit=<n>

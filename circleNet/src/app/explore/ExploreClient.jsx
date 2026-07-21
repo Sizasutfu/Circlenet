@@ -1,100 +1,67 @@
 // src/app/explore/ExploreClient.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useState } from 'react';
 import { useExplore } from '@/contexts/ExploreContext';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
+import UserAvatar from '@/components/ui/UserAvatar';
+import ReasonBadge from '@/components/ui/ReasonBadge';
 import Link from 'next/link';
 
 // ── SVG Icons ──
-function FireIcon() {
-  return (
-    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M12 2C10 6 6 8 6 12c0 3.314 2.686 6 6 6s6-2.686 6-6c0-4-4-6-6-10z" />
-      <path d="M12 22c-3.314 0-6-2.686-6-6 0-2 1.5-4 3-6 1.5 2 3 4 3 6 0 3.314-2.686 6-6 6z" />
-    </svg>
-  );
-}
+const FireIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M12 2C10 6 6 8 6 12c0 3.314 2.686 6 6 6s6-2.686 6-6c0-4-4-6-6-10z" />
+    <path d="M12 22c-3.314 0-6-2.686-6-6 0-2 1.5-4 3-6 1.5 2 3 4 3 6 0 3.314-2.686 6-6 6z" />
+  </svg>
+);
 
-function TrendingIcon() {
-  return (
-    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-      <polyline points="17 6 23 6 23 12" />
-    </svg>
-  );
-}
+const TrendingIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+    <polyline points="17 6 23 6 23 12" />
+  </svg>
+);
 
-function PeopleIcon() {
-  return (
-    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 00-3-3.87" />
-      <path d="M16 3.13a4 4 0 010 7.75" />
-    </svg>
-  );
-}
+const PeopleIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 00-3-3.87" />
+    <path d="M16 3.13a4 4 0 010 7.75" />
+  </svg>
+);
 
-function SparklesIcon() {
-  return (
-    <svg className="w-5 h-5 text-[var(--color-txt)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
-      <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
-      <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
-    </svg>
-  );
-}
+const SparklesIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+    <path d="M19 19l-1.5-2.5L15 15l2.5-1.5L19 11l1.5 2.5L23 15l-2.5 1.5L19 19z" />
+    <path d="M5 19l-1.5-2.5L1 15l2.5-1.5L5 11l1.5 2.5L9 15l-2.5 1.5L5 19z" />
+  </svg>
+);
 
-// ─── Uniform avatar placeholder ──────────────────────────
-function AvatarPlaceholder({ size = 'w-12 h-12', className = '' }) {
+// ── Topic Row ──
+function TopicRow({ topic, index }) {
+  const count = topic.post_count >= 1000 ? (topic.post_count / 1000).toFixed(1) + 'k' : topic.post_count;
+  
   return (
-    <div
-      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
+    <Link href={`/topic/${encodeURIComponent(topic.topic)}`} 
+      className="flex items-center gap-4 py-2.5 px-3 hover:bg-[var(--color-surface)] rounded-lg transition cursor-pointer border-b border-[var(--color-border)] last:border-0"
     >
-      <svg
-        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    </div>
+      <span className="text-sm font-bold text-[var(--color-txt3)] w-6 text-right">{index + 1}</span>
+      <span className="flex-1 font-medium text-[var(--color-txt)]">#{topic.topic}</span>
+      <span className="text-sm text-[var(--color-txt2)]">{count} posts</span>
+    </Link>
   );
 }
 
-// ── Helpers ──
-function escHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>"']/g, (m) => {
-    if (m === '&') return '&amp;';
-    if (m === '<') return '&lt;';
-    if (m === '>') return '&gt;';
-    if (m === '"') return '&quot;';
-    if (m === "'") return '&#39;';
-    return m;
-  });
-}
-
-function joinedAgo(dateStr) {
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
-  if (diff === 0) return 'Joined today';
-  if (diff === 1) return 'Joined yesterday';
-  return `Joined ${diff} days ago`;
-}
-
-function PeopleCard({ user, onFollow, isFollowing }) {
+// ── People Card ──
+function PeopleCard({ user, onFollow, isFollowing, onDismiss }) {
   const { user: currentUser } = useAuth();
-  const initial = (user.name || '?').charAt(0).toUpperCase();
-  const avatarUrl = user.picture;
 
   const handleClick = () => {
     if (user.username) {
@@ -104,49 +71,93 @@ function PeopleCard({ user, onFollow, isFollowing }) {
     }
   };
 
+  const handleDismiss = (e) => {
+    e.stopPropagation();
+    onDismiss(user.id);
+  };
+
+  const handleFollowClick = (e) => {
+    e.stopPropagation();
+    onFollow(user.id);
+  };
+
   return (
     <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer" onClick={handleClick}>
-      {avatarUrl ? (
-        <img
-          src={avatarUrl}
-          alt={initial}
-          className="flex-shrink-0 w-12 h-12 rounded-full object-cover"
-        />
-      ) : (
-        <AvatarPlaceholder size="w-12 h-12" />
-      )}
+      <UserAvatar user={user} size="w-12 h-12" />
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-[var(--color-txt)]">{user.name}</div>
         <div className="text-sm text-[var(--color-txt2)]">@{user.username || 'user'}</div>
-        <div className="text-xs text-[var(--color-txt3)]">
-          {user.post_count ?? user.postCount ?? 0} posts · {user.follower_count ?? user.followerCount ?? 0} followers
+        <div className="text-xs text-[var(--color-txt3)] flex items-center gap-2 flex-wrap">
+          <span>{user.post_count ?? user.postCount ?? 0} posts · {user.follower_count ?? user.followerCount ?? 0} followers</span>
+          <ReasonBadge reasons={user.reasons} />
         </div>
       </div>
       {currentUser && currentUser.id !== user.id && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onFollow(user.id); }}
-          className="px-4 py-1.5 text-sm rounded-full bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
-          disabled={isFollowing}
-        >
-          {isFollowing ? 'Following' : 'Follow'}
-        </button>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <button
+            onClick={handleDismiss}
+            className="text-[10px] text-[var(--color-txt3)] hover:text-[var(--color-rose)] transition"
+          >
+            Not interested
+          </button>
+          <button
+            onClick={handleFollowClick}
+            className="px-4 py-1.5 text-sm rounded-full bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
+            disabled={isFollowing}
+          >
+            {isFollowing ? 'Following' : 'Follow'}
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
-function TopicRow({ topic, index }) {
-  const count = topic.post_count >= 1000 ? (topic.post_count / 1000).toFixed(1) + 'k' : topic.post_count;
+// ── New Member Card ──
+function NewMemberCard({ user }) {
+  const handleClick = () => {
+    if (user.username) {
+      window.location.href = `/profile/${user.username}`;
+    } else if (user.id) {
+      window.location.href = `/profile?userId=${user.id}`;
+    }
+  };
+
+  const diff = Math.floor((Date.now() - new Date(user.createdAt).getTime()) / 86400000);
+  const joinedText = diff === 0 ? 'Joined today' : diff === 1 ? 'Joined yesterday' : `Joined ${diff} days ago`;
 
   return (
-    <Link href={`/topic/${encodeURIComponent(topic.topic)}`} className="flex items-center gap-4 py-2.5 px-3 hover:bg-[var(--color-surface)] rounded-lg transition cursor-pointer border-b border-[var(--color-border)] last:border-0">
-      <span className="text-sm font-bold text-[var(--color-txt3)] w-6 text-right">{index + 1}</span>
-      <span className="flex-1 font-medium text-[var(--color-txt)]">#{topic.topic}</span>
-      <span className="text-sm text-[var(--color-txt2)]">{count} posts</span>
-    </Link>
+    <div
+      className="relative p-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:shadow-[var(--color-shadow)] transition cursor-pointer"
+      onClick={handleClick}
+    >
+      <span className="absolute -top-2 -right-2 bg-[var(--color-green)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">NEW</span>
+      <div className="flex items-center gap-3">
+        <UserAvatar user={user} size="w-12 h-12" />
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[var(--color-txt)]">{user.name}</div>
+          <div className="text-xs text-[var(--color-green)]">{joinedText}</div>
+        </div>
+      </div>
+    </div>
   );
 }
 
+// ── Skeleton ──
+function PeopleSkeleton() {
+  return (
+    <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
+      <div className="w-12 h-12 rounded-full bg-[var(--color-surface)]" />
+      <div className="flex-1 space-y-2">
+        <div className="h-4 w-1/3 bg-[var(--color-surface)] rounded" />
+        <div className="h-3 w-1/2 bg-[var(--color-surface)] rounded" />
+      </div>
+      <div className="w-16 h-8 bg-[var(--color-surface)] rounded-full" />
+    </div>
+  );
+}
+
+// ── Main ──
 export default function ExploreClient() {
   const { user } = useAuth();
   const router = useRouter();
@@ -211,6 +222,11 @@ export default function ExploreClient() {
     }
   };
 
+  const handleDismiss = (userId) => {
+    // The API call is made inside PeopleCard, we just refresh the list
+    loadPeople();
+  };
+
   const categories = [
     { id: 'all', label: 'All' },
     { id: 'popular', label: 'Popular' },
@@ -229,16 +245,13 @@ export default function ExploreClient() {
     <div className="max-w-5xl mx-auto px-4 py-6">
       <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)] mb-6">Explore</h1>
 
-      {/* Topics */}
+      {/* Trending Topics */}
       <section className="mb-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
             <FireIcon /> Trending Topics
           </h2>
-          <button
-            onClick={() => loadTopics()}
-            className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
-          >
+          <button onClick={() => loadTopics()} className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
             Refresh
           </button>
         </div>
@@ -315,32 +328,20 @@ export default function ExploreClient() {
         </div>
       </section>
 
-      {/* People */}
+      {/* People You May Know */}
       {user && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
               <PeopleIcon /> People You May Know
             </h2>
-            <button
-              onClick={() => loadPeople()}
-              className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
-            >
+            <button onClick={() => loadPeople()} className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
               Refresh
             </button>
           </div>
           <div className="space-y-3">
             {peopleLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
-                  <div className="w-12 h-12 rounded-full bg-[var(--color-surface)]" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 w-1/3 bg-[var(--color-surface)] rounded" />
-                    <div className="h-3 w-1/2 bg-[var(--color-surface)] rounded" />
-                  </div>
-                  <div className="w-16 h-8 bg-[var(--color-surface)] rounded-full" />
-                </div>
-              ))
+              Array.from({ length: 3 }).map((_, i) => <PeopleSkeleton key={i} />)
             ) : people.length === 0 ? (
               <div className="text-center py-6 text-[var(--color-txt2)]">No suggestions right now. Interact with posts to get recommendations!</div>
             ) : (
@@ -350,6 +351,7 @@ export default function ExploreClient() {
                   user={p}
                   onFollow={handleFollow}
                   isFollowing={following.has(p.id)}
+                  onDismiss={handleDismiss}
                 />
               ))
             )}
@@ -364,51 +366,26 @@ export default function ExploreClient() {
             <h2 className="text-lg font-head font-bold text-[var(--color-txt)] flex items-center gap-2">
               <SparklesIcon /> New Members
             </h2>
-            <button
-              onClick={() => loadNewMembers()}
-              className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
-            >
+            <button onClick={() => loadNewMembers()} className="text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition">
               Refresh
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {newMembers.map((u) => {
-              const initial = (u.name || '?').charAt(0).toUpperCase();
-              const avatarUrl = u.picture;
-
-              const handleClick = () => {
-                if (u.username) {
-                  window.location.href = `/profile/${u.username}`;
-                } else if (u.id) {
-                  window.location.href = `/profile?userId=${u.id}`;
-                }
-              };
-
-              return (
-                <div
-                  key={u.id}
-                  className="relative p-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:shadow-[var(--color-shadow)] transition cursor-pointer"
-                  onClick={handleClick}
-                >
-                  <span className="absolute -top-2 -right-2 bg-[var(--color-green)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">NEW</span>
+            {newMembersLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="p-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
                   <div className="flex items-center gap-3">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt={initial}
-                        className="flex-shrink-0 w-12 h-12 rounded-full object-cover"
-                      />
-                    ) : (
-                      <AvatarPlaceholder size="w-12 h-12" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-[var(--color-txt)]">{u.name}</div>
-                      <div className="text-xs text-[var(--color-green)]">{joinedAgo(u.createdAt)}</div>
+                    <div className="w-12 h-12 rounded-full bg-[var(--color-surface)]" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-1/2 bg-[var(--color-surface)] rounded" />
+                      <div className="h-3 w-1/3 bg-[var(--color-surface)] rounded" />
                     </div>
                   </div>
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              newMembers.map((u) => <NewMemberCard key={u.id} user={u} />)
+            )}
           </div>
         </section>
       )}

@@ -11,7 +11,7 @@
 //  GET    /api/groups/:groupId/feed         → group post feed
 // ============================================================
 
-const GroupModel            = require('../models/GroupModel');
+const GroupModel            = require('../models/groupModel');
 const { sendOk, sendError } = require('../middleware/response');
 
 // ── GET /api/groups?page=<n>&limit=<n> ──────────────────

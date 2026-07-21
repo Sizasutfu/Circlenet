@@ -1,7 +1,7 @@
 // controllers/searchController.js
 const { db }                = require('../config/db');
 const FollowModel           = require('../models/followModel');
-const PostModel             = require('../models/PostModel');
+const PostModel             = require('../models/postModel');
 const { sendOk, sendError } = require('../middleware/response');
 const esService             = require('../services/elasticsearchService');
 

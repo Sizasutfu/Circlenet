@@ -8,7 +8,9 @@
 //   4. Real users → next() so the SPA index.html loads normally
 
 const { db } = require('../config/db');
-const ArticleModel = require('../models/ArticleModel');
+const ArticleModel = require('../models/articleModel');
+const PostModel = require('../models/postModel');
+const UserModel = require('../models/userModel')
 
 // ── Bot detection ─────────────────────────────────────────────────────────────
 const BOT_UA = /googlebot|bingbot|yandexbot|duckduckbot|slurp|baiduspider|twitterbot|facebookexternalhit|linkedinbot|whatsapp|telegrambot|applebot|discordbot|slackbot|embedly|ia_archiver|pinterestbot|slackbot-linkexpanding/i;

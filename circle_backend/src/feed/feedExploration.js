@@ -12,7 +12,7 @@
 // ============================================================
 
 const { db }                          = require('../config/db');
-const { hydratePosts }                = require('../models/PostModel');
+const { hydratePosts }                = require('../models/postModel');
 const { EXPLORE_EVERY_N, EXPLORE_MAX_AGE_HOURS } = require('../config/constants');
 
 /**

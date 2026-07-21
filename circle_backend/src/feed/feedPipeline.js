@@ -25,11 +25,11 @@
 // ============================================================
 
 const { db }                          = require('../config/db');
-const PostModel                       = require('../models/PostModel');
+const PostModel                       = require('../models/postModel');
 const UserModel                       = require('../models/UserModel');
-const TopicPreferenceModel            = require('../models/TopicPreferenceModel');
-const NegativeSignalModel             = require('../models/NegativeSignalModel');
-const ContentTypePreference           = require('../models/ContentTypePreferenceModel');
+const TopicPreferenceModel            = require('../models/topicPreferenceModel');
+const NegativeSignalModel             = require('../models/negativeSignalModel');
+const ContentTypePreference           = require('../models/contentTypePreferenceModel');
 const { computeScore, generateReasons } = require('./feedScorer');
 const { applyDiversity }              = require('./feedDiversity');
 const { fetchExplorationPosts,

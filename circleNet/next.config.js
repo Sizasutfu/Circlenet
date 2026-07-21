@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // ── Allow connections from this IP (for network testing) ──
-  allowedDevOrigins: ['10.140.231.203'],
+  allowedDevOrigins: ['192.168.182.203'],
 
   // ── Development server HTTPS (using mkcert certificates) ──
   // Only applies to `next dev` – ignored in production (`next start`)

@@ -6,15 +6,15 @@
 //  disk and their filenames are in req.compressedFiles.
 // ============================================================
 
-const PostModel             = require('../models/PostModel');
+const PostModel             = require('../models/postModel');
 const UserModel             = require('../models/userModel');
 const NotificationModel     = require('../models/notificationModel');
 const FollowModel           = require('../models/followModel');
 const PushModel             = require('../models/pushModel');
-const TopicPreferenceModel  = require('../models/TopicPreferenceModel');
-const NegativeSignalModel   = require('../models/NegativeSignalModel');
-const GroupModel            = require('../models/GroupModel');
-const ContentTypePreference = require('../models/ContentTypePreferenceModel'); // ← NEW
+const TopicPreferenceModel  = require('../models/topicPreferenceModel');
+const NegativeSignalModel   = require('../models/negativeSignalModel');
+const GroupModel            = require('../models/groupModel');
+const ContentTypePreference = require('../models/contentTypePreferenceModel'); // ← NEW
 
 const { getPostsPage }      = require('../feed/feedPipeline');
 const { db }                = require('../config/db');

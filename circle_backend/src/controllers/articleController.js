@@ -3,7 +3,7 @@
 //  Handles all request/response logic for article routes.
 // ============================================================
 
-const ArticleModel        = require('../models/ArticleModel');
+const ArticleModel        = require('../models/articleModel');
 const UserModel           = require('../models/userModel');
 const NotificationModel   = require('../models/notificationModel');
 const FollowModel         = require('../models/followModel');

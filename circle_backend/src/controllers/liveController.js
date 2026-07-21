@@ -7,7 +7,7 @@
 //  GET    /api/live/:sessionId     → single session details
 // ============================================================
 
-const LiveModel                  = require('../models/LiveModel');
+const LiveModel                  = require('../models/liveModel');
 const NotificationModel          = require('../models/notificationModel');
 const { sendOk, sendError }      = require('../middleware/response');
 

@@ -104,7 +104,7 @@ export function DmProvider({ children }) {
     try {
       const res = await apiClient(`/api/dm/conversations/${convId}/presence`);
       setOtherOnline(res.data?.online || false);
-      setOtherLastActive(res.data?.last_active_at || null); // 👈 new
+      setOtherLastActive(res.data?.last_seen_at || null); // 👈 new
     } catch (_) {}
   }, []);
 

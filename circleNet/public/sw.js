@@ -1,4 +1,4 @@
-const CACHE_NAME = 'circlenet-v4';
+const CACHE_NAME = 'circlenet-v5';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

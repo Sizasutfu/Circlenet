@@ -100,8 +100,7 @@ export default function ClientLayout({ children }) {
     '/settings',
   ];
 
-  // ── Add header hiding for DM chat ──
-  // We hide the header on any route that starts with /messages (including /messages/[id])
+  // ── Header hiding for specific routes ──
   const shouldHideHeader = isLanding || pathname.startsWith('/messages');
 
   const shouldHideFooter = hideFooterRoutes.includes(pathname);
@@ -140,12 +139,21 @@ export default function ClientLayout({ children }) {
                                       !isLanding && !shouldHideSidebar ? 'md:ml-[280px]' : ''
                                     }`}
                                   >
-                                    <Suspense fallback={<div className="h-14" />}>
-                                      {/* ── Only show Header if not landing and not hiding ── */}
-                                      {!isLanding && !shouldHideHeader && (
-                                        <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
-                                      )}
-                                    </Suspense>
+                                    {/* ── Fixed Header with scroll-hide ── */}
+                                    {!isLanding && !shouldHideHeader && (
+                                      <>
+                                        <div
+                                          className={`fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ease-in-out ${
+                                            shouldHide ? '-translate-y-full' : 'translate-y-0'
+                                          }`}
+                                        >
+                                          <Header onMenuClick={toggleSidebar} hideMenu={isLanding} />
+                                        </div>
+                                        {/* Spacer to prevent content from hiding under the fixed header */}
+                                        <div className="h-14" />
+                                      </>
+                                    )}
+
                                     <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center w-full">
                                       <main
                                         className={`flex-1 max-w-2xl min-w-0 w-full ${

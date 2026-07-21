@@ -32,7 +32,7 @@ const followRoutes         = require('./routes/followRoutes');
 const notificationRoutes   = require('./routes/notificationRoutes');
 const searchRoutes         = require('./routes/searchRoutes');
 const recommendationRoutes = require('./routes/recommendationRoutes');
-const dmRoutes             = require('./routes/dm');
+const dmRoutes             = require('./routes/dmRoutes');
 const exploreRoutes        = require('./routes/exploreRoutes');
 const topicRoutes          = require('./routes/topicRoutes');
 const pushRoutes           = require('./routes/pushRoutes');
@@ -137,7 +137,7 @@ app.use('/api/comments',        commentRoutes);
 seoMiddleware(app);
 
 // ── Start crons ───────────────────────────────────────────
-const { startGroupCron } = require('./models/GroupModel');
+const { startGroupCron } = require('./models/groupModel');
 startGroupCron();
 console.log('Group auto-creation cron started.');
 

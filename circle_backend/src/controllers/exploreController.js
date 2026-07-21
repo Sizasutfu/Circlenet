@@ -3,7 +3,7 @@
 //  Handles the Explore page endpoints.
 // ============================================================
 
-const PostModel  = require('../models/PostModel');
+const PostModel  = require('../models/postModel');
 const { sendOk, sendError } = require('../middleware/response');
 
 // GET /api/explore/trending

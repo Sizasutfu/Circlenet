@@ -4,7 +4,7 @@
 // ============================================================
 
 const { WebSocketServer, WebSocket } = require('ws');
-function LiveModel() { return require('./src/models/LiveModel'); }
+function LiveModel() { return require('./src/models/liveModel'); }
 
 const userSockets = new Map();
 const activeConversations = new Map();

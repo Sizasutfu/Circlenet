@@ -3,6 +3,7 @@
 // ============================================================
 
 const RecommendationModel    = require('../models/recommendationModel');
+const DismissedRecommendationModel = require('../models/dismissedRecommendationModel');
 const { sendOk, sendError }  = require('../middleware/response');
 
 // GET /api/recommendations?userId=ID&limit=10
@@ -14,7 +15,8 @@ async function getRecommendations(req, res) {
     return sendError(res, 400, 'userId is required.');
 
   try {
-    const users = await RecommendationModel.getRecommendations(userId, limit);
+    const dismissed = await DismissedRecommendationModel.getDismissedUserIds(userId);
+    const users = await RecommendationModel.getRecommendations(userId, limit, dismissed);
     return sendOk(res, 200, 'Recommendations fetched.', users);
   } catch (err) {
     console.error('getRecommendations error:', err);
@@ -22,4 +24,22 @@ async function getRecommendations(req, res) {
   }
 }
 
-module.exports = { getRecommendations };
+// POST /api/recommendations/dismiss
+// Body: { dismissedUserId: number }
+async function dismissRecommendation(req, res) {
+  const userId = req.actorId;
+  const { dismissedUserId } = req.body;
+
+  if (!userId || !dismissedUserId)
+    return sendError(res, 400, 'Missing userId or dismissedUserId.');
+
+  try {
+    await DismissedRecommendationModel.dismissRecommendation(userId, dismissedUserId);
+    return sendOk(res, 200, 'Dismissed.');
+  } catch (err) {
+    console.error('dismissRecommendation error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+module.exports = { getRecommendations, dismissRecommendation };

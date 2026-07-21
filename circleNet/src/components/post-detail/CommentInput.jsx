@@ -55,8 +55,8 @@ export default function CommentInput({ postId, onCommentAdd, showToast }) {
   };
 
   return (
-    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6">
-      <form onSubmit={handleSubmit} className="flex gap-3">
+    <div className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6">
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 sm:gap-3">
         {/* ─── Avatar ───────────────────────────────────────── */}
         {user?.picture ? (
           <img
@@ -68,24 +68,27 @@ export default function CommentInput({ postId, onCommentAdd, showToast }) {
           <AvatarPlaceholder size="h-9 w-9" />
         )}
 
+        {/* ─── Input ───────────────────────────────────────── */}
         <input
           id="comment-input"
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={user ? 'Write a comment…' : 'Log in to comment'}
-          className="flex-1 bg-[var(--color-surface)] rounded-[var(--radius-radius-sm)] px-4 py-2 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:outline-none"
+          className="flex-1 min-w-0 bg-[var(--color-surface)] rounded-[var(--radius-radius-sm)] px-3 sm:px-4 py-2 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:outline-none"
           disabled={!user || submitting}
         />
+
+        {/* ─── Send button ──────────────────────────────────── */}
         <button
           type="submit"
           disabled={!user || submitting || !text.trim()}
-          className="px-3 py-1.5 bg-[var(--color-accent)] text-white rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-h)] transition disabled:opacity-50 flex items-center justify-center"
+          className="flex-shrink-0 px-3 py-2 bg-[var(--color-accent)] text-white rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-h)] transition disabled:opacity-50 flex items-center justify-center"
           aria-label="Reply"
           title="Reply"
         >
           <svg
-            className="w-4 h-4"
+            className="w-5 h-5"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"

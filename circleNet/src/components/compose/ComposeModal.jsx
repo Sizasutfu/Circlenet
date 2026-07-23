@@ -6,23 +6,9 @@ import { useCompose } from '@/contexts/ComposeContext';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import { resolveMediaUrl } from '@/lib/url';
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
 
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
-
-function stringToColor(str) {
-  if (!str) return '#888';
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
 
 export default function ComposeModal() {
   const { isOpen, closeCompose, initialText, groupId } = useCompose();
@@ -255,18 +241,15 @@ export default function ComposeModal() {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* User avatar (common) */}
           <div className="flex items-center gap-3">
-            <div
-              className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-              style={{
-                background: user?.picture ? 'transparent' : stringToColor(user?.name || ''),
-              }}
-            >
-              {user?.picture ? (
-                <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full object-cover" />
-              ) : (
-                user?.name?.charAt(0)?.toUpperCase() || '?'
-              )}
-            </div>
+            {user?.picture ? (
+              <img
+                src={resolveMediaUrl(user.picture)}
+                alt={user.name}
+                className="flex-shrink-0 h-10 w-10 rounded-full object-cover"
+              />
+            ) : (
+              <AvatarPlaceholder size="h-10 w-10" />
+            )}
             <div>
               <p className="text-sm font-semibold text-[var(--color-txt)]">{user?.name || 'You'}</p>
               {groupId && <p className="text-xs text-[var(--color-txt2)]">Posting in group</p>}

@@ -8,10 +8,13 @@ const router           = require('express').Router();
 const userController   = require('../controllers/userController');
 const { requireAuth }  = require('../middleware/auth');
 const { requestPasswordReset, confirmResetPassword, sendVerification, verifyEmail } = require("../controllers/authController");
+const { requireAdmin } = require('../middleware/adminAuth');
+
 const upload              = require('../middleware/upload');
 const { compressUploads } = require('../middleware/compress');
 const followController    = require('../controllers/followController');
 const UserModel           = require('../models/userModel');
+const { toggleVerification } = require('../controllers/userController');
 
 // Public routes — no auth required
 router.post('/register',        userController.register);
@@ -82,5 +85,7 @@ router.post("/reset-password/confirm", confirmResetPassword);
 
 router.post("/email/send-verification", sendVerification);
 router.post("/email/verify",            verifyEmail);
+
+router.put('/users/:id/verify', requireAuth, requireAdmin, toggleVerification);
 
 module.exports = router;

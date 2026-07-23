@@ -14,18 +14,11 @@ import LikeButton from './LikeButton';
 import CommentButton from './CommentButton';
 import RepostButton from './RepostButton';
 import ShareButton from './ShareButton';
-import AvatarPlaceholder from './AvatarPlaceholder'; // ✅ Import shared component
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import VerificationBadge from '@/components/ui/VerificationBadge';
+import { resolveMediaUrl } from '@/lib/url';
 
 let currentlyPlayingVideo = null;
-
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
-
-// ─── Removed local AvatarPlaceholder – using the shared one now ───
 
 function formatNumber(num) {
   if (num === undefined || num === null) return '0';
@@ -62,7 +55,6 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
-// ─── Shared card classes ───
 const cardClasses =
   'px-4 py-3 border-b border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200';
 
@@ -74,6 +66,9 @@ export default function PostCard({
   onShare,
   onQuote,
   groupMap = new Map(),
+  showFollowButton = false,
+  isFollowing = false,
+  onFollowToggle = null,
 }) {
   if (!post) return null;
 
@@ -110,6 +105,7 @@ export default function PostCard({
   const displayName = post.user?.name || post.author || 'Anonymous';
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
+  const isVerified = post.user?.verified || post.authorVerified || false;
 
   const initialLiked =
     currentUser && likes.length > 0 ? likes.some((id) => id === currentUser.id) : false;
@@ -466,7 +462,7 @@ export default function PostCard({
               <a
                 href={postVideoUrl}
                 target="_blank"
-                rel="noopener"
+                rel="noopener noreferrer"
                 className="text-[var(--color-accent)] hover:underline text-xs"
               >
                 View directly
@@ -742,6 +738,42 @@ export default function PostCard({
     return <AvatarPlaceholder size={size} className={className} />;
   };
 
+  // ── Helper to render follow button (mobile only) ──
+  const renderFollowButton = () => {
+    if (!showFollowButton || !onFollowToggle) return null;
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onFollowToggle();
+        }}
+        className={`ml-2 text-xs font-medium px-2 py-0.5 rounded-full transition md:hidden ${
+          isFollowing
+            ? 'border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)]'
+            : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)]'
+        }`}
+      >
+        {isFollowing ? 'Following' : 'Follow'}
+      </button>
+    );
+  };
+
+  // ── Helper to render "Reposted" indicator ──
+  const renderRepostedIndicator = () => {
+    if (!isRepost) return null;
+    return (
+      <span className="text-xs text-[var(--color-txt3)] flex items-center gap-1 ml-1">
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <polyline points="17 1 21 5 17 9" />
+          <path d="M3 11V9a4 4 0 014-4h14" />
+          <polyline points="7 23 3 19 7 15" />
+          <path d="M21 13v2a4 4 0 01-4 4H3" />
+        </svg>
+        Reposted
+      </span>
+    );
+  };
+
   // ── Repost layout ──
   if (isRepost && originalPost) {
     return (
@@ -761,15 +793,21 @@ export default function PostCard({
                 {profileUrl ? (
                   <Link
                     href={profileUrl}
-                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition inline-flex items-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                     title="View profile"
                   >
                     {displayName}
+                    {isVerified && <VerificationBadge size="w-4 h-4" />}
                   </Link>
                 ) : (
-                  <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                  <span className="font-semibold text-[var(--color-txt)] text-sm inline-flex items-center gap-1">
+                    {displayName}
+                    {isVerified && <VerificationBadge size="w-4 h-4" />}
+                  </span>
                 )}
+                {renderRepostedIndicator()}
+                {renderFollowButton()}
                 {username &&
                   (profileUrl ? (
                     <Link
@@ -950,13 +988,18 @@ export default function PostCard({
                   <Link
                     href={profileUrl}
                     onClick={(e) => e.stopPropagation()}
-                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition inline-flex items-center gap-1"
                   >
                     {displayName}
+                    {isVerified && <VerificationBadge size="w-4 h-4" />}
                   </Link>
                 ) : (
-                  <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                  <span className="font-semibold text-[var(--color-txt)] text-sm inline-flex items-center gap-1">
+                    {displayName}
+                    {isVerified && <VerificationBadge size="w-4 h-4" />}
+                  </span>
                 )}
+                {renderFollowButton()}
                 {username &&
                   (profileUrl ? (
                     <Link
@@ -1145,15 +1188,20 @@ export default function PostCard({
                 {profileUrl ? (
                   <Link
                     href={profileUrl}
-                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition"
+                    className="font-semibold text-[var(--color-txt)] text-sm hover:underline hover:text-[var(--color-accent)] transition inline-flex items-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                     title="View profile"
                   >
                     {displayName}
+                    {isVerified && <VerificationBadge size="w-4 h-4" />}
                   </Link>
                 ) : (
-                  <span className="font-semibold text-[var(--color-txt)] text-sm">{displayName}</span>
+                  <span className="font-semibold text-[var(--color-txt)] text-sm inline-flex items-center gap-1">
+                    {displayName}
+                    {isVerified && <VerificationBadge size="w-4 h-4" />}
+                  </span>
                 )}
+                {renderFollowButton()}
                 {username &&
                   (profileUrl ? (
                     <Link

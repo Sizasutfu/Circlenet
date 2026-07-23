@@ -18,6 +18,7 @@ const UserModel = {
          phone, location, school, occupation, website,
          date_of_birth  AS dateOfBirth,
          gender,
+         verified,                 -- ✅ verification flag
          created_at     AS createdAt
        FROM users WHERE id = ?`,
       [id]
@@ -121,6 +122,12 @@ const UserModel = {
     await db.query("UPDATE users SET username = ? WHERE id = ?", [username, id]);
   },
 
+  // ─── Verification badge ──────────────────────────────────────────────────
+
+  async updateVerification(id, verified) {
+    await db.query("UPDATE users SET verified = ? WHERE id = ?", [verified, id]);
+  },
+
   // ─── E2E encryption public key (used for encrypted DMs) ───────────────────
 
   async savePublicKey(id, publicKey) {
@@ -139,7 +146,8 @@ const UserModel = {
     const [rows] = await db.query(
       `SELECT
          id, name, username, bio, picture, cover_image AS coverImage,
-         location, school, occupation, website, gender
+         location, school, occupation, website, gender,
+         verified                  -- ✅ verification flag
        FROM users WHERE id = ?`,
       [targetId]
     );
@@ -252,69 +260,66 @@ async function getNewMembers(viewerId, limit = 10) {
   const [rows] = await db.query(query, params);
   return rows;
 }
-// ── Get user by username ──
- // ── Get user by username ──
- // ── Get user by username ──
-// ── Get user by username ──
+
+// ─── Get user by username ──────────────────────────────────────────────────────
+
 async function getByUsername(username) {
   const [rows] = await db.query(
-    `SELECT id, name, username, email, bio, picture, 
-            cover_image as coverImage,
-            location, school, occupation, website, gender, phone, 
-            date_of_birth as dateOfBirth, 
-            created_at as joined
-     FROM users 
+    `SELECT
+       id, name, username, email, bio, picture,
+       cover_image AS coverImage,
+       location, school, occupation, website, gender, phone,
+       date_of_birth AS dateOfBirth,
+       verified,                 -- ✅ verification flag
+       created_at  AS joined
+     FROM users
      WHERE username = ?`,
     [username]
   );
   return rows.length ? rows[0] : null;
 }
-// ─────────────────────────────────────────────────────────────────────────────
-//  PASTE THESE THREE METHODS INTO your models/userModel.js
-//
-//  They also require these two columns on your `users` table.
-//  Run this migration before deploying:
-//
-//    ALTER TABLE users
-//      ADD COLUMN verify_code         VARCHAR(6)   NULL,
-//      ADD COLUMN verify_code_expires DATETIME     NULL,
-//      ADD COLUMN email_verified      TINYINT(1)   NOT NULL DEFAULT 0;
-//
-// ─────────────────────────────────────────────────────────────────────────────
 
-// Saves the 6-digit code and its expiry against the user row.
+// ─── Email verification helpers ───────────────────────────────────────────────
+
 async function saveVerificationCode(userId, code, expires) {
   await db.query(
     `UPDATE users
-        SET verify_code = ?, verify_code_expires = ?
-      WHERE id = ?`,
+     SET verify_code = ?, verify_code_expires = ?
+     WHERE id = ?`,
     [code, expires, userId]
   );
 }
 
-// Returns the user row if the code matches and hasn't expired, otherwise null.
 async function findByValidVerificationCode(email, code) {
   const [rows] = await db.query(
     `SELECT * FROM users
-      WHERE email = ?
-        AND verify_code = ?
-        AND verify_code_expires > NOW()
-      LIMIT 1`,
+     WHERE email = ?
+       AND verify_code = ?
+       AND verify_code_expires > NOW()
+     LIMIT 1`,
     [email, code]
   );
   return rows[0] || null;
 }
 
-// Marks the user as verified and clears the code so it can't be reused.
 async function markEmailVerified(userId) {
   await db.query(
     `UPDATE users
-        SET email_verified = 1,
-            verify_code = NULL,
-            verify_code_expires = NULL
-      WHERE id = ?`,
+     SET email_verified = 1,
+         verify_code = NULL,
+         verify_code_expires = NULL
+     WHERE id = ?`,
     [userId]
   );
 }
 
-module.exports = { ...UserModel, getNewMembers, saveVerificationCode, findByValidVerificationCode, markEmailVerified, getByUsername };
+// ─── Export ────────────────────────────────────────────────────────────────────
+
+module.exports = {
+  ...UserModel,
+  getNewMembers,
+  getByUsername,
+  saveVerificationCode,
+  findByValidVerificationCode,
+  markEmailVerified,
+};

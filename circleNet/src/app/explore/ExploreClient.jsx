@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
 import UserAvatar from '@/components/ui/UserAvatar';
 import ReasonBadge from '@/components/ui/ReasonBadge';
+import VerificationBadge from '@/components/ui/VerificationBadge'; // ✅ added
 import Link from 'next/link';
 
 // ── SVG Icons ──
@@ -81,11 +82,16 @@ function PeopleCard({ user, onFollow, isFollowing, onDismiss }) {
     onFollow(user.id);
   };
 
+  const isVerified = user.verified === 1 || user.verified === true;
+
   return (
     <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer" onClick={handleClick}>
       <UserAvatar user={user} size="w-12 h-12" />
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-[var(--color-txt)]">{user.name}</div>
+        <div className="font-semibold text-[var(--color-txt)] flex items-center gap-1">
+          {user.name}
+          {isVerified && <VerificationBadge size="w-3.5 h-3.5" />}
+        </div>
         <div className="text-sm text-[var(--color-txt2)]">@{user.username || 'user'}</div>
         <div className="text-xs text-[var(--color-txt3)] flex items-center gap-2 flex-wrap">
           <span>{user.post_count ?? user.postCount ?? 0} posts · {user.follower_count ?? user.followerCount ?? 0} followers</span>
@@ -125,6 +131,7 @@ function NewMemberCard({ user }) {
 
   const diff = Math.floor((Date.now() - new Date(user.createdAt).getTime()) / 86400000);
   const joinedText = diff === 0 ? 'Joined today' : diff === 1 ? 'Joined yesterday' : `Joined ${diff} days ago`;
+  const isVerified = user.verified === 1 || user.verified === true;
 
   return (
     <div
@@ -135,7 +142,10 @@ function NewMemberCard({ user }) {
       <div className="flex items-center gap-3">
         <UserAvatar user={user} size="w-12 h-12" />
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-[var(--color-txt)]">{user.name}</div>
+          <div className="font-semibold text-[var(--color-txt)] flex items-center gap-1">
+            {user.name}
+            {isVerified && <VerificationBadge size="w-3.5 h-3.5" />}
+          </div>
           <div className="text-xs text-[var(--color-green)]">{joinedText}</div>
         </div>
       </div>

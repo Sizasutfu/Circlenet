@@ -141,6 +141,7 @@ async function getPostsPage(
        p.user_id          AS userId,
        u.name             AS author,
        u.picture          AS authorPicture,
+       u.verified         AS authorVerified,
        u.location         AS authorLocation,
        u.school           AS authorSchool,
        u.occupation       AS authorOccupation,

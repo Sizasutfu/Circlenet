@@ -25,7 +25,8 @@ router.get('/users',              requireAdmin, adminController.getUsers);
 router.put('/users/:id/suspend',  requireAdmin, adminController.suspendUser);
 router.put('/users/:id/unsuspend',requireAdmin, adminController.unsuspendUser);
 router.delete('/users/:id',       requireAdmin, adminController.deleteUser);
-router.put('/users/:id/role', requireAdmin, adminController.updateUserRole);
+router.put('/users/:id/role',     requireAdmin, adminController.updateUserRole);
+router.put('/users/:id/verify',   requireAdmin, adminController.toggleVerification); // ✅ new route
 
 // Posts
 router.get('/posts',      requireAdmin, adminController.getPosts);

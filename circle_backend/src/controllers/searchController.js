@@ -2,6 +2,7 @@
 const { db }                = require('../config/db');
 const FollowModel           = require('../models/followModel');
 const PostModel             = require('../models/postModel');
+const GroupModel            = require('../models/groupModel'); // ✅ added
 const { sendOk, sendError } = require('../middleware/response');
 const esService             = require('../services/elasticsearchService');
 
@@ -9,14 +10,14 @@ function escapeLike(str) {
   return str.replace(/[%_\\]/g, '\\$&');
 }
 
-// GET /api/search?q=<term>&type=posts|people&page=1&limit=20
+// GET /api/search?q=<term>&type=posts|people|groups&page=1&limit=20
 async function search(req, res) {
   const q = (req.query.q || '').trim();
 
-  const VALID_TYPES = new Set(['posts', 'people']);
+  const VALID_TYPES = new Set(['posts', 'people', 'groups']); // ✅ added 'groups'
   const type = req.query.type;
   if (!VALID_TYPES.has(type))
-    return sendError(res, 400, 'Invalid type. Must be "posts" or "people".');
+    return sendError(res, 400, 'Invalid type. Must be "posts", "people", or "groups".');
 
   if (q.length < 2)
     return sendError(res, 400, 'Query must be at least 2 characters.');
@@ -36,7 +37,7 @@ async function search(req, res) {
       } catch (esErr) {
         console.warn('[ES] People search failed, falling back to MySQL:', esErr.message);
 
-        // ── MySQL fallback (your original query) ─────────────────────────
+        // ── MySQL fallback ────────────────────────────────────────────────
         const like = `%${escapeLike(q)}%`;
         const [rows] = await db.query(
           `SELECT u.id, u.name, u.email, u.picture,
@@ -61,7 +62,14 @@ async function search(req, res) {
         page, limit, hasMore: users.length === limit,
       });
 
-    } else {
+    } else if (type === 'groups') {
+      // ── Groups search (MySQL only – no ES yet) ──────────────────────────
+      const groups = await GroupModel.searchGroups(q, { limit, offset });
+      return sendOk(res, 200, `${groups.length} results.`, groups, {
+        page, limit, hasMore: groups.length === limit,
+      });
+
+    } else { // posts
       // ── Try Elasticsearch first ──────────────────────────────────────────
       let posts;
       try {
@@ -89,7 +97,6 @@ async function getHistory(req, res) {
   const userId = req.actorId;
   if (!userId) return sendError(res, 401, 'Unauthorised.');
   try {
-    // Delete expired entries for this user first
     await db.query(
       `DELETE FROM search_history
        WHERE user_id = ? AND searched_at < NOW() - INTERVAL 7 DAY`,
@@ -116,7 +123,7 @@ async function saveHistory(req, res) {
   if (!userId) return sendError(res, 401, 'Unauthorised.');
 
   const query = (req.body.query || '').trim();
-  const tab   = req.body.tab === 'people' ? 'people' : 'posts';
+  const tab   = req.body.tab === 'people' ? 'people' : req.body.tab === 'groups' ? 'groups' : 'posts';
 
   if (query.length < 2)
     return sendError(res, 400, 'Query must be at least 2 characters.');

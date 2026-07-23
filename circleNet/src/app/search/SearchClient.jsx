@@ -4,9 +4,12 @@
 import { useEffect, useState } from 'react';
 import { useSearch } from '@/contexts/SearchContext';
 import { useAuth } from '@/lib/auth';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import PostCard from '@/components/ui/PostCard';
 import GroupCard from '@/components/groups/GroupCard';
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import VerificationBadge from '@/components/ui/VerificationBadge';
+import { resolveMediaUrl } from '@/lib/url';
 
 function highlight(text, q) {
   if (!text) return '';
@@ -15,18 +18,11 @@ function highlight(text, q) {
   return safe.replace(new RegExp(`(${safeQ})`, 'gi'), '<mark class="hl">$1</mark>');
 }
 
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 70%, 55%)`;
-}
-
-export default function SearchClient({ searchParams }) {
+export default function SearchClient() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const {
     query,
     type,
@@ -48,8 +44,8 @@ export default function SearchClient({ searchParams }) {
 
   // ── Read query params ──
   useEffect(() => {
-    const q = searchParams?.q || '';
-    const t = searchParams?.type || 'posts';
+    const q = searchParams?.get('q') || '';
+    const t = searchParams?.get('type') || 'posts';
     if (q) {
       setInputValue(q);
       setActiveTab(t);
@@ -80,26 +76,30 @@ export default function SearchClient({ searchParams }) {
     search(q, activeTab);
   };
 
-  // ── Render people card ──
+  // ── People card with verification badge ──
   const PeopleCard = ({ user: u, query }) => {
-    const color = stringToColor(u.name || '');
-    const initial = (u.name || '?').charAt(0).toUpperCase();
-    const avatarUrl = u.picture;
+    const avatarUrl = resolveMediaUrl(u.picture);
+    const isVerified = u.verified === 1 || u.verified === true;
 
     return (
-      <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer" onClick={() => router.push(`/profile?userId=${u.id}`)}>
-        <div
-          className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-          style={{ background: avatarUrl ? 'transparent' : color }}
-        >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={initial} className="w-full h-full object-cover" />
-          ) : (
-            initial
-          )}
-        </div>
+      <div
+        className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer"
+        onClick={() => router.push(`/profile?userId=${u.id}`)}
+      >
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={u.name}
+            className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="w-10 h-10" />
+        )}
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-[var(--color-txt)]" dangerouslySetInnerHTML={{ __html: highlight(u.name, query) }} />
+          <div className="font-semibold text-[var(--color-txt)] flex items-center gap-1">
+            <span dangerouslySetInnerHTML={{ __html: highlight(u.name, query) }} />
+            {isVerified && <VerificationBadge size="w-3.5 h-3.5" />}
+          </div>
           <div className="text-sm text-[var(--color-txt2)]" dangerouslySetInnerHTML={{ __html: highlight(u.email || u.username || '', query) }} />
           <div className="text-xs text-[var(--color-txt3)]">{u.postCount || 0} posts · {u.followerCount || 0} followers</div>
         </div>
@@ -112,8 +112,8 @@ export default function SearchClient({ searchParams }) {
     );
   };
 
-  // ── No results ──
-  if (!inputValue) {
+  // ── No query ──
+  if (!inputValue && !searchParams?.get('q')) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-6">
         <div className="text-center py-16 text-[var(--color-txt2)]">

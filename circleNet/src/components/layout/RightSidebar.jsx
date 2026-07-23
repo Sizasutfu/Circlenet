@@ -11,13 +11,8 @@ import { useRouter } from 'next/navigation';
 import UserAvatar from '@/components/ui/UserAvatar';
 import ReasonBadge from '@/components/ui/ReasonBadge';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import { resolveMediaUrl } from '@/lib/url';
 
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
 
 function fmtNum(n) {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';

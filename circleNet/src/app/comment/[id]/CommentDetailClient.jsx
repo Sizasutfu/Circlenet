@@ -6,13 +6,8 @@ import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { resolveMediaUrl } from '@/lib/url';
 
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
 
 function timeAgo(dateString) {
   const now = Date.now();

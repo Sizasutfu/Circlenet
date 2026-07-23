@@ -78,7 +78,6 @@ function extractExtras(body) {
     school:      school      ? String(school).slice(0, 120).trim()     || null : null,
     occupation:  occupation  ? String(occupation).slice(0, 100).trim() || null : null,
     website:     website     ? String(website).slice(0, 255).trim()    || null : null,
-    // dateOfBirth must be a valid YYYY-MM-DD string or null
     dateOfBirth: dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) ? dateOfBirth : null,
     gender:      gender      ? String(gender).slice(0, 30).trim()      || null : null,
   };
@@ -129,7 +128,7 @@ async function login(req, res) {
       });
     }
 
-   // Generate JWT
+    // Generate JWT
     const token = generateToken({ id: user.id, email: user.email, name: user.name });
 
     // Never send the password hash to the client
@@ -204,8 +203,6 @@ async function updateCoverImage(req, res) {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
 
-    // compressUploads sets req.compressedFiles.image.
-    // resolveFileUrl returns a local path (dev) or Cloudinary URL (prod).
     const coverUrl = resolveFileUrl(req.compressedFiles?.image);
 
     await UserModel.updateCoverImage(userId, coverUrl);
@@ -228,10 +225,7 @@ async function updateProfile(req, res) {
   if (!name || !email)
     return sendError(res, 400, 'Name and email are required.');
 
-  // Cap bio at 160 chars and treat empty string as null
   const cleanBio = bio ? String(bio).slice(0, 160).trim() || null : null;
-
-  // Extract and sanitise the extra fields
   const extras = extractExtras(req.body);
 
   try {
@@ -299,7 +293,6 @@ async function updateUsername(req, res) {
 
   const raw = (req.body.username || '').trim().toLowerCase();
 
-  // Validate: 3–25 chars, letters/numbers/underscores only
   if (!/^[a-z0-9_]{3,25}$/.test(raw))
     return sendError(res, 400, 'Username must be 3–25 characters and contain only letters, numbers, or underscores.');
 
@@ -315,7 +308,8 @@ async function updateUsername(req, res) {
   }
 }
 
-// ── Get user by username ──
+// ─── GET /api/users/by-username/:username ────────────────────────────────────
+
 async function getUserByUsername(req, res) {
   try {
     const { username } = req.params;
@@ -323,13 +317,40 @@ async function getUserByUsername(req, res) {
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
-    // Return the same shape as getProfile
     return res.json({ success: true, data: user });
   } catch (err) {
     console.error('getUserByUsername error:', err);
     return res.status(500).json({ success: false, message: 'Server error.' });
   }
-};
+}
+
+// ─── PUT /api/users/:id/verify (Admin only) ──────────────────────────────────
+// Optional admin endpoint to toggle verification badge.
+
+async function toggleVerification(req, res) {
+  const userId = parseInt(req.params.id);
+  const { verified } = req.body; // expected boolean
+
+  // Ensure the caller is an admin – you must implement this check yourself.
+  // For example, you could have a middleware that sets req.user.isAdmin.
+  if (!req.user || !req.user.isAdmin) {
+    return sendError(res, 403, 'Admin privileges required.');
+  }
+
+  if (typeof verified !== 'boolean') {
+    return sendError(res, 400, 'Field "verified" must be a boolean.');
+  }
+
+  try {
+    await UserModel.updateVerification(userId, verified);
+    return sendOk(res, 200, 'Verification status updated.', { verified });
+  } catch (err) {
+    console.error('toggleVerification error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ─── Export ────────────────────────────────────────────────────────────────────
 
 module.exports = {
   register,
@@ -341,5 +362,6 @@ module.exports = {
   updateUsername,
   searchUsers,
   getNewMembers,
-  getUserByUsername
+  getUserByUsername,
+  toggleVerification,   // (optional)
 };

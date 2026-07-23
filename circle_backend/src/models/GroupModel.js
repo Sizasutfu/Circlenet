@@ -304,6 +304,29 @@ async function getUserGroups(userId) {
   return rows.map(normalise);
 }
 
+// ── Search groups by topic or display name ──────────────────
+async function searchGroups(query, { limit = 20, offset = 0 } = {}) {
+  const like = `%${query.replace(/[%_\\]/g, '\\$&')}%`;
+  const [rows] = await db.query(
+    `SELECT
+       id,
+       topic,
+       display_name  AS displayName,
+       description,
+       cover_image   AS coverImage,
+       member_count  AS memberCount,
+       post_count    AS postCount,
+       created_at    AS createdAt,
+       0             AS isMember
+     FROM \`groups\`
+     WHERE topic LIKE ? OR display_name LIKE ?
+     ORDER BY member_count DESC, post_count DESC
+     LIMIT ? OFFSET ?`,
+    [like, like, limit, offset]
+  );
+  return rows.map(normalise);
+}
+
 // ── Group feed ────────────────────────────────────────────
 // Returns all posts whose group_id = groupId, newest-first.
 // Now that posts carry group_id directly, no membership join
@@ -361,6 +384,7 @@ module.exports = {
   getGroupById,
   getUserGroups,
   getGroupFeed,
+  searchGroups,          // ✅ new search method
   // membership
   joinGroup,
   leaveGroup,

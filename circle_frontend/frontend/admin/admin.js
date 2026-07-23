@@ -4,7 +4,7 @@
 
 const API = window.location.hostname === 'admin.circlenet.social'
   ? 'https://circleappapp-production.up.railway.app/api/admin'
-  : 'http://localhost:5000/api/admin';   // fixed: same production API
+  : 'http://localhost:5000/api/admin';
 
 // ── Session helpers ────────────────────────────────────────
 function getToken() { return localStorage.getItem('circle_admin_token'); }
@@ -24,7 +24,7 @@ function clearSession() {
 function requireAdminAuth() {
   if (!getToken() || !getAdmin()) {
     clearSession();
-    window.location.href = 'login.html';   // was index.html
+    window.location.href = 'login.html';
     return false;
   }
   return true;
@@ -47,7 +47,7 @@ async function adminApi(method, path, body = null) {
 
   if (res.status === 401) {
     clearSession();
-    window.location.href = 'login.html';   // was index.html
+    window.location.href = 'login.html';
     throw new Error('Session expired. Please log in again.');
   }
   if (!res.ok) throw new Error(data.message || 'Request failed.');
@@ -69,7 +69,7 @@ async function adminApiForm(method, path, formData) {
 
   if (res.status === 401) {
     clearSession();
-    window.location.href = 'login.html';   // was index.html
+    window.location.href = 'login.html';
     throw new Error('Session expired. Please log in again.');
   }
   if (!res.ok) throw new Error(data.message || 'Request failed.');
@@ -140,7 +140,7 @@ function initMobileMenu() {
 async function adminLogout() {
   try { await adminApi('POST', '/logout'); } catch (_) {}
   clearSession();
-  window.location.href = 'login.html';   // was index.html
+  window.location.href = 'login.html';
 }
 
 // ── Media Viewer ───────────────────────────────────────────
@@ -284,4 +284,39 @@ function initAdminPage(activePage) {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') _closeConfirm(false);
   });
+}
+
+// ─── NEW: Toggle user verification ─────────────────────────
+async function toggleVerification(id, currentVerified, btn) {
+  btn.disabled = true;
+  const newVerified = !currentVerified;
+  const action = newVerified ? 'verify' : 'unverify';
+  const ok = await showConfirm(
+    newVerified ? 'Verify User' : 'Unverify User',
+    newVerified
+      ? 'This user will receive a verification badge on their profile.'
+      : 'This will remove the verification badge from this user.',
+    newVerified ? 'Verify' : 'Unverify'
+  );
+  if (!ok) {
+    btn.disabled = false;
+    return;
+  }
+  try {
+    await adminApi('PUT', `/users/${id}/verify`, { verified: newVerified });
+    showToast(`User ${action}ed.`, 'success');
+    // Refresh the table (or you can update the row directly)
+    // We'll reload the current page via the existing loadUsers() function.
+    // Since loadUsers() is defined in the page script, we need to call it from there.
+    // We'll instead call a global function if defined, or just reload the page.
+    // For simplicity, we'll reload the page content.
+    if (typeof loadUsers === 'function') {
+      loadUsers();
+    } else {
+      location.reload();
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+    btn.disabled = false;
+  }
 }

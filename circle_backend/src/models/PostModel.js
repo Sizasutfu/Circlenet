@@ -121,7 +121,8 @@ async function hydratePosts(posts, options = {}) {
     const [origRows] = await db.query(
       `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
               p.text, p.image, p.video, p.created_at AS createdAt,
-              p.is_live, p.live_session_id, p.youtube_id
+              p.is_live, p.live_session_id, p.youtube_id,
+              u.verified AS authorVerified   -- ✅ added
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id IN (${oph})`,
@@ -144,6 +145,15 @@ async function hydratePosts(posts, options = {}) {
 
   // ── Process each post ────────────────────────────────────
   posts.forEach(p => {
+    // Build user object (for frontend)
+    p.user = {
+      id: p.userId,
+      name: p.author || 'Unknown',
+      username: p.authorUsername || null,
+      picture: p.authorPicture || null,
+      verified: !!p.authorVerified,   // ✅ now using authorVerified from SQL
+    };
+
     p.likes    = lMap[p.id] || [];
     p.reposts  = rMap[p.id] || [];
     const commentsList = cMap[p.id] || [];
@@ -152,23 +162,40 @@ async function hydratePosts(posts, options = {}) {
     if (!includeFullComments && followingIds) {
       const followingSet = new Set(followingIds);
       const followedComments = commentsList.filter(c => followingSet.has(c.userId));
-      // Sort newest first, take max 3
       followedComments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       p.recentComments = followedComments.slice(0, 3);
-      p.comments = []; // no full tree
+      p.comments = [];
     } else {
       p.comments = nestComments(commentsList);
-      // For backward compatibility, keep recentComments empty or as full? We'll keep it empty.
       p.recentComments = [];
     }
 
-    // Views
     p.views = vMap[p.id] || 0;
     p.videoViews = vvMap[p.id] || 0;
-    p.viewCount = p.videoViews; // as before
+    p.viewCount = p.videoViews;
 
-    if (p.isRepost && p.originalPostId)
-      p.originalPost = origMap[p.originalPostId] || null;
+    if (p.isRepost && p.originalPostId) {
+      const orig = origMap[p.originalPostId];
+      if (orig) {
+        p.originalPost = {
+          id: orig.id,
+          userId: orig.userId,
+          author: orig.author,
+          authorPicture: orig.authorPicture,
+          authorVerified: !!orig.authorVerified,   // ✅ pass verified to original post
+          text: orig.text,
+          image: orig.image,
+          video: orig.video,
+          createdAt: orig.createdAt,
+          isLive: orig.is_live,
+          liveSessionId: orig.live_session_id,
+          youtubeId: orig.youtube_id,
+        };
+      } else {
+        p.originalPost = null;
+      }
+    }
+
     if (p.groupId && groupMap[p.groupId]) {
       p.groupName  = groupMap[p.groupId].displayName;
       p.groupTopic = groupMap[p.groupId].topic;
@@ -245,7 +272,9 @@ async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) 
        p.id,
        p.user_id          AS userId,
        u.name             AS author,
+       u.username         AS authorUsername,
        u.picture          AS authorPicture,
+       u.verified         AS authorVerified,   -- ✅ added
        p.text,
        p.image,
        p.video,
@@ -289,7 +318,9 @@ async function getGroupPosts(groupId, page = 1, limit = 20) {
        p.id,
        p.user_id          AS userId,
        u.name             AS author,
+       u.username         AS authorUsername,
        u.picture          AS authorPicture,
+       u.verified         AS authorVerified,   -- ✅ added
        p.text,
        p.image,
        p.video,
@@ -349,7 +380,8 @@ async function updatePost(postId, text, isLive = null, liveSessionId = null, you
 // ── Find a post by id ──────────────────────────────────────
 async function findById(postId) {
   const [rows] = await db.query(
-    `SELECT p.*, u.name AS author, u.picture AS authorPicture,
+    `SELECT p.*, u.name AS author, u.username AS authorUsername, u.picture AS authorPicture,
+            u.verified AS authorVerified,   -- ✅ added
             p.is_live, p.live_session_id, p.youtube_id
      FROM posts p
      JOIN users u ON u.id = p.user_id
@@ -474,6 +506,7 @@ async function deleteRepost(userId, originalPostId) {
 async function getOriginalPostEmbed(originalPostId) {
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
+            u.verified AS authorVerified,   -- ✅ added
             p.text, p.image, p.video, p.created_at AS createdAt,
             p.is_live, p.live_session_id, p.youtube_id
      FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?`,
@@ -489,7 +522,9 @@ async function getTrendingPosts(limit = 20) {
        p.id,
        p.user_id          AS userId,
        u.name             AS author,
+       u.username         AS authorUsername,
        u.picture          AS authorPicture,
+       u.verified         AS authorVerified,   -- ✅ added
        p.text,
        p.image,
        p.video,
@@ -521,7 +556,8 @@ async function searchPosts(query, { limit = 20, offset = 0 } = {}) {
   const escaped = query.replace(/[%_\\]/g, '\\$&');
   const like = `%${escaped}%`;
   const [rows] = await db.query(
-    `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
+    `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
+            u.picture AS authorPicture, u.verified AS authorVerified,   -- ✅ added
             p.text, p.image, p.video, p.is_repost AS isRepost, p.created_at AS createdAt,
             p.is_live, p.live_session_id, p.youtube_id,
             (SELECT COUNT(*) FROM likes    WHERE post_id=p.id)           AS likeCount,
@@ -729,7 +765,9 @@ async function getPostsByTopic(topic, page = 1, limit = 20) {
        p.id,
        p.user_id          AS userId,
        u.name             AS author,
+       u.username         AS authorUsername,
        u.picture          AS authorPicture,
+       u.verified         AS authorVerified,   -- ✅ added
        p.text,
        p.image,
        p.video,

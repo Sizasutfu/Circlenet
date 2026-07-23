@@ -1,11 +1,17 @@
-// src/app/search/page.jsx
+// app/search/page.js
 import SearchClient from './SearchClient';
 
 export const metadata = {
-  title: 'Search | Circlenet',
-  description: 'Search posts, people, and groups on Circlenet.',
+  title: 'Search',
+  description: 'Search for posts, people, and groups',
 };
 
-export default function SearchPage({ searchParams }) {
-  return <SearchClient searchParams={searchParams} />;
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
+export default function SearchPage() {
+  // No need to pass searchParams – the client uses useSearchParams()
+  return <SearchClient />;
 }

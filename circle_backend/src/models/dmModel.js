@@ -1,8 +1,8 @@
-//  models/dmModel.js
-//  All database queries for Direct Messages
-
+// models/dmModel.js
+// All database queries for Direct Messages
 
 const { db } = require('../config/db'); 
+
 // ─── Helpers ────────────────────────────────────────────────
 
 /**
@@ -67,6 +67,7 @@ async function getInboxForUser(userId) {
        u.id          AS other_id,
        u.name        AS other_name,
        u.picture     AS other_picture,
+       u.verified    AS other_verified,   -- ✅ ADDED
 
        -- Last message
        lm.body       AS last_message,

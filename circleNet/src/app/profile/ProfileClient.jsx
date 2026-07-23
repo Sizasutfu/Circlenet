@@ -10,36 +10,9 @@ import PostCard from '@/components/ui/PostCard';
 import QuoteModal from '@/components/ui/QuoteModal';
 import { useLightbox } from '@/hooks/useLightbox';
 import { useDm } from '@/contexts/DmContext';
-
-// ── Helpers ──
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
-
-// ─── Uniform avatar placeholder ──────────────────────────
-function AvatarPlaceholder({ size = 'w-10 h-10', className = '' }) {
-  return (
-    <div
-      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
-    >
-      <svg
-        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    </div>
-  );
-}
+import { resolveMediaUrl } from '@/lib/url';
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import VerificationBadge from '@/components/ui/VerificationBadge'; // ✅ added
 
 // ── Profile cache ──
 const profileCache = new Map();
@@ -98,6 +71,7 @@ function UserListModal({ title, users, onClose, isLoading }) {
           ) : (
             users.map((user) => {
               const avatarUrl = resolveMediaUrl(user.picture);
+              const isVerified = user.verified === 1 || user.verified === true;
               return (
                 <div
                   key={user.id}
@@ -114,7 +88,10 @@ function UserListModal({ title, users, onClose, isLoading }) {
                     <AvatarPlaceholder size="w-10 h-10" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-[var(--color-txt)] text-sm">{user.name}</div>
+                    <div className="font-semibold text-[var(--color-txt)] text-sm flex items-center gap-1">
+                      {user.name}
+                      {isVerified && <VerificationBadge size="w-3.5 h-3.5" />}
+                    </div>
                     <div className="text-xs text-[var(--color-txt2)]">@{user.username}</div>
                   </div>
                 </div>
@@ -522,12 +499,14 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     followingCount,
     isFollowing,
     mutualFollowers,
+    verified,
   } = profile;
 
   const avatarUrl = resolveMediaUrl(picture);
   const coverUrl = resolveMediaUrl(coverImage);
   const initial = name?.charAt(0)?.toUpperCase() || '?';
   const joinDate = joined ? new Date(joined).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : null;
+  const isVerified = verified === 1 || verified === true;
 
   const aboutDetails = [
     { label: 'Location', value: location },
@@ -572,7 +551,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
               </div>
             </div>
           ) : (
-            // ─── Fallback cover: static gradient using theme colors ───
             <div className="w-full h-full bg-gradient-to-r from-[var(--color-accent)]/30 to-[var(--color-accent)]/60" />
           )}
           {isOwnProfile && (
@@ -646,7 +624,10 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       <div className="mt-16 px-4 md:px-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-head font-bold text-[var(--color-txt)]">{name}</h1>
+            <h1 className="text-2xl font-head font-bold text-[var(--color-txt)] flex items-center gap-1.5">
+              {name}
+              {isVerified && <VerificationBadge size="w-5 h-5" />}
+            </h1>
             <p className="text-[var(--color-txt2)]">@{profileUsername}</p>
             {bio && <p className="mt-2 text-[var(--color-txt2)] max-w-lg">{bio}</p>}
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--color-txt3)]">

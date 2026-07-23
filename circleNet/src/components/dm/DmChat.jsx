@@ -6,6 +6,9 @@ import { useDm } from '@/contexts/DmContext';
 import { useDmCall } from '@/contexts/DmCallContext';
 import { useAuth } from '@/lib/auth';
 import DmVideoCall from './DmVideoCall';
+import { resolveMediaUrl } from '@/lib/url';
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import VerificationBadge from '@/components/ui/VerificationBadge';
 
 function escHtml(str) {
   if (!str) return '';
@@ -32,20 +35,12 @@ function fmtDate(ts) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
-
 function isWithin24Hours(createdAt) {
   const now = Date.now();
   const msgTime = new Date(createdAt).getTime();
   return (now - msgTime) < 24 * 60 * 60 * 1000;
 }
 
-// ─── Relative time helper ──────────────────────────────────────────────
 function timeAgo(timestamp) {
   if (!timestamp) return null;
   const now = Date.now();
@@ -58,28 +53,6 @@ function timeAgo(timestamp) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
-}
-
-// ─── Uniform avatar placeholder ──────────────────────────────────────────
-function AvatarPlaceholder({ size = 'w-10 h-10', className = '' }) {
-  return (
-    <div
-      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
-    >
-      <svg
-        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    </div>
-  );
 }
 
 export default function DmChat() {
@@ -110,19 +83,16 @@ export default function DmChat() {
   const typingTimeoutRef = useRef(null);
   const justLoadedMoreRef = useRef(false);
 
-  // Editing state
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [editingSaving, setEditingSaving] = useState(false);
 
-  // Dropdown menu state
   const [menuOpenId, setMenuOpenId] = useState(null);
   const menuRef = useRef(null);
 
-  // Header helpers
   const avatarUrl = resolveMediaUrl(activeOther?.picture);
+  const isVerified = !!activeOther?.verified; // ✅ safe boolean
 
-  // ── Scroll ──
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -136,7 +106,6 @@ export default function DmChat() {
     scrollToBottom();
   }, [messages, loadingMore]);
 
-  // ── Send ──
   const handleSend = async () => {
     if (!input.trim() || sending) return;
     setSending(true);
@@ -175,7 +144,6 @@ export default function DmChat() {
     loadMoreMessages();
   };
 
-  // ── Edit handlers ──
   const startEdit = (msg) => {
     const text = msg._plain !== undefined ? msg._plain : msg.body;
     setEditingId(msg.id);
@@ -203,14 +171,12 @@ export default function DmChat() {
     }
   };
 
-  // ── Delete handler ──
   const confirmDelete = (msgId) => {
     if (!window.confirm('Are you sure you want to delete this message?')) return;
     deleteMessage(msgId).catch((err) => console.error('Delete failed:', err));
     setMenuOpenId(null);
   };
 
-  // ── Close dropdown on outside click ──
   useEffect(() => {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -221,13 +187,11 @@ export default function DmChat() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ── Video call ──
   const handleStartCall = async () => {
     if (!activeOther?.id) return;
     await startCall(activeOther.id, activeOther.name, activeOther.picture);
   };
 
-  // ── Determine last sent message ──
   let lastSentId = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].sender_id === user?.id && !String(messages[i].id).startsWith('tmp_')) {
@@ -251,7 +215,6 @@ export default function DmChat() {
           </svg>
         </button>
 
-        {/* ─── Avatar ─── */}
         {avatarUrl ? (
           <img
             src={avatarUrl}
@@ -263,10 +226,10 @@ export default function DmChat() {
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="font-head text-base font-extrabold text-[var(--color-txt)]">
+          <div className="font-head text-base font-extrabold text-[var(--color-txt)] flex items-center gap-1">
             {activeOther?.name || '...'}
+            {isVerified && <VerificationBadge size="w-4 h-4" />}
           </div>
-          {/* ── Status line ── */}
           <div className="text-xs flex items-center gap-1">
             <span
               className={`inline-block w-1.5 h-1.5 rounded-full ${
@@ -354,7 +317,6 @@ export default function DmChat() {
             <Fragment key={key}>
               {divider}
               <div className={`flex ${mine ? 'flex-row-reverse' : ''} items-end gap-2 animate-fadeUp`}>
-                {/* ── Three‑dot menu trigger ── */}
                 {mine && !isTmp && !isEditing && canModify && (
                   <div className="relative" ref={showMenu ? menuRef : null}>
                     <button
@@ -411,7 +373,6 @@ export default function DmChat() {
                   </div>
                 )}
 
-                {/* ── Message bubble ── */}
                 <div
                   className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed break-words ${
                     mine

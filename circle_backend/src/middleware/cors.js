@@ -13,8 +13,8 @@ const ALLOWED_ORIGINS = [
   "https://localhost:3000",
   "https://circlenet-articles.vercel.app/articles",
   "https://blog.circlenet.social",
-  "http://10.244.15.203:5000",
-  "https://10.244.15.203:3000",
+  "http://172.23.110.203:5000",
+  "https://172.23.110.203:3000",
 ];
 
 function cors(req, res, next) {

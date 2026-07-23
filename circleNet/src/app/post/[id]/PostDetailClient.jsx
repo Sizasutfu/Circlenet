@@ -11,7 +11,6 @@ import PostCard from '@/components/ui/PostCard';
 import QuoteModal from '@/components/ui/QuoteModal';
 import {
   Toast,
-  CreatorProfile,
   CommentInput,
   CommentList,
   dedupeComments,
@@ -37,10 +36,11 @@ export default function PostDetailClient({ postId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
-  const [creator, setCreator] = useState(null);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followerCount, setFollowerCount] = useState(0);
   const [quoteTarget, setQuoteTarget] = useState(null);
+
+  // ── Follow state ──
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [authorId, setAuthorId] = useState(null);
 
   // ---- Effects ----
   useEffect(() => { fetchPostData(); }, [postId]);
@@ -78,14 +78,14 @@ export default function PostDetailClient({ postId }) {
       setPost(data);
       const deduped = dedupeComments(data.comments || []);
       setComments(deduped);
-      const userInfo = data.user || { name: data.author, picture: data.authorPicture, id: data.authorId };
-      if (userInfo?.id) {
-        setCreator(userInfo);
-        const profileRes = await apiClient(`/api/users/${userInfo.id}/profile`);
+
+      // ── Fetch author profile for follow status ──
+      const userId = data.user?.id || data.userId || data.authorId;
+      if (userId) {
+        setAuthorId(userId);
+        const profileRes = await apiClient(`/api/users/${userId}/profile`);
         const profile = profileRes.data || profileRes;
-        setCreator(prev => ({ ...prev, ...profile }));
         setIsFollowing(profile.isFollowing || false);
-        setFollowerCount(profile.followerCount || 0);
       }
     } catch (err) {
       setError(err.message || 'Failed to load post.');
@@ -129,18 +129,21 @@ export default function PostDetailClient({ postId }) {
   };
   const handleQuoteSuccess = () => { setQuoteTarget(null); showToast('Quote posted! 🎉'); };
   const handleCommentAdd = (newComment) => setComments(prev => dedupeComments([newComment, ...prev]));
+
+  // ── Follow toggle ──
   const handleFollowToggle = async () => {
     if (!user) { showToast('Log in to follow.', 'error'); return; }
-    if (!creator) return;
+    if (!authorId) return;
     const following = isFollowing;
     const method = following ? 'DELETE' : 'POST';
-    const endpoint = following ? `/api/unfollow/${creator.id}` : `/api/follow/${creator.id}`;
+    const endpoint = following ? `/api/unfollow/${authorId}` : `/api/follow/${authorId}`;
     try {
       await apiClient(endpoint, { method });
       setIsFollowing(!following);
-      setFollowerCount(prev => (following ? prev - 1 : prev + 1));
       showToast(following ? 'Unfollowed.' : 'Following! 🎉');
-    } catch (err) { showToast('Action failed.', 'error'); }
+    } catch (err) {
+      showToast('Action failed.', 'error');
+    }
   };
 
   if (loading) {
@@ -173,15 +176,6 @@ export default function PostDetailClient({ postId }) {
         Back
       </button>
 
-      {creator && (
-        <CreatorProfile
-          creator={creator}
-          isFollowing={isFollowing}
-          followerCount={followerCount}
-          onFollowToggle={handleFollowToggle}
-        />
-      )}
-
       <div className="mb-6">
         <PostCard
           post={post}
@@ -191,6 +185,9 @@ export default function PostDetailClient({ postId }) {
           onRepost={handleRepost}
           onShare={handleShare}
           onQuote={handleQuote}
+          showFollowButton={true}
+          isFollowing={isFollowing}
+          onFollowToggle={handleFollowToggle}
         />
       </div>
 

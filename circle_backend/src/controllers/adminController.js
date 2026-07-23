@@ -147,6 +147,25 @@ async function deleteUser(req, res) {
   }
 }
 
+// ─── NEW: Toggle verification badge ────────────────────────
+// PUT /api/admin/users/:id/verify
+async function toggleVerification(req, res) {
+  const userId = parseInt(req.params.id);
+  const { verified } = req.body;
+
+  if (typeof verified !== 'boolean') {
+    return sendError(res, 400, 'Field "verified" must be a boolean.');
+  }
+
+  try {
+    await AdminModel.toggleVerification(userId, verified);
+    return sendOk(res, 200, `User ${verified ? 'verified' : 'unverified'}.`);
+  } catch (err) {
+    console.error('toggleVerification error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // ── POSTS ─────────────────────────────────────────────────
 
 // GET /api/admin/posts?search=&page=
@@ -267,6 +286,7 @@ module.exports = {
   login, logout,
   getStats, getCharts,
   getUsers, suspendUser, unsuspendUser, updateUserRole, deleteUser,
+  toggleVerification,  // ✅ export new controller
   getPosts, deletePost,
   getReports, createReport, resolveReport, ignoreReport,
   updatePassword,

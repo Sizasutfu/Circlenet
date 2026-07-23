@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { saveDraft, getDraft, deleteDraft } from '@/lib/drafts';
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -15,27 +16,7 @@ function resolveMediaUrl(url) {
   return `${base}${url}`;
 }
 
-// ─── Uniform avatar placeholder ──────────────────────────
-function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
-  return (
-    <div
-      className={`flex-shrink-0 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center ${size} ${className}`}
-    >
-      <svg
-        className="w-1/2 h-1/2 text-[var(--color-txt3)]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    </div>
-  );
-}
+// ─── Removed local AvatarPlaceholder – using shared one ───
 
 function dataURLtoFile(dataUrl, filename) {
   const arr = dataUrl.split(',');

@@ -77,6 +77,7 @@ async function getAllUsers(search = '', page = 1, limit = 20) {
   const like   = `%${search}%`;
   const [rows] = await db.query(`
     SELECT id, name, email, picture, role, suspended, created_at AS joinDate,
+           verified,  -- ✅ added verified column
            (SELECT COUNT(*) FROM posts   WHERE user_id=users.id AND is_repost=0) AS postCount,
            (SELECT COUNT(*) FROM follows WHERE following_id=users.id)            AS followerCount
     FROM users
@@ -106,6 +107,11 @@ async function updateUserRole(userId, role) {
 
 async function deleteUser(userId) {
   await db.query('DELETE FROM users WHERE id=? AND role="user"', [userId]);
+}
+
+// ─── NEW: Toggle verification badge ────────────────────────
+async function toggleVerification(userId, verified) {
+  await db.query('UPDATE users SET verified = ? WHERE id = ?', [verified, userId]);
 }
 
 // ── Posts ─────────────────────────────────────────────────
@@ -207,6 +213,7 @@ module.exports = {
   findAdminByEmail, createSession, deleteSession,
   getStats, getUserGrowth, getPostsPerDay,
   getAllUsers, suspendUser, unsuspendUser, updateUserRole, deleteUser,
+  toggleVerification,  // ✅ export new function
   getAllPosts, adminDeletePost,
   getReports, createReport, resolveReport, ignoreReport,
   updateAdminPassword,

@@ -8,7 +8,7 @@ const SearchContext = createContext();
 
 export function SearchProvider({ children }) {
   const [query, setQuery] = useState('');
-  const [type, setType] = useState('posts'); // 'posts' | 'people' | 'groups'
+  const [type, setType] = useState('posts');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -19,49 +19,74 @@ export function SearchProvider({ children }) {
   // ── Search ──
   const search = useCallback(
     async (q, searchType = type, pageNum = 1, append = false) => {
-      console.log('🔍 search() called:', { q, searchType, pageNum, append });
-
       if (!q || q.length < 2) {
-        console.log('❌ Query too short – clearing results');
         setResults([]);
         setHasMore(false);
         return;
       }
 
       if (abortControllerRef.current) {
-        console.log('⛔ Aborting previous request');
         abortControllerRef.current.abort();
       }
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      console.log('🆕 New AbortController created');
 
       setLoading(true);
 
       const url = `/api/search?q=${encodeURIComponent(q)}&type=${searchType}&page=${pageNum}&limit=20`;
-      console.log('🌐 Fetching URL:', url);
 
       try {
         const res = await apiClient(url, { signal: controller.signal });
-        console.log('✅ API response received:', res);
 
-        // ── Normalize response ──
+        // ── DEBUG: log the raw response ──
+        console.log('🔍 Raw search response:', res);
+
+        // ── Robust data extraction ──
         let data = [];
-        if (Array.isArray(res.data)) {
-          data = res.data;
-        } else if (res.data && typeof res.data === 'object') {
-          const typeMap = { posts: 'posts', people: 'people', groups: 'groups' };
-          const key = typeMap[searchType] || 'results';
-          data = res.data[key] || res.data.data || res.data.results || res.data.items || [];
+        const typeMap = { posts: 'posts', people: 'people', groups: 'groups' };
+        const key = typeMap[searchType] || 'results';
 
-          if (!Array.isArray(data) && data && typeof data === 'object') {
-            if (Object.keys(data).every((k) => !isNaN(k))) {
-              data = Object.values(data);
-            } else {
-              data = [];
+        // Try multiple possible response shapes:
+        if (Array.isArray(res)) {
+          data = res;
+        } else if (res.data && Array.isArray(res.data)) {
+          data = res.data;
+        } else if (res.results && Array.isArray(res.results)) {
+          data = res.results;
+        } else if (res.data && res.data.results && Array.isArray(res.data.results)) {
+          data = res.data.results;
+        } else if (res.data && res.data[key] && Array.isArray(res.data[key])) {
+          data = res.data[key];
+        } else if (res[key] && Array.isArray(res[key])) {
+          data = res[key];
+        } else if (res.data && res.data.data && Array.isArray(res.data.data)) {
+          data = res.data.data;
+        } else if (res.items && Array.isArray(res.items)) {
+          data = res.items;
+        } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+          data = res.data.items;
+        } else {
+          // Last resort: try to find any array in the response
+          for (const [k, v] of Object.entries(res)) {
+            if (Array.isArray(v)) {
+              data = v;
+              break;
+            }
+            if (res.data && Array.isArray(res.data[k])) {
+              data = res.data[k];
+              break;
             }
           }
         }
+
+        // If data is still empty, try to use res.data if it's an object with numeric keys
+        if (!data.length && res.data && typeof res.data === 'object') {
+          const values = Object.values(res.data);
+          if (values.length && values.every(v => typeof v === 'object')) {
+            data = values;
+          }
+        }
+
         console.log('📦 Extracted data:', data);
 
         const hasMoreData = res.meta?.hasMore || data.length === 20;
@@ -86,13 +111,10 @@ export function SearchProvider({ children }) {
               method: 'POST',
               body: JSON.stringify({ query: q, tab: searchType }),
             });
-          } catch (_) {
-            // silent fail
-          }
+          } catch (_) {}
         }
       } catch (err) {
         if (err.name === 'AbortError') {
-          console.log('⏹️ Request aborted');
           return;
         }
         console.error('❌ Search error:', err);
@@ -111,41 +133,31 @@ export function SearchProvider({ children }) {
     }
   }, [hasMore, loading, query, type, page, search]);
 
-  // ── Clear results ──
   const clearResults = useCallback(() => {
     setResults([]);
     setHasMore(false);
     setPage(1);
   }, []);
 
-  // ── Load history from server ──
   const loadHistory = useCallback(async () => {
     try {
       const res = await apiClient('/api/search/history');
       setHistory(res.data || []);
-    } catch (_) {
-      // silent fail
-    }
+    } catch (_) {}
   }, []);
 
-  // ── Delete history entry ──
   const deleteHistoryEntry = useCallback(async (id, q, tab) => {
     try {
       if (id) await apiClient(`/api/search/history/${id}`, { method: 'DELETE' });
       setHistory((prev) => prev.filter((h) => !(h.query === q && h.tab === tab)));
-    } catch (_) {
-      // silent fail
-    }
+    } catch (_) {}
   }, []);
 
-  // ── Clear all history ──
   const clearHistory = useCallback(async () => {
     try {
       await apiClient('/api/search/history', { method: 'DELETE' });
       setHistory([]);
-    } catch (_) {
-      // silent fail
-    }
+    } catch (_) {}
   }, []);
 
   const value = {

@@ -122,7 +122,7 @@ async function hydratePosts(posts, options = {}) {
       `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
               p.text, p.image, p.video, p.created_at AS createdAt,
               p.is_live, p.live_session_id, p.youtube_id,
-              u.verified AS authorVerified   -- ✅ added
+              u.verified AS authorVerified
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id IN (${oph})`,
@@ -145,13 +145,12 @@ async function hydratePosts(posts, options = {}) {
 
   // ── Process each post ────────────────────────────────────
   posts.forEach(p => {
-    // Build user object (for frontend)
     p.user = {
       id: p.userId,
       name: p.author || 'Unknown',
       username: p.authorUsername || null,
       picture: p.authorPicture || null,
-      verified: !!p.authorVerified,   // ✅ now using authorVerified from SQL
+      verified: !!p.authorVerified,
     };
 
     p.likes    = lMap[p.id] || [];
@@ -182,7 +181,7 @@ async function hydratePosts(posts, options = {}) {
           userId: orig.userId,
           author: orig.author,
           authorPicture: orig.authorPicture,
-          authorVerified: !!orig.authorVerified,   // ✅ pass verified to original post
+          authorVerified: !!orig.authorVerified,
           text: orig.text,
           image: orig.image,
           video: orig.video,
@@ -274,7 +273,7 @@ async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) 
        u.name             AS author,
        u.username         AS authorUsername,
        u.picture          AS authorPicture,
-       u.verified         AS authorVerified,   -- ✅ added
+       u.verified         AS authorVerified,
        p.text,
        p.image,
        p.video,
@@ -320,7 +319,7 @@ async function getGroupPosts(groupId, page = 1, limit = 20) {
        u.name             AS author,
        u.username         AS authorUsername,
        u.picture          AS authorPicture,
-       u.verified         AS authorVerified,   -- ✅ added
+       u.verified         AS authorVerified,
        p.text,
        p.image,
        p.video,
@@ -381,7 +380,7 @@ async function updatePost(postId, text, isLive = null, liveSessionId = null, you
 async function findById(postId) {
   const [rows] = await db.query(
     `SELECT p.*, u.name AS author, u.username AS authorUsername, u.picture AS authorPicture,
-            u.verified AS authorVerified,   -- ✅ added
+            u.verified AS authorVerified,
             p.is_live, p.live_session_id, p.youtube_id
      FROM posts p
      JOIN users u ON u.id = p.user_id
@@ -506,7 +505,7 @@ async function deleteRepost(userId, originalPostId) {
 async function getOriginalPostEmbed(originalPostId) {
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
-            u.verified AS authorVerified,   -- ✅ added
+            u.verified AS authorVerified,
             p.text, p.image, p.video, p.created_at AS createdAt,
             p.is_live, p.live_session_id, p.youtube_id
      FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?`,
@@ -524,7 +523,7 @@ async function getTrendingPosts(limit = 20) {
        u.name             AS author,
        u.username         AS authorUsername,
        u.picture          AS authorPicture,
-       u.verified         AS authorVerified,   -- ✅ added
+       u.verified         AS authorVerified,
        p.text,
        p.image,
        p.video,
@@ -557,7 +556,7 @@ async function searchPosts(query, { limit = 20, offset = 0 } = {}) {
   const like = `%${escaped}%`;
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
-            u.picture AS authorPicture, u.verified AS authorVerified,   -- ✅ added
+            u.picture AS authorPicture, u.verified AS authorVerified,
             p.text, p.image, p.video, p.is_repost AS isRepost, p.created_at AS createdAt,
             p.is_live, p.live_session_id, p.youtube_id,
             (SELECT COUNT(*) FROM likes    WHERE post_id=p.id)           AS likeCount,
@@ -570,6 +569,40 @@ async function searchPosts(query, { limit = 20, offset = 0 } = {}) {
     [like, like, limit, offset]
   );
   return rows;
+}
+
+// ── Video posts (dedicated endpoint) ──────────────────────
+async function getVideos({ page = 1, limit = 20 } = {}) {
+  const offset = (page - 1) * limit;
+  const [rawPosts] = await db.query(
+    `SELECT
+       p.id,
+       p.user_id          AS userId,
+       u.name             AS author,
+       u.username         AS authorUsername,
+       u.picture          AS authorPicture,
+       u.verified         AS authorVerified,
+       p.text,
+       p.image,
+       p.video,
+       p.is_repost        AS isRepost,
+       p.original_post_id AS originalPostId,
+       p.created_at       AS createdAt,
+       p.is_live,
+       p.live_session_id,
+       p.youtube_id
+     FROM posts p
+     JOIN users u ON u.id = p.user_id
+     WHERE p.video IS NOT NULL
+     ORDER BY p.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [limit + 1, offset]
+  );
+
+  const hasMore = rawPosts.length > limit;
+  const pagePosts = rawPosts.slice(0, limit);
+  const hydrated = await hydratePosts(pagePosts);
+  return { videos: hydrated, hasMore, page, limit };
 }
 
 // ── View counts ────────────────────────────────────────────
@@ -767,7 +800,7 @@ async function getPostsByTopic(topic, page = 1, limit = 20) {
        u.name             AS author,
        u.username         AS authorUsername,
        u.picture          AS authorPicture,
-       u.verified         AS authorVerified,   -- ✅ added
+       u.verified         AS authorVerified,
        p.text,
        p.image,
        p.video,
@@ -814,6 +847,7 @@ module.exports = {
   deleteRepost,
   getOriginalPostEmbed,
   searchPosts,
+  getVideos,            // ✅ added
   savePostTopics,
   saveCommentTopics,
   getTopics,

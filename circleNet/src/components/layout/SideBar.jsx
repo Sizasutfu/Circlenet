@@ -12,6 +12,7 @@ import AvatarPlaceholder from "@/components/ui/AvatarPlaceholder";
 import VerificationBadge from "@/components/ui/VerificationBadge";
 import { apiClient } from "@/lib/api";
 import { resolveMediaUrl } from '@/lib/url';
+import { useLightbox } from '@/hooks/useLightbox';
 
 // ── Icons ──
 const HomeIcon = (props) => (
@@ -47,6 +48,13 @@ const SearchIcon = (props) => (
 const ExploreIcon = (props) => (
   <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
     <polygon points="3 11 22 2 13 21 11 13 3 11" />
+  </svg>
+);
+
+const VideosIcon = (props) => (
+  <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
+    <polygon points="23 7 16 12 23 17 23 7" />
+    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
   </svg>
 );
 
@@ -106,7 +114,12 @@ const LiveIcon = (props) => (
   </svg>
 );
 
-
+const AdminIcon = (props) => (
+  <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <polyline points="9 12 11 14 15 10" />
+  </svg>
+);
 
 export default function SideBar({ isOpen = false, onClose = () => {} }) {
   const pathname = usePathname();
@@ -115,41 +128,83 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
   const { openPanel, unreadCount: notifUnreadCount } = useNotifications();
   const { openSetup } = useLive();
   const { unreadCount: dmUnreadCount } = useDm();
+  const { openLightbox } = useLightbox();
 
   const [isVerified, setIsVerified] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loadingVerified, setLoadingVerified] = useState(true);
 
   useEffect(() => {
-    const fetchVerified = async () => {
+    const fetchVerifiedAndRole = async () => {
       if (!user?.id) {
         setIsVerified(false);
+        setIsAdmin(false);
         setLoadingVerified(false);
         return;
       }
-      if (user.verified !== undefined) {
+
+      if (user.verified !== undefined && user.role !== undefined) {
         setIsVerified(user.verified === 1 || user.verified === true);
+        setIsAdmin(user.role === 'admin');
         setLoadingVerified(false);
         return;
       }
+
       try {
         const res = await apiClient(`/api/users/${user.id}/profile`);
         const profile = res.data || res;
         setIsVerified(profile.verified === 1 || profile.verified === true);
+        setIsAdmin(profile.role === 'admin');
       } catch (err) {
-        console.warn("Failed to fetch verified status:", err);
+        console.warn("Failed to fetch profile:", err);
         setIsVerified(false);
+        setIsAdmin(false);
       } finally {
         setLoadingVerified(false);
       }
     };
-    fetchVerified();
+    fetchVerifiedAndRole();
   }, [user]);
+
+  // ── Algorithmic video feed ──
+  const handleVideosClick = async () => {
+    try {
+      const res = await apiClient('/api/videos?limit=20');
+      const videos = res.data?.posts || res.data || [];
+      const validVideos = videos.filter(v => v.video);
+      if (!validVideos.length) {
+        alert('No videos found.');
+        return;
+      }
+
+      const items = validVideos.map((v) => ({
+        src: resolveMediaUrl(v.video) || '',
+        type: 'video',
+        meta: {
+          postId: v.id,
+          caption: v.text || '',
+          name: v.user?.name || v.author || 'Anonymous',
+          username: v.user?.username || '',
+          userId: v.user?.id || v.authorId || v.userId,
+          picture: resolveMediaUrl(v.user?.picture || v.authorPicture || null),
+          poster: resolveMediaUrl(v.image || v.thumbnail || null),
+        },
+      }));
+
+      localStorage.setItem('circle_lb_nav_axis', 'ud');
+      openLightbox(items, 0);
+    } catch (err) {
+      console.error('Failed to load videos:', err);
+      alert('Could not load videos.');
+    }
+  };
 
   const navItems = [
     { id: "feed", label: "Feed", icon: HomeIcon, href: "/" },
     { id: "profile", label: "Profile", icon: UserIcon, href: "/profile" },
     { id: "search", label: "Search", icon: SearchIcon, href: "/search" },
     { id: "explore", label: "Explore", icon: ExploreIcon, href: "/explore" },
+    { id: "videos", label: "Videos", icon: VideosIcon, onClick: handleVideosClick },
     { id: "groups", label: "Groups", icon: GroupsIcon, href: "/groups" },
     { id: "articles", label: "Articles", icon: ArticlesIcon, href: "/articles" },
     {
@@ -169,7 +224,22 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
     },
     { id: "whisper", label: "Whisper", icon: WhisperIcon, href: "/whisper/inbox" },
     { id: "settings", label: "Settings", icon: SettingsIcon, href: "/settings" },
-    { id: "dashboard", label: "Dashboard", icon: DashboardIcon, href: "/dashboard" },
+    ...(isAdmin
+      ? [
+          {
+            id: "admin-dashboard",
+            label: "Admin Dashboard",
+            icon: AdminIcon,
+            href: "/admin",
+          },
+        ]
+      : []),
+    {
+      id: "dashboard",
+      label: "Dashboard",
+      icon: DashboardIcon,
+      href: "/dashboard",
+    },
     ...(isVerified
       ? [
           {
@@ -220,8 +290,8 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
           </span>
         </div>
 
-        {/* ── Navigation (scrollable) ── */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1 min-h-0">
+        {/* ── Navigation (scrollable, scrollbar hidden) ── */}
+        <nav className="flex-1 overflow-y-auto scrollbar-hide px-3 py-4 space-y-1 min-h-0">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
@@ -262,6 +332,43 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
               );
             }
 
+            // ── Videos – button ──
+            if (item.id === "videos") {
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    item.onClick?.();
+                    handleLinkClick();
+                  }}
+                  className={`
+                    group relative flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all w-full text-left
+                    ${
+                      pathname === "/videos"
+                        ? "bg-[var(--color-accent-bg)] text-[var(--color-accent)] shadow-sm shadow-[var(--color-accent-glow)]"
+                        : "text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-txt)]"
+                    }
+                  `}
+                >
+                  <Icon
+                    className={`
+                      h-5 w-5 flex-shrink-0 transition-colors
+                      ${
+                        pathname === "/videos"
+                          ? "text-[var(--color-accent)]"
+                          : "text-[var(--color-txt3)] group-hover:text-[var(--color-txt)]"
+                      }
+                    `}
+                  />
+                  <span className="flex-1 text-left">{item.label}</span>
+                  {pathname === "/videos" && (
+                    <span className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-[var(--color-accent)] shadow-sm shadow-[var(--color-accent-glow)]" />
+                  )}
+                </button>
+              );
+            }
+
+            // ── Notifications ──
             if (item.id === "notifications") {
               return (
                 <button
@@ -302,6 +409,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
               );
             }
 
+            // ── Regular Links ──
             return (
               <Link
                 key={item.id}
@@ -360,7 +468,7 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
           </Link>
         </nav>
 
-        {/* ── Footer (always visible) ── */}
+        {/* ── Footer ── */}
         {user ? (
           <div className="border-t border-[var(--color-border)] p-4 flex-shrink-0 bg-[var(--color-card)]">
             <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface)] p-2 transition-colors hover:bg-[var(--color-accent-bg)]">

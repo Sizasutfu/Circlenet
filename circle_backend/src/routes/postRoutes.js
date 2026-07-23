@@ -6,7 +6,7 @@
 
 const router                    = require('express').Router();
 const postController            = require('../controllers/postController');
-const commentController         = require('../controllers/commentController'); // ✅ added
+const commentController         = require('../controllers/commentController');
 const { requireAuth }           = require('../middleware/auth');
 const upload                    = require('../middleware/upload');
 const { compressUploads }       = require('../middleware/compress');
@@ -14,8 +14,9 @@ const { compressUploads }       = require('../middleware/compress');
 // Feed — public (viewerId optional for personalisation)
 router.get('/', postController.getPosts);
 
+
+
 // Post CRUD
-// Flow: requireAuth → multer (RAM) → compressUploads (compress + save to disk) → controller
 router.post('/', requireAuth, upload.fields([
   { name: 'image', maxCount: 1 },
   { name: 'video', maxCount: 1 },
@@ -24,26 +25,19 @@ router.post('/', requireAuth, upload.fields([
 router.get('/:id',             postController.getPostById);
 router.delete('/:id', requireAuth, postController.deletePost);
 
-// Interactions — all require auth
+// Interactions
 router.post('/:id/like',    requireAuth, postController.toggleLike);
 router.post('/:id/comment', requireAuth, postController.addComment);
 router.post('/:id/repost',   requireAuth, postController.repost);
 
-// ── NEW: Get all comments for a post (including replies) ──
+// Comments
 router.get('/:id/comments', commentController.getCommentsByPostId);
-
-// ── Existing (keep if needed) ──
 router.get('/:id/comments-on-posts', requireAuth, postController.getCommentsOnUserPosts);
 
-//router.delete('/:id/repost', requireAuth, postController.unrepost);
-
-// View count — auth optional (guests tracked by fingerprint)
+// View counts
 router.post('/:id/view', postController.recordView);
-
-//router.post('/:id/skip',  postController.recordSkip);
 router.post('/:id/skip', requireAuth, postController.recordSkip);
 router.put('/:id', requireAuth, postController.updatePost);
-
 router.post('/:id/video-view', requireAuth, postController.recordVideoView);
 
 module.exports = router;

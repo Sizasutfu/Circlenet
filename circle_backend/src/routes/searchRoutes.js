@@ -1,15 +1,13 @@
-// ============================================================
-//  routes/searchRoutes.js
-//  Defines API endpoints for search.
-//  Route handlers are in controllers/searchController.js.
-// ============================================================
-
+// routes/searchRoutes.js
 const router            = require('express').Router();
 const { requireAuth }   = require('../middleware/auth');
 const searchController  = require('../controllers/searchController');
 
-// GET  /api/search?q=<term>&type=posts|people
+// GET  /api/search?q=<term>&type=all|posts|people|groups
 router.get('/', searchController.search);
+
+// GET  /api/search/autocomplete?q=<term>  (public)
+router.get('/autocomplete', searchController.autocomplete);
 
 // History (all require auth)
 router.get   ('/history',     requireAuth, searchController.getHistory);

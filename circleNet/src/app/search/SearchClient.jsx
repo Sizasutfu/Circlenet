@@ -1,7 +1,7 @@
 // src/app/search/SearchClient.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSearch } from '@/contexts/SearchContext';
 import { useAuth } from '@/lib/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -10,6 +10,7 @@ import GroupCard from '@/components/groups/GroupCard';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
 import { resolveMediaUrl } from '@/lib/url';
+import { apiClient } from '@/lib/api';
 
 function highlight(text, q) {
   if (!text) return '';
@@ -18,10 +19,199 @@ function highlight(text, q) {
   return safe.replace(new RegExp(`(${safeQ})`, 'gi'), '<mark class="hl">$1</mark>');
 }
 
+function timeAgo(timestamp) {
+  if (!timestamp) return '';
+  const diff = Date.now() - new Date(timestamp).getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+// ─── Skeleton components ──────────────────────────────────────────────
+function PostSkeleton() {
+  return (
+    <div className="p-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-full bg-[var(--color-surface)] flex-shrink-0" />
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-24 bg-[var(--color-surface)] rounded" />
+            <div className="h-3 w-16 bg-[var(--color-surface)] rounded" />
+            <div className="h-3 w-12 bg-[var(--color-surface)] rounded" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="h-3 w-full bg-[var(--color-surface)] rounded" />
+            <div className="h-3 w-5/6 bg-[var(--color-surface)] rounded" />
+            <div className="h-3 w-3/4 bg-[var(--color-surface)] rounded" />
+          </div>
+          <div className="flex items-center gap-4 mt-2">
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+            <div className="h-4 w-12 bg-[var(--color-surface)] rounded" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PeopleSkeleton() {
+  return (
+    <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
+      <div className="w-10 h-10 rounded-full bg-[var(--color-surface)] flex-shrink-0" />
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="h-4 w-1/3 bg-[var(--color-surface)] rounded" />
+        <div className="h-3 w-1/2 bg-[var(--color-surface)] rounded" />
+        <div className="h-3 w-1/4 bg-[var(--color-surface)] rounded" />
+      </div>
+      <div className="w-16 h-8 bg-[var(--color-surface)] rounded-full" />
+    </div>
+  );
+}
+
+function GroupSkeleton() {
+  return (
+    <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
+      <div className="w-12 h-12 rounded-xl bg-[var(--color-surface)] flex-shrink-0" />
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="h-4 w-1/3 bg-[var(--color-surface)] rounded" />
+        <div className="h-3 w-1/2 bg-[var(--color-surface)] rounded" />
+      </div>
+      <div className="w-16 h-8 bg-[var(--color-surface)] rounded-full" />
+    </div>
+  );
+}
+
+// ─── SVG icons ─────────────────────────────────────────────────────────
+const PostIcon = () => (
+  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+  </svg>
+);
+
+const UserIcon = () => (
+  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </svg>
+);
+
+const GroupIcon = () => (
+  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 00-3-3.87" />
+    <path d="M16 3.13a4 4 0 010 7.75" />
+  </svg>
+);
+
+// ─── Autocomplete dropdown ────────────────────────────────────────────
+function AutocompleteDropdown({ suggestions, query, onSelect, loading }) {
+  if (!query || query.length < 2) return null;
+  if (loading) {
+    return (
+      <div className="absolute left-0 right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-lg p-2 z-50">
+        <div className="flex items-center gap-2 p-2">
+          <div className="animate-spin h-4 w-4 border-2 border-[var(--color-accent)] border-t-transparent rounded-full" />
+          <span className="text-sm text-[var(--color-txt3)]">Loading suggestions...</span>
+        </div>
+      </div>
+    );
+  }
+  if (!suggestions.length) {
+    return (
+      <div className="absolute left-0 right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-lg p-3 z-50">
+        <p className="text-sm text-[var(--color-txt2)]">No suggestions found</p>
+      </div>
+    );
+  }
+
+  const grouped = suggestions.reduce((acc, item) => {
+    const type = item._type || 'post';
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(item);
+    return acc;
+  }, {});
+
+  const typeLabels = {
+    post: 'Posts',
+    user: 'Users',
+    group: 'Groups',
+  };
+
+  const typeIcons = {
+    post: <PostIcon />,
+    user: <UserIcon />,
+    group: <GroupIcon />,
+  };
+
+  return (
+    <div className="absolute left-0 right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-lg p-2 z-50 max-h-96 overflow-y-auto">
+      {Object.entries(grouped).map(([type, items]) => (
+        <div key={type} className="mb-2 last:mb-0">
+          <div className="text-xs font-semibold text-[var(--color-txt3)] uppercase tracking-wider px-2 py-1">
+            {typeLabels[type] || type}
+          </div>
+          {items.map((item) => (
+            <div
+              key={`${type}-${item.id}`}
+              className="flex items-center gap-2 p-2 rounded-lg hover:bg-[var(--color-surface)] transition cursor-pointer"
+              onClick={() => onSelect(item)}
+            >
+              <div className="text-[var(--color-txt2)] flex-shrink-0">
+                {typeIcons[type] || typeIcons.post}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-[var(--color-txt)] truncate">
+                  {type === 'post' && (
+                    <span dangerouslySetInnerHTML={{ __html: highlight(item.preview || item.text || '', query) }} />
+                  )}
+                  {type === 'user' && (
+                    <span dangerouslySetInnerHTML={{ __html: highlight(item.name, query) }} />
+                  )}
+                  {type === 'group' && (
+                    <span dangerouslySetInnerHTML={{ __html: highlight(item.displayName || item.topic, query) }} />
+                  )}
+                </div>
+                <div className="text-xs text-[var(--color-txt2)] truncate">
+                  {type === 'post' && `by ${item.author || item.user?.name || 'Unknown'}`}
+                  {type === 'user' && `@${item.username || 'user'}`}
+                  {type === 'group' && `${item.memberCount || 0} members`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div className="border-t border-[var(--color-border)] pt-2 mt-2">
+        <button
+          onClick={() => {
+            const q = query;
+            const url = `/search?q=${encodeURIComponent(q)}&type=${activeTab}`;
+            router.push(url);
+          }}
+          className="w-full text-center text-sm text-[var(--color-accent)] hover:underline"
+        >
+          See all results for "{query}"
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────
 export default function SearchClient() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchInputRef = useRef(null);
+  const containerRef = useRef(null);
 
   const {
     query,
@@ -32,7 +222,6 @@ export default function SearchClient() {
     history,
     search,
     loadMore,
-    clearResults,
     loadHistory,
     deleteHistoryEntry,
     clearHistory,
@@ -40,12 +229,63 @@ export default function SearchClient() {
   } = useSearch();
 
   const [inputValue, setInputValue] = useState('');
-  const [activeTab, setActiveTab] = useState('posts');
+  const [activeTab, setActiveTab] = useState('all');
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // ── Debounced autocomplete ──
+  useEffect(() => {
+    if (!inputValue || inputValue.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        const res = await apiClient(`/api/search/autocomplete?q=${encodeURIComponent(inputValue)}`);
+        setSuggestions(res.data || []);
+        setShowSuggestions(true);
+      } catch (err) {
+        console.warn('Autocomplete error:', err);
+        setSuggestions([]);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [inputValue]);
+
+  // ── Handle suggestion click ──
+  const handleSuggestionSelect = (item) => {
+    setShowSuggestions(false);
+    if (item._type === 'post') {
+      router.push(`/post/${item.id}`);
+    } else if (item._type === 'user') {
+      if (item.username) {
+        router.push(`/profile/${item.username}`);
+      } else {
+        router.push(`/profile?userId=${item.id}`);
+      }
+    } else if (item._type === 'group') {
+      if (item.topic) {
+        router.push(`/groups/topic/${item.topic}`);
+      } else {
+        router.push(`/groups/${item.id}`);
+      }
+    }
+  };
+
+  // ── Tabs ──
+  const tabs = ['all', 'posts', 'people', 'groups'];
 
   // ── Read query params ──
   useEffect(() => {
     const q = searchParams?.get('q') || '';
-    const t = searchParams?.get('type') || 'posts';
+    const t = searchParams?.get('type') || 'all';
     if (q) {
       setInputValue(q);
       setActiveTab(t);
@@ -64,11 +304,13 @@ export default function SearchClient() {
       router.push(url);
       search(inputValue.trim(), tab);
     }
+    setShowSuggestions(false);
   };
 
   // ── Handle search submit ──
   const handleSubmit = (e) => {
     e.preventDefault();
+    setShowSuggestions(false);
     const q = inputValue.trim();
     if (q.length < 2) return;
     const url = `/search?q=${encodeURIComponent(q)}&type=${activeTab}`;
@@ -76,7 +318,18 @@ export default function SearchClient() {
     search(q, activeTab);
   };
 
-  // ── People card with verification badge ──
+  // ── Handle history click ──
+  const handleHistoryClick = (item) => {
+    setInputValue(item.query);
+    setActiveTab(item.tab || 'all');
+    setType(item.tab || 'all');
+    const url = `/search?q=${encodeURIComponent(item.query)}&type=${item.tab || 'all'}`;
+    router.push(url);
+    search(item.query, item.tab || 'all');
+    setShowSuggestions(false);
+  };
+
+  // ── People card ──
   const PeopleCard = ({ user: u, query }) => {
     const avatarUrl = resolveMediaUrl(u.picture);
     const isVerified = u.verified === 1 || u.verified === true;
@@ -112,99 +365,202 @@ export default function SearchClient() {
     );
   };
 
-  // ── No query ──
-  if (!inputValue && !searchParams?.get('q')) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-6">
-        <div className="text-center py-16 text-[var(--color-txt2)]">
-          <svg className="w-12 h-12 mx-auto mb-4 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <p className="text-sm">Type to search posts, people, or groups</p>
-        </div>
-      </div>
-    );
-  }
+  // ── No query – show history ──
+  const showHistory = !inputValue && !searchParams?.get('q');
+
+  // ── Click outside to close dropdown ──
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6">
-      {/* Search bar */}
-      <form onSubmit={handleSubmit} className="mb-6">
+    <div className="max-w-4xl mx-auto px-4 py-6" ref={containerRef}>
+      {/* ─── Search bar with autocomplete ─── */}
+      <form onSubmit={handleSubmit} className="mb-6 relative">
         <div className="relative">
           <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
+            ref={searchInputRef}
             type="search"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onFocus={() => {
+              if (inputValue.length >= 2 && suggestions.length > 0) {
+                setShowSuggestions(true);
+              }
+            }}
             placeholder={`Search ${activeTab}...`}
             className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-full py-3 pl-11 pr-4 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] focus:outline-none transition"
             autoFocus
           />
+          {inputValue && (
+            <button
+              type="button"
+              onClick={() => {
+                setInputValue('');
+                setSuggestions([]);
+                setShowSuggestions(false);
+                const url = `/search`;
+                router.push(url);
+              }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
+
+        {/* ─── Autocomplete dropdown ─── */}
+        {showSuggestions && (
+          <AutocompleteDropdown
+            suggestions={suggestions}
+            query={inputValue}
+            onSelect={handleSuggestionSelect}
+            loading={suggestionsLoading}
+          />
+        )}
       </form>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        {['posts', 'people', 'groups'].map((tab) => (
+      {/* ─── Tabs ─── */}
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => handleTabSwitch(tab)}
-            className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === tab ? 'bg-[var(--color-accent)] text-white' : 'bg-[var(--color-card)] text-[var(--color-txt2)] border border-[var(--color-border)] hover:bg-[var(--color-surface)]'}`}
+            className={`px-4 py-2 text-sm font-bold rounded-lg transition ${
+              activeTab === tab
+                ? 'bg-[var(--color-accent)] text-white'
+                : 'bg-[var(--color-card)] text-[var(--color-txt2)] border border-[var(--color-border)] hover:bg-[var(--color-surface)]'
+            }`}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
 
-      {/* Results */}
-      <div className="space-y-3">
-        {loading && results.length === 0 ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="p-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] animate-pulse">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[var(--color-surface)]" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3 w-1/3 bg-[var(--color-surface)] rounded" />
-                  <div className="h-3 w-1/2 bg-[var(--color-surface)] rounded" />
-                </div>
+      {/* ─── Content ─── */}
+      {showHistory ? (
+        <div>
+          {user && history.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-[var(--color-txt2)]">Recent searches</h2>
+                <button
+                  onClick={async () => {
+                    if (confirm('Clear all search history?')) {
+                      await clearHistory();
+                      loadHistory();
+                    }
+                  }}
+                  className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-rose)] transition"
+                >
+                  Clear all
+                </button>
               </div>
-              <div className="mt-3 space-y-2">
-                <div className="h-3 w-full bg-[var(--color-surface)] rounded" />
-                <div className="h-3 w-3/4 bg-[var(--color-surface)] rounded" />
+              <div className="space-y-1">
+                {history.map((item) => (
+                  <div
+                    key={item.id || `${item.query}-${item.tab}`}
+                    className="flex items-center gap-2 p-2 rounded-lg hover:bg-[var(--color-surface)] transition cursor-pointer group"
+                    onClick={() => handleHistoryClick(item)}
+                  >
+                    <svg className="w-4 h-4 text-[var(--color-txt3)] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <span className="flex-1 text-sm text-[var(--color-txt)]">{item.query}</span>
+                    <span className="text-xs text-[var(--color-txt3)]">{timeAgo(item.searched_at)}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteHistoryEntry(item.id, item.query, item.tab);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-[var(--color-txt3)] hover:text-[var(--color-rose)] transition p-1"
+                      aria-label="Delete"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
-          ))
-        ) : results.length === 0 ? (
-          <div className="text-center py-12 text-[var(--color-txt2)]">
-            <p>No {activeTab} found for “<strong className="text-[var(--color-txt)]">{inputValue}</strong>”</p>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'posts' && results.map((post) => (
-              <PostCard key={post.id} post={post} />
-            ))}
-            {activeTab === 'people' && results.map((u) => (
-              <PeopleCard key={u.id} user={u} query={inputValue} />
-            ))}
-            {activeTab === 'groups' && results.map((group) => (
-              <GroupCard key={group.id} group={group} />
-            ))}
-          </>
-        )}
+          )}
 
-        {hasMore && !loading && (
-          <button
-            onClick={() => loadMore()}
-            className="w-full py-3 text-sm font-medium text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)]"
-          >
-            Load more
-          </button>
-        )}
-      </div>
+          {user && history.length === 0 && (
+            <div className="text-center text-sm text-[var(--color-txt3)] py-8">
+              No recent searches
+            </div>
+          )}
+
+          {!user && (
+            <div className="text-center text-sm text-[var(--color-txt3)] py-8">
+              Log in to save your search history.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {loading && results.length === 0 ? (
+            <>
+              {activeTab === 'all' && Array.from({ length: 3 }).map((_, i) => <PostSkeleton key={i} />)}
+              {activeTab === 'posts' && Array.from({ length: 3 }).map((_, i) => <PostSkeleton key={i} />)}
+              {activeTab === 'people' && Array.from({ length: 3 }).map((_, i) => <PeopleSkeleton key={i} />)}
+              {activeTab === 'groups' && Array.from({ length: 3 }).map((_, i) => <GroupSkeleton key={i} />)}
+            </>
+          ) : results.length === 0 ? (
+            <div className="text-center py-12 text-[var(--color-txt2)]">
+              <p>No results found for “<strong className="text-[var(--color-txt)]">{inputValue}</strong>”</p>
+            </div>
+          ) : (
+            <>
+              {activeTab === 'all' ? (
+                <div className="space-y-3">
+                  {results.map((item) => {
+                    const type = item._type || (
+                      item.text !== undefined ? 'post' :
+                      item.topic !== undefined ? 'group' :
+                      'user'
+                    );
+                    if (type === 'post') return <PostCard key={item.id} post={item} />;
+                    if (type === 'group') return <GroupCard key={item.id} group={item} />;
+                    return <PeopleCard key={item.id} user={item} query={inputValue} />;
+                  })}
+                </div>
+              ) : activeTab === 'posts' ? (
+                results.map((post) => <PostCard key={post.id} post={post} />)
+              ) : activeTab === 'people' ? (
+                results.map((u) => <PeopleCard key={u.id} user={u} query={inputValue} />)
+              ) : activeTab === 'groups' ? (
+                results.map((group) => <GroupCard key={group.id} group={group} />)
+              ) : null}
+            </>
+          )}
+
+          {hasMore && !loading && (
+            <button
+              onClick={() => loadMore()}
+              className="w-full py-3 text-sm font-medium text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)]"
+            >
+              Load more
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

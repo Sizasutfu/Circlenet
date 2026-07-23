@@ -3,6 +3,7 @@ import './globals.css';
 import Providers from './Providers';
 import ClientLayout from './ClientLayout';
 
+// ─── Metadata (title, description, Open Graph, Twitter, robots) ───
 export const metadata = {
   title: {
     default: 'Circlenet',
@@ -29,13 +30,14 @@ export const metadata = {
     index: true,
     follow: true,
   },
-  // ─── Prevent zoom on mobile ───
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    // userScalable: true, // keep true for accessibility; zoom is prevented by input font-size
-  },
+};
+
+// ─── Viewport (separate export – required in Next.js 15+) ───
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  // userScalable: true, // keep true for accessibility; zoom is prevented by input font-size
 };
 
 export default function RootLayout({ children }) {
@@ -49,7 +51,6 @@ export default function RootLayout({ children }) {
         />
         <link rel="manifest" href="/manifest.json" />
       </head>
-      {/* ─── Added overflow‑x‑hidden and max‑width to prevent horizontal scroll ─── */}
       <body className="bg-bg text-txt font-body antialiased overflow-x-hidden max-w-[100vw]">
         <Providers>
           <ClientLayout>{children}</ClientLayout>

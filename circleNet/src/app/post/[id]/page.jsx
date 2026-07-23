@@ -46,8 +46,7 @@ function toAbsoluteUrl(path) {
 }
 
 export async function generateMetadata({ params }) {
-  // ✅ Await the params promise before accessing it
-  const { id } = await params;  // <-- FIXED HERE
+  const { id } = await params;
   const post = await getPost(id);
 
   if (!post) {
@@ -84,6 +83,8 @@ export async function generateMetadata({ params }) {
       siteName: 'Circlenet',
       locale: 'en_US',
       images: [{ url: image }],
+      publishedTime: post.createdAt,
+      authors: [author],
     },
     twitter: {
       card: 'summary_large_image',
@@ -96,8 +97,7 @@ export async function generateMetadata({ params }) {
 }
 
 export default async function PostDetailPage({ params }) {
-  // ✅ Also await params here
-  const { id } = await params;  // <-- FIXED HERE
+  const { id } = await params;
 
   if (!id || Number.isNaN(Number(id))) {
     notFound();
@@ -108,9 +108,38 @@ export default async function PostDetailPage({ params }) {
     notFound();
   }
 
+  // ── Build JSON‑LD structured data ──
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: cleanText(post.text || '').slice(0, 110),
+    description: truncate(post.text || '', 150),
+    image: toAbsoluteUrl(post.image || post.user?.picture || DEFAULT_OG_IMAGE),
+    author: {
+      '@type': 'Person',
+      name: post.user?.name || post.author || 'Anonymous',
+      url: post.user?.username ? `${BASE_URL}/profile/${post.user.username}` : undefined,
+    },
+    datePublished: post.createdAt,
+    dateModified: post.updatedAt || post.createdAt,
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': `${BASE_URL}/post/${id}`,
+    },
+  };
+
   return (
-    <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading post...</div>}>
-      <PostDetailClient postId={id} />
-    </Suspense>
+    <>
+      {/* ── JSON‑LD structured data ── */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
+      {/* ── Main content ── */}
+      <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading post...</div>}>
+        <PostDetailClient postId={id} />
+      </Suspense>
+    </>
   );
 }

@@ -168,3 +168,13 @@ button {
 .animate-float-up {
   animation: floatUp 2.5s ease-out forwards;
 }
+
+/* ─── Hide scrollbar for sidebar navigation ─── */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;     /* Firefox */
+}

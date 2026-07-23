@@ -33,7 +33,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
   const { user } = useAuth();
   const router = useRouter();
 
-  // ── Theme detection ──
+  // ── Theme ──
   const [theme, setTheme] = useState('dark');
   useEffect(() => {
     const html = document.documentElement;
@@ -47,7 +47,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     return () => observer.disconnect();
   }, []);
 
-  // ── Normalize images ──
+  // ── Normalize ──
   const normalized = images.map((img) => {
     if (typeof img === 'string') {
       return { src: img, type: 'image', meta: {} };
@@ -73,24 +73,30 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
   const [postData, setPostData] = useState(null);
   const [postLoading, setPostLoading] = useState(true);
 
-  // Refs for gesture handling
-  const imgRef = useRef(null);
-  const containerRef = useRef(null);
-  const dragStartX = useRef(0);
-  const dragStartY = useRef(0);
-  const startTranslateX = useRef(0);
-  const startTranslateY = useRef(0);
-  const pointers = useRef(new Map());
-  const pinchStartDist = useRef(0);
-  const swipeStartX = useRef(0);
-  const swipeStartY = useRef(0);
-  const isSwiping = useRef(false);
-  const navAxis = useRef(localStorage.getItem('circle_lb_nav_axis') || 'lr');
-
-  // ── Fetch post data for comments/likes ──
+  // ── Determine if all items are videos ──
+  const allVideos = items.every(item => item.type === 'video');
   const currentItem = items[currentIndex];
   const postId = currentItem?.meta?.postId || null;
 
+  // ── Vertical feed state ──
+  const feedRef = useRef(null);
+  const containerRef = useRef(null);
+  const [feedTranslateY, setFeedTranslateY] = useState(-currentIndex * window.innerHeight);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartY, setDragStartY] = useState(0);
+  const [dragOffset, setDragOffset] = useState(0);
+  const videoRefs = useRef([]);
+  const [snapPending, setSnapPending] = useState(false);
+
+  // Refs for image gestures
+  const imgRef = useRef(null);
+  const pointers = useRef(new Map());
+  const pinchStartDist = useRef(0);
+  const swipeStartX = useRef(0);
+  const dragStartX = useRef(0);
+  const dragStartYRef = useRef(0);
+
+  // ── Fetch post data ──
   useEffect(() => {
     if (postId) {
       const fetchPost = async () => {
@@ -110,59 +116,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     }
   }, [postId]);
 
-  // ── Render profile chip (theme-aware) ──
-  const renderProfile = () => {
-  const meta = currentItem?.meta || {};
-  if (!meta.name) return null;
-
-  // ── Build the profile URL ──
-  let profileUrl = '#';
-  if (meta.username) {
-    profileUrl = `/profile/${meta.username}`;
-  } else if (meta.userId) {
-    profileUrl = `/profile?userId=${meta.userId}`;
-  } else {
-    return null; // no way to link
-  }
-
-  return (
-    <div
-      className="flex items-center gap-2 bg-[var(--lightbox-chip-bg)] backdrop-blur-md px-3 py-1.5 rounded-full cursor-pointer hover:bg-[var(--lightbox-chip-hover)] transition"
-      onClick={() => {
-        if (profileUrl !== '#') {
-          onClose();
-          setTimeout(() => router.push(profileUrl), 200);
-        }
-      }}
-    >
-      <div
-        className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden flex-shrink-0"
-        style={{
-          background: meta.picture ? 'transparent' : stringToColor(meta.name),
-        }}
-      >
-        {meta.picture ? (
-          <img src={meta.picture} alt="" className="w-full h-full object-cover" />
-        ) : (
-          meta.name.charAt(0).toUpperCase()
-        )}
-      </div>
-      <div>
-        <div className="text-[var(--color-txt)] text-sm font-bold leading-tight">{meta.name}</div>
-        <div className="text-[var(--color-txt2)] text-[10px] leading-tight">View profile</div>
-      </div>
-    </div>
-  );
-};
-
-  // ── Render caption ──
-  const renderCaption = () => {
-    const cap = currentItem?.meta?.caption || '';
-    if (!cap) return null;
-    return <div className="text-[var(--color-txt)] text-sm text-center max-w-[80%] mx-auto mt-2">{cap}</div>;
-  };
-
-  // ── Navigation (unchanged) ──
+  // ── Navigation ──
   const goTo = useCallback((newIdx) => {
     if (isAnimating || newIdx < 0 || newIdx >= items.length) return;
     setIsAnimating(true);
@@ -176,31 +130,135 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     setShowReport(false);
     setReplyToId(null);
     setReplyToAuthor('');
+    if (allVideos) {
+      const height = window.innerHeight;
+      setFeedTranslateY(-newIdx * height);
+    }
     setTimeout(() => setIsAnimating(false), 300);
-  }, [items.length, isAnimating]);
+  }, [items.length, isAnimating, allVideos]);
 
   const goPrev = () => goTo(currentIndex - 1);
   const goNext = () => goTo(currentIndex + 1);
+
+  // ── Autoplay ──
+  useEffect(() => {
+    if (!allVideos) return;
+    const videos = videoRefs.current;
+    videos.forEach((video, index) => {
+      if (!video) return;
+      if (index === currentIndex) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
+    });
+  }, [currentIndex, allVideos]);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft' && !showComments && !showReport) goPrev();
-      if (e.key === 'ArrowRight' && !showComments && !showReport) goNext();
-      if (e.key === 'ArrowUp' && navAxis.current === 'ud') goPrev();
-      if (e.key === 'ArrowDown' && navAxis.current === 'ud') goNext();
+      if (!allVideos) {
+        if (e.key === 'ArrowLeft') goPrev();
+        if (e.key === 'ArrowRight') goNext();
+      } else {
+        if (e.key === 'ArrowUp') goPrev();
+        if (e.key === 'ArrowDown') goNext();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [goPrev, goNext, showComments, showReport, onClose]);
+  }, [goPrev, goNext, onClose, allVideos]);
+
+  // ── Vertical feed events ──
+  const handleFeedPointerDown = (e) => {
+    if (!allVideos) return;
+    setIsDragging(true);
+    const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
+    setDragStartY(clientY);
+    setDragOffset(0);
+    // Snap to current position before drag
+    const height = window.innerHeight;
+    setFeedTranslateY(-currentIndex * height);
+  };
+
+  const handleFeedPointerMove = (e) => {
+    if (!allVideos || !isDragging) return;
+    const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
+    const deltaY = clientY - dragStartY;
+    const height = window.innerHeight;
+    const newTranslateY = -currentIndex * height + deltaY;
+    setFeedTranslateY(newTranslateY);
+    setDragOffset(deltaY);
+  };
+
+  const handleFeedPointerUp = (e) => {
+    if (!allVideos || !isDragging) return;
+    setIsDragging(false);
+    const height = window.innerHeight;
+    const threshold = height * 0.12;
+    const offset = dragOffset;
+    let newIndex = currentIndex;
+    if (offset < -threshold) newIndex = Math.min(currentIndex + 1, items.length - 1);
+    else if (offset > threshold) newIndex = Math.max(currentIndex - 1, 0);
+    goTo(newIndex);
+  };
+
+  // ── Image gestures ──
+  const onPointerDown = (e) => {
+    if (allVideos) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 1) {
+      swipeStartX.current = e.clientX;
+      dragStartX.current = e.clientX - translateX;
+      dragStartYRef.current = e.clientY - translateY;
+    } else if (pointers.current.size === 2) {
+      const pts = [...pointers.current.values()];
+      pinchStartDist.current = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    }
+  };
+
+  const onPointerMove = (e) => {
+    if (allVideos) return;
+    if (currentItem.type === 'video') return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const pts = [...pointers.current.values()];
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const newScale = Math.min(5, Math.max(1, scale * (dist / pinchStartDist.current)));
+      pinchStartDist.current = dist;
+      setScale(newScale);
+      if (imgRef.current) {
+        imgRef.current.style.transition = 'none';
+        imgRef.current.style.transform = `translate(${translateX}px, ${translateY}px) scale(${newScale})`;
+      }
+    } else if (pointers.current.size === 1 && scale > 1) {
+      const newX = e.clientX - dragStartX.current;
+      const newY = e.clientY - dragStartYRef.current;
+      setTranslateX(newX);
+      setTranslateY(newY);
+      if (imgRef.current) {
+        imgRef.current.style.transition = 'none';
+        imgRef.current.style.transform = `translate(${newX}px, ${newY}px) scale(${scale})`;
+      }
+    }
+  };
+
+  const onPointerUp = (e) => {
+    if (allVideos) return;
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size === 0 && scale <= 1) {
+      const dx = e.clientX - swipeStartX.current;
+      if (Math.abs(dx) > 40) {
+        if (dx < 0) goNext();
+        else goPrev();
+      }
+    }
+  };
 
   // ── Actions ──
   const handleLike = async () => {
-    if (!user) {
-      alert('Log in to like.');
-      return;
-    }
+    if (!user) { alert('Log in to like.'); return; }
     if (!postId) return;
     try {
       await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
@@ -212,10 +270,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
   };
 
   const handleRepost = async () => {
-    if (!user) {
-      alert('Log in to repost.');
-      return;
-    }
+    if (!user) { alert('Log in to repost.'); return; }
     if (!postId) return;
     try {
       await apiClient(`/api/posts/${postId}/repost`, { method: 'POST' });
@@ -227,10 +282,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
   };
 
   const handleCommentSubmit = async () => {
-    if (!user) {
-      alert('Log in to comment.');
-      return;
-    }
+    if (!user) { alert('Log in to comment.'); return; }
     const text = commentText.trim();
     if (!text || !postId) return;
     setCommentLoading(true);
@@ -252,10 +304,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
   };
 
   const handleReportSubmit = async () => {
-    if (!user) {
-      alert('Log in to report.');
-      return;
-    }
+    if (!user) { alert('Log in to report.'); return; }
     let reason = reportReason;
     if (reason === 'Other') {
       const other = reportOther.trim();
@@ -281,7 +330,58 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     }
   };
 
-  // ── Render comment tree (theme-aware) ──
+  // ── Render profile chip ──
+  const renderProfile = () => {
+    const meta = currentItem?.meta || {};
+    if (!meta.name) return null;
+
+    let profileUrl = '#';
+    if (meta.username) {
+      profileUrl = `/profile/${meta.username}`;
+    } else if (meta.userId) {
+      profileUrl = `/profile?userId=${meta.userId}`;
+    } else {
+      return null;
+    }
+
+    return (
+      <div
+        className="flex items-center gap-2 bg-[var(--lightbox-chip-bg)] backdrop-blur-md px-3 py-1.5 rounded-full cursor-pointer hover:bg-[var(--lightbox-chip-hover)] transition"
+        onClick={() => {
+          if (profileUrl !== '#') {
+            onClose();
+            setTimeout(() => router.push(profileUrl), 200);
+          }
+        }}
+      >
+        <div
+          className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs overflow-hidden flex-shrink-0"
+          style={{
+            background: meta.picture ? 'transparent' : stringToColor(meta.name),
+          }}
+        >
+          {meta.picture ? (
+            <img src={meta.picture} alt="" className="w-full h-full object-cover" />
+          ) : (
+            meta.name.charAt(0).toUpperCase()
+          )}
+        </div>
+        <div>
+          <div className="text-[var(--color-txt)] text-sm font-bold leading-tight">{meta.name}</div>
+          <div className="text-[var(--color-txt2)] text-[10px] leading-tight">View profile</div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Render caption ──
+  const renderCaption = () => {
+    const cap = currentItem?.meta?.caption || '';
+    if (!cap) return null;
+    return <div className="text-[var(--color-txt)] text-sm text-center max-w-[80%] mx-auto mt-2">{cap}</div>;
+  };
+
+  // ── Render comments tree ──
   const renderComments = (comments, depth = 0) => {
     if (!comments || !comments.length) return null;
     return comments.map((c) => {
@@ -331,119 +431,14 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
     });
   };
 
-  // ── Gesture handlers (unchanged) ──
-  const onPointerDown = (e) => {
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 1) {
-      swipeStartX.current = e.clientX;
-      swipeStartY.current = e.clientY;
-      dragStartX.current = e.clientX - translateX;
-      dragStartY.current = e.clientY - translateY;
-      isSwiping.current = scale <= 1 || currentItem.type === 'video';
-    } else if (pointers.current.size === 2) {
-      isSwiping.current = false;
-      const pts = [...pointers.current.values()];
-      pinchStartDist.current = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-    }
-  };
-
-  const onPointerMove = (e) => {
-    if (currentItem.type === 'video') return;
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 2) {
-      const pts = [...pointers.current.values()];
-      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-      const newScale = Math.min(5, Math.max(1, scale * (dist / pinchStartDist.current)));
-      pinchStartDist.current = dist;
-      setScale(newScale);
-      if (imgRef.current) {
-        imgRef.current.style.transition = 'none';
-        imgRef.current.style.transform = `translate(${translateX}px, ${translateY}px) scale(${newScale})`;
-      }
-    } else if (pointers.current.size === 1 && scale > 1) {
-      const newX = e.clientX - dragStartX.current;
-      const newY = e.clientY - dragStartY.current;
-      setTranslateX(newX);
-      setTranslateY(newY);
-      if (imgRef.current) {
-        imgRef.current.style.transition = 'none';
-        imgRef.current.style.transform = `translate(${newX}px, ${newY}px) scale(${scale})`;
-      }
-    }
-  };
-
-  const onPointerUp = (e) => {
-    const startX = swipeStartX.current;
-    const startY = swipeStartY.current;
-    pointers.current.delete(e.pointerId);
-    if (pointers.current.size === 0 && isSwiping.current) {
-      if (scale <= 1 || currentItem.type === 'video') {
-        const axis = navAxis.current;
-        if (axis === 'ud') {
-          const dy = e.clientY - startY;
-          if (Math.abs(dy) > 55) goTo(currentIndex + (dy < 0 ? 1 : -1));
-        } else {
-          const dx = e.clientX - startX;
-          if (Math.abs(dx) > 55) goTo(currentIndex + (dx < 0 ? 1 : -1));
-        }
-      }
-      isSwiping.current = false;
-    }
-  };
-
-  const onWheel = (e) => {
-    e.preventDefault();
-    const axis = navAxis.current;
-    const navDelta = axis === 'ud' ? e.deltaY : e.deltaX;
-    const zoomDelta = axis === 'ud' ? e.deltaX : e.deltaY;
-
-    if (Math.abs(navDelta) > Math.abs(zoomDelta) || axis === 'ud') {
-      if (!onWheel._lastNavTime || Date.now() - onWheel._lastNavTime > 200) {
-        goTo(currentIndex + (navDelta > 0 ? 1 : -1));
-        onWheel._lastNavTime = Date.now();
-      }
-      return;
-    }
-
-    if (currentItem.type === 'video') return;
-    const newScale = Math.min(5, Math.max(1, scale * (zoomDelta < 0 ? 1.12 : 0.9)));
-    if (newScale <= 1) {
-      setTranslateX(0);
-      setTranslateY(0);
-    }
-    setScale(newScale);
-    if (imgRef.current) {
-      imgRef.current.style.transition = 'transform 0.12s ease';
-      imgRef.current.style.transform = `translate(${translateX}px, ${translateY}px) scale(${newScale})`;
-    }
-  };
-  onWheel._lastNavTime = 0;
-
-  const onDblClick = () => {
-    if (currentItem.type === 'video') return;
-    const newScale = scale > 1 ? 1 : 2.2;
-    setScale(newScale);
-    setTranslateX(0);
-    setTranslateY(0);
-    if (imgRef.current) {
-      imgRef.current.style.transition = 'transform 0.3s cubic-bezier(0.34,1.2,0.64,1)';
-      imgRef.current.style.transform = newScale > 1 ? `scale(${newScale})` : 'none';
-    }
-  };
-
   // ── Render portal ──
   return createPortal(
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[9999] bg-[var(--lightbox-bg)] flex items-center justify-center select-none"
+      className="fixed inset-0 z-[9999] bg-[var(--lightbox-bg)] flex items-center justify-center select-none overflow-hidden"
       style={{ display: 'flex' }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onWheel={onWheel}
-      onDoubleClick={onDblClick}
       onClick={(e) => {
-        if (e.target === containerRef.current) onClose();
+        if (e.target === containerRef.current && !allVideos) onClose();
       }}
     >
       {/* Close button */}
@@ -463,38 +458,108 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
         {renderProfile()}
       </div>
 
-      {/* Main media */}
-      <div className="relative w-full h-full flex items-center justify-center">
-        {currentItem.type === 'video' ? (
-          <video
-            key={currentItem.src}
-            src={currentItem.src}
-            poster={currentItem.meta?.poster || undefined}
-            className="max-w-[90vw] max-h-[90vh] object-contain"
-            controls
-            autoPlay
-            playsInline
-          />
-        ) : (
-          <img
-            ref={imgRef}
-            src={currentItem.src}
-            alt=""
-            className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200"
+      {allVideos ? (
+        // ── Vertical feed mode ──
+        <div
+          className="absolute inset-0 overflow-hidden touch-none"
+          onPointerDown={handleFeedPointerDown}
+          onPointerMove={handleFeedPointerMove}
+          onPointerUp={handleFeedPointerUp}
+          onTouchStart={handleFeedPointerDown}
+          onTouchMove={handleFeedPointerMove}
+          onTouchEnd={handleFeedPointerUp}
+          style={{ touchAction: 'none' }}
+        >
+          <div
+            ref={feedRef}
+            className="absolute inset-0 will-change-transform"
             style={{
-              transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
+              transform: `translateY(${feedTranslateY}px)`,
+              transition: isDragging ? 'none' : 'transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
             }}
-          />
-        )}
-      </div>
+          >
+            {items.map((item, index) => (
+              <div
+                key={index}
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ top: `${index * 100}%`, height: '100%' }}
+              >
+                <video
+                  ref={el => videoRefs.current[index] = el}
+                  src={item.src}
+                  poster={item.meta?.poster || undefined}
+                  className="w-full h-full object-contain"
+                  controls={index === currentIndex}
+                  autoPlay={index === currentIndex}
+                  playsInline
+                  muted={false}
+                  loop={false}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        // ── Single image/video mode ──
+        <div
+          className="relative w-full h-full flex items-center justify-center"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onWheel={(e) => {
+            if (currentItem.type === 'video') return;
+            e.preventDefault();
+            const zoomDelta = e.deltaY;
+            const newScale = Math.min(5, Math.max(1, scale * (zoomDelta < 0 ? 1.12 : 0.9)));
+            setScale(newScale);
+            if (imgRef.current) {
+              imgRef.current.style.transition = 'transform 0.12s ease';
+              imgRef.current.style.transform = `scale(${newScale})`;
+            }
+          }}
+          onDoubleClick={() => {
+            if (currentItem.type === 'video') return;
+            const newScale = scale > 1 ? 1 : 2.2;
+            setScale(newScale);
+            setTranslateX(0);
+            setTranslateY(0);
+            if (imgRef.current) {
+              imgRef.current.style.transition = 'transform 0.3s cubic-bezier(0.34,1.2,0.64,1)';
+              imgRef.current.style.transform = newScale > 1 ? `scale(${newScale})` : 'none';
+            }
+          }}
+        >
+          {currentItem.type === 'video' ? (
+            <video
+              key={currentItem.src}
+              src={currentItem.src}
+              poster={currentItem.meta?.poster || undefined}
+              className="max-w-[90vw] max-h-[90vh] object-contain"
+              controls
+              autoPlay
+              playsInline
+            />
+          ) : (
+            <img
+              ref={imgRef}
+              src={currentItem.src}
+              alt=""
+              className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200"
+              style={{
+                transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
+              }}
+            />
+          )}
+        </div>
+      )}
 
-      {/* Navigation arrows */}
-      {items.length > 1 && (
+      {/* Navigation arrows – only for images */}
+      {!allVideos && items.length > 1 && (
         <>
           {currentIndex > 0 && (
             <button
               onClick={goPrev}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition p-2 bg-[var(--lightbox-btn-bg)] rounded-full"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition p-2 bg-[var(--lightbox-btn-bg)] rounded-full z-20"
             >
               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M15 18l-6-6 6-6" />
@@ -504,7 +569,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
           {currentIndex < items.length - 1 && (
             <button
               onClick={goNext}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition p-2 bg-[var(--lightbox-btn-bg)] rounded-full"
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition p-2 bg-[var(--lightbox-btn-bg)] rounded-full z-20"
             >
               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M9 18l6-6-6-6" />
@@ -516,19 +581,19 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
 
       {/* Counter */}
       {items.length > 1 && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-[var(--color-txt2)] text-sm bg-[var(--lightbox-counter-bg)] px-3 py-1 rounded-full">
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-[var(--color-txt2)] text-sm bg-[var(--lightbox-counter-bg)] px-3 py-1 rounded-full z-20">
           {currentIndex + 1} / {items.length}
         </div>
       )}
 
       {/* Caption */}
       {renderCaption() && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-[var(--color-txt)] text-sm max-w-[80%] text-center">
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-[var(--color-txt)] text-sm max-w-[80%] text-center z-20">
           {renderCaption()}
         </div>
       )}
 
-      {/* Action buttons (theme-aware) */}
+      {/* Action buttons */}
       {postData && (
         <div className="absolute bottom-4 right-4 flex gap-2 z-20 bg-[var(--lightbox-actions-bg)] backdrop-blur-sm rounded-full px-3 py-2">
           <button
@@ -612,7 +677,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
         </div>
       )}
 
-      {/* Comments panel (theme-aware) */}
+      {/* Comments panel (unchanged) */}
       {showComments && postData && (
         <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-[var(--lightbox-panel-bg)] backdrop-blur-md border-l border-[var(--color-border)] p-4 flex flex-col z-30 animate-slideInRight">
           <div className="flex items-center justify-between mb-3">
@@ -663,7 +728,7 @@ export default function Lightbox({ images, initialIndex = 0, onClose }) {
         </div>
       )}
 
-      {/* Report panel (theme-aware) */}
+      {/* Report panel (unchanged) */}
       {showReport && postData && (
         <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-[var(--lightbox-panel-bg)] backdrop-blur-md border-l border-[var(--color-border)] p-4 flex flex-col z-30 animate-slideInRight">
           <div className="flex items-center justify-between mb-3">

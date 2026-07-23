@@ -14,7 +14,7 @@ const PushModel             = require('../models/pushModel');
 const TopicPreferenceModel  = require('../models/topicPreferenceModel');
 const NegativeSignalModel   = require('../models/negativeSignalModel');
 const GroupModel            = require('../models/groupModel');
-const ContentTypePreference = require('../models/contentTypePreferenceModel'); // ← NEW
+const ContentTypePreference = require('../models/contentTypePreferenceModel');
 
 const { getPostsPage }      = require('../feed/feedPipeline');
 const { db }                = require('../config/db');
@@ -23,16 +23,6 @@ const { notifyUser, isOnline, broadcastToAll } = require('../../wsServer');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-/**
- * Resolves the public URL for an uploaded file.
- *
- * Dev  → builds a local URL from the request host + /uploads/<filename>
- * Prod → returns the Cloudinary secure_url directly
- *
- * @param {object|null} compressed - req.compressedFiles.image / .video
- * @param {object}      req        - Express request (needed for host in dev)
- * @returns {{ path: string|null, url: string|null }}
- */
 function resolveFileUrl(compressed, req) {
   if (!compressed) return { path: null, url: null };
 
@@ -46,10 +36,6 @@ function resolveFileUrl(compressed, req) {
   return { path: relativePath, url: `${baseUrl}${relativePath}` };
 }
 
-/**
- * Extract YouTube video ID from text.
- * Supports: youtube.com/watch?v=, youtu.be/, youtube.com/embed/, youtube.com/v/
- */
 function extractYouTubeId(text) {
   if (!text) return null;
   const patterns = [
@@ -129,12 +115,7 @@ async function getPostById(req, res) {
   }
 }
 
-// POST /api/posts  (multipart/form-data)
-// compressUploads middleware runs first — compressed files are
-// already on disk. req.compressedFiles holds their filenames.
-// Optional body field: groupId — scopes the post to a group.
-// The user must be a member of the group to post into it.
-// NEW: accepts isLive (boolean) and liveSessionId (string) for live posts.
+// POST /api/posts
 async function createPost(req, res) {
   const userId = req.actorId;
   const text   = req.body.text || '';
@@ -145,7 +126,6 @@ async function createPost(req, res) {
   if (!text && !imagePath && !videoPath)
     return sendError(res, 400, 'A post must have text, an image, or a video.');
 
-  // ── Group validation ───────────────────────────────────────
   const groupId = req.body.groupId ? parseInt(req.body.groupId) : null;
   let group = null;
   if (groupId) {
@@ -159,11 +139,8 @@ async function createPost(req, res) {
       return sendError(res, 403, 'You must be a member of this group to post in it.');
   }
 
-  // ── Live post fields ──────────────────────────────────────
   const isLive = req.body.isLive === true || req.body.isLive === 'true';
   const liveSessionId = req.body.liveSessionId || null;
-
-  // ── YouTube ID extraction ─────────────────────────────────
   const youtubeId = extractYouTubeId(text);
 
   try {
@@ -181,12 +158,9 @@ async function createPost(req, res) {
       youtubeId
     );
 
-    // ── Extract and save hashtags ──────────────────────────────
     await PostModel.savePostTopics(postId, text);
 
-    // ── Notify 20% of followers (WS + push fallback) ──────────
     const followerIds = await FollowModel.getFollowerIds(userId);
-
     const sampled = [...followerIds]
       .sort(() => Math.random() - 0.5)
       .slice(0, Math.ceil(followerIds.length * 0.2));
@@ -194,16 +168,12 @@ async function createPost(req, res) {
     await Promise.all(
       sampled.map(async fId => {
         const notif = await NotificationModel.createNotification(fId, userId, 'new_post', postId);
-
-        // Real-time delivery for online followers
         notifyUser(fId, 'new_post', {
           actorId:   userId,
           actorName: user.name,
           postId,
           notifId:   notif?.insertId ?? null,
         });
-
-        // Only push if they're NOT connected via WebSocket
         if (!isOnline(fId)) {
           await PushModel.sendPushToUser(
             fId,
@@ -217,7 +187,6 @@ async function createPost(req, res) {
       })
     );
 
-    // ── Broadcast post counts (initial) ──────────────────────
     await broadcastPostCounts(postId);
 
     return sendOk(res, 201, 'Posted.', {
@@ -264,7 +233,7 @@ async function deletePost(req, res) {
   }
 }
 
-// POST /api/posts/:id/like  (toggles like/unlike)
+// POST /api/posts/:id/like
 async function toggleLike(req, res) {
   const postId = parseInt(req.params.id);
   const userId = req.actorId;
@@ -281,18 +250,13 @@ async function toggleLike(req, res) {
       await PostModel.addLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
 
-      // ── Record content type engagement ──
       await ContentTypePreference.incrementEngagement(userId, postId);
 
       const post = await PostModel.findById(postId);
       if (post && post.user_id !== userId) {
         const notif = await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
-
-        // ── Bump topic affinity ──────────────────────────────
         const topics = await TopicPreferenceModel.getPostTopics(postId);
         await TopicPreferenceModel.recordEngagement(userId, topics, 'like');
-
-        // ── Real-time notification ───────────────────────────
         const actor = await UserModel.findById(userId);
         notifyUser(post.user_id, 'like', {
           actorId:   userId,
@@ -333,10 +297,8 @@ async function addComment(req, res) {
 
     const commentId = await PostModel.addComment(postId, userId, text, parentIdInt);
 
-    // ── Record content type engagement ──
     await ContentTypePreference.incrementEngagement(userId, postId);
 
-    // ── Build comment data for response & broadcast ──
     const commentData = {
       id:            commentId,
       userId,
@@ -348,11 +310,8 @@ async function addComment(req, res) {
       replies:       parentIdInt ? undefined : [],
     };
 
-    // ── Notify post author (if not the commenter) ──
     if (post.user_id !== userId) {
       await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
-
-      // Real-time notification to author
       notifyUser(post.user_id, 'comment', {
         actorId:   userId,
         actorName: user.name,
@@ -361,18 +320,15 @@ async function addComment(req, res) {
       });
     }
 
-    // ── Bump topic affinity ──
     const topics = await TopicPreferenceModel.getPostTopics(postId);
     await TopicPreferenceModel.recordEngagement(userId, topics, 'comment');
 
-    // ── Broadcast new comment to ALL connected clients ──
     broadcastToAll({
       type:    'new_comment',
       postId:  post.id,
       comment: commentData,
     });
 
-    // ── Broadcast updated comment count ──
     await broadcastPostCounts(postId);
 
     return sendOk(res, 201, 'Comment added.', commentData);
@@ -396,7 +352,6 @@ async function repost(req, res) {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
 
-    // Only block duplicates for simple reposts — quote posts can be made multiple times
     if (!isQuote) {
       const dup = await PostModel.getExistingRepost(userId, origId);
       if (dup) return sendError(res, 409, 'Already reposted.');
@@ -405,13 +360,10 @@ async function repost(req, res) {
     const repostId  = await PostModel.createRepost(userId, text, origId);
     const origEmbed = await PostModel.getOriginalPostEmbed(origId);
 
-    // ── Record content type engagement ──
     await ContentTypePreference.incrementEngagement(userId, origId);
 
     if (original.user_id !== userId) {
       await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
-
-      // ── Real-time notification ─────────────────────────────
       notifyUser(original.user_id, 'repost', {
         actorId:   userId,
         actorName: user.name,
@@ -419,11 +371,9 @@ async function repost(req, res) {
       });
     }
 
-    // ── Bump topic affinity ──────────────────────────────────
     const topics = await TopicPreferenceModel.getPostTopics(origId);
     await TopicPreferenceModel.recordEngagement(userId, topics, 'repost');
 
-    // ── Broadcast updated repost count ──
     await broadcastPostCounts(origId);
 
     return sendOk(res, 201, 'Reposted.', {
@@ -477,12 +427,6 @@ async function getCommentsOnUserPosts(req, res) {
 }
 
 // POST /api/posts/:id/view
-// Body: { fingerprint?: string, dwellMs?: number }
-// Auth is optional — logged-in users identified by actorId,
-// guests by a client-generated fingerprint or IP fallback.
-// dwellMs: milliseconds the post was visible in the viewport.
-//   If provided and below SHORT_VIEW_THRESHOLD, a short_view
-//   negative signal is also recorded for the authenticated user.
 async function recordView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
@@ -507,9 +451,6 @@ async function recordView(req, res) {
 }
 
 // POST /api/posts/:id/skip
-// Called by the client when the user scrolls past a post without
-// any meaningful pause (client decides threshold, e.g. < 1 second
-// in viewport). Requires authentication — guest skips are ignored.
 async function recordSkip(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
@@ -527,11 +468,6 @@ async function recordSkip(req, res) {
 }
 
 // POST /api/posts/:id/video-view
-// Body: { fingerprint?: string, watchedSeconds: number, duration: number }
-// Auth optional — same viewer identification pattern as recordView.
-// A view only counts once the client reports the video was watched
-// past the threshold (see PostModel.meetsViewThreshold). This is
-// separate from the impression-based post_views/recordView above.
 async function recordVideoView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
@@ -556,7 +492,6 @@ async function recordVideoView(req, res) {
       postId, viewerId, watchedSeconds, duration
     );
 
-    // ── If a new view was counted, record content type engagement ──
     if (counted && userId) {
       await ContentTypePreference.incrementEngagement(userId, postId);
     }
@@ -596,8 +531,6 @@ async function getPostsByTopic(req, res) {
 }
 
 // GET /api/groups/:groupId/posts?page=<n>&limit=<n>
-// Returns posts scoped to a group via group_id column.
-// Any authenticated or guest user can read; only members can post.
 async function getGroupPosts(req, res) {
   const groupId = parseInt(req.params.groupId);
   if (isNaN(groupId) || groupId < 1)
@@ -616,12 +549,10 @@ async function getGroupPosts(req, res) {
 }
 
 // PUT /api/posts/:id
-// Updated to accept isLive, liveSessionId, and youtubeId as optional fields
 async function updatePost(req, res) {
   const postId = Number(req.params.id);
   const { text, isLive, liveSessionId, youtubeId } = req.body;
 
-  // Validate that at least one field is provided
   if (text === undefined && isLive === undefined && liveSessionId === undefined && youtubeId === undefined) {
     return sendError(res, 400, 'No fields to update.');
   }
@@ -633,7 +564,6 @@ async function updatePost(req, res) {
       return sendError(res, 403, 'You can only edit your own posts.');
     }
 
-    // Build update payload
     let updatedText = post.text;
     let updatedIsLive = post.is_live;
     let updatedLiveSessionId = post.live_session_id;
@@ -643,7 +573,6 @@ async function updatePost(req, res) {
       if (!text.trim()) return sendError(res, 400, 'Post text cannot be empty.');
       if (text.trim().length > 500) return sendError(res, 400, 'Post text exceeds 500 characters.');
       updatedText = text.trim();
-      // Re-extract youtubeId from new text if not explicitly provided
       if (youtubeId === undefined) {
         updatedYoutubeId = extractYouTubeId(updatedText);
       }
@@ -669,6 +598,24 @@ async function updatePost(req, res) {
   }
 }
 
+// ── GET /api/videos?page=1&limit=50 ─────────────────────────
+async function getVideos(req, res) {
+  const page  = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+
+  try {
+    const result = await PostModel.getVideos({ page, limit });
+    return sendOk(res, 200, 'Videos fetched.', result.videos, {
+      page: result.page,
+      limit: result.limit,
+      hasMore: result.hasMore,
+    });
+  } catch (err) {
+    console.error('getVideos error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 module.exports = {
   getPosts,
   getPostById,
@@ -685,4 +632,5 @@ module.exports = {
   getGroupPosts,
   updatePost,
   getCommentsOnUserPosts,
+  getVideos,           // ✅ added
 };

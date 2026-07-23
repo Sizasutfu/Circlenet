@@ -75,6 +75,7 @@ export default function PostCard({
   const { user: currentUser } = useAuth();
   const router = useRouter();
   const { watchSession } = useLive();
+  const { openLightbox } = useLightbox();
 
   const {
     id,
@@ -118,7 +119,6 @@ export default function PostCard({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // ── Reason popover state ──
   const [showReasons, setShowReasons] = useState(false);
   const reasonRef = useRef(null);
 
@@ -126,12 +126,10 @@ export default function PostCard({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(false);
 
-  const { openLightbox } = useLightbox();
   const videoRef = useRef(null);
   const videoContainerRef = useRef(null);
   const videoViewRecorded = useRef(false);
 
-  // ── Local view counts ──
   const [regularViewsState, setRegularViewsState] = useState(views || 0);
   const [videoViewsState, setVideoViewsState] = useState(videoViews || 0);
 
@@ -327,9 +325,14 @@ export default function PostCard({
     }
   };
 
-  const handleVideoDblClick = (e) => {
+  // ── Video click handler ──
+  const handleVideoClick = (e) => {
     e.stopPropagation();
     if (postVideoUrl) {
+      // Pause the video if it's playing
+      if (videoRef.current && !videoRef.current.paused) {
+        videoRef.current.pause();
+      }
       const videoItem = {
         src: postVideoUrl,
         type: 'video',
@@ -344,6 +347,11 @@ export default function PostCard({
       };
       openLightbox([videoItem], 0);
     }
+  };
+
+  const handleVideoDblClick = (e) => {
+    e.stopPropagation();
+    // Optional: keep for zoom or other behavior
   };
 
   const handleVideoError = () => {
@@ -445,6 +453,7 @@ export default function PostCard({
         <div
           ref={videoContainerRef}
           className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative cursor-pointer"
+          onClick={handleVideoClick}
           onDoubleClick={handleVideoDblClick}
         >
           {videoError ? (
@@ -568,7 +577,6 @@ export default function PostCard({
   const isAuthor =
     currentUser && (post.user?.id === currentUser.id || post.authorId === currentUser.id);
 
-  // ── Profile URL ──
   const userId = post.user?.id || post.authorId || post.userId;
   const usernameForProfile = post.user?.username || post.authorUsername || post.username;
   const profileUrl = usernameForProfile
@@ -577,7 +585,6 @@ export default function PostCard({
     ? `/profile?userId=${userId}`
     : null;
 
-  // ── Render group badge ──
   const renderGroupBadge = () => {
     if (!groupId || !groupTopic) return null;
     return (
@@ -591,7 +598,6 @@ export default function PostCard({
     );
   };
 
-  // ── View count badges ──
   const renderViewCounts = () => {
     const regularBadge = (
       <span className="flex items-center gap-1" title="Total page views">
@@ -620,7 +626,6 @@ export default function PostCard({
     );
   };
 
-  // ── Reason popover button ──
   const renderReasonButton = () => {
     if (!reasons || reasons.length === 0) return null;
     return (
@@ -655,7 +660,6 @@ export default function PostCard({
     );
   };
 
-  // ── Render original post as embedded card ──
   const renderOriginalPost = () => {
     if (!originalPost) return null;
     const origAuthor = originalPost.author || 'Unknown';
@@ -724,7 +728,6 @@ export default function PostCard({
     );
   };
 
-  // ── Render avatar ──
   const renderAvatar = (size = 'h-10 w-10', className = '') => {
     if (avatarUrl) {
       return (
@@ -738,7 +741,6 @@ export default function PostCard({
     return <AvatarPlaceholder size={size} className={className} />;
   };
 
-  // ── Helper to render follow button (mobile only) ──
   const renderFollowButton = () => {
     if (!showFollowButton || !onFollowToggle) return null;
     return (
@@ -758,7 +760,6 @@ export default function PostCard({
     );
   };
 
-  // ── Helper to render "Reposted" indicator ──
   const renderRepostedIndicator = () => {
     if (!isRepost) return null;
     return (

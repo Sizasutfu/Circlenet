@@ -5,11 +5,15 @@ import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 import { resolveMediaUrl } from '@/lib/url';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import { getAuthUrl } from '@/lib/redirect';
 
-export default function CommentInput({ postId, onCommentAdd, showToast }) {
+export default function CommentInput({ postId, onCommentAdd, showToast, redirectTo = null }) {
   const { user } = useAuth();
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Build the redirect URL – if not provided, use current page
+  const redirect = redirectTo || (typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -81,8 +85,12 @@ export default function CommentInput({ postId, onCommentAdd, showToast }) {
       </form>
       {!user && (
         <p className="text-xs text-[var(--color-txt3)] mt-2">
-          <Link href="/login" className="text-[var(--color-accent)] hover:underline">
+          <Link href={getAuthUrl('/login', redirect)} className="text-[var(--color-accent)] hover:underline">
             Log in
+          </Link>{' '}
+          or{' '}
+          <Link href={getAuthUrl('/register', redirect)} className="text-[var(--color-accent)] hover:underline">
+            Sign up
           </Link>{' '}
           to join the conversation.
         </p>

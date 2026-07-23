@@ -4,16 +4,20 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import OtpInput from '@/components/ui/OtpInput';
 
 export default function RegisterPage() {
   const { register, sendEmailVerification, verifyEmail, registerPhoneSendOtp, registerPhoneVerifyOtp, user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ── Get redirect target from URL ──
+  const redirectTo = searchParams.get('redirect') || '/feed';
 
   useEffect(() => {
-    if (user) router.push('/feed');
-  }, [user, router]);
+    if (user) router.push(redirectTo);
+  }, [user, router, redirectTo]);
 
   const [method, setMethod] = useState('email');
   // Email state
@@ -56,7 +60,6 @@ export default function RegisterPage() {
     if (/\d/.test(pwd)) score++;
     if (/[^a-zA-Z0-9]/.test(pwd)) score++;
 
-    // Cap at 4 for the bar
     const capped = Math.min(score, 4);
     const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
     return { score: capped, label: labels[capped] };
@@ -81,7 +84,6 @@ export default function RegisterPage() {
     setError('');
     try {
       await register(name, email, password);
-      // Send verification code
       await sendEmailVerification(email);
       setVerifyEmailAddr(email);
       setStep('verify');
@@ -110,7 +112,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await verifyEmail(verifyEmailAddr, code);
-      router.push('/feed');
+      router.push(redirectTo);
     } catch (err) {
       setError(err.message || 'Verification failed');
     } finally {
@@ -185,7 +187,7 @@ export default function RegisterPage() {
     setPhoneError('');
     try {
       await registerPhoneVerifyOtp(fullPhone, code, phoneName);
-      router.push('/feed');
+      router.push(redirectTo);
     } catch (err) {
       setPhoneError(err.message || 'Verification failed');
     } finally {
@@ -296,9 +298,9 @@ export default function RegisterPage() {
                             backgroundColor:
                               passwordStrength.score === 0 ? 'var(--color-rose)' :
                               passwordStrength.score === 1 ? 'var(--color-rose)' :
-                              passwordStrength.score === 2 ? '#f59e0b' : // amber
-                              passwordStrength.score === 3 ? '#3b82f6' : // blue
-                              '#22c55e', // green
+                              passwordStrength.score === 2 ? '#f59e0b' :
+                              passwordStrength.score === 3 ? '#3b82f6' :
+                              '#22c55e',
                           }}
                         />
                       </div>
@@ -363,7 +365,7 @@ export default function RegisterPage() {
                 {loading ? 'Creating…' : 'Create Account'}
               </button>
               <p className="text-center text-sm text-[var(--color-txt2)]">
-                Already have an account? <Link href="/login" className="text-[var(--color-accent)] hover:underline">Sign In</Link>
+                Already have an account? <Link href={`/login${redirectTo ? '?redirect='+encodeURIComponent(redirectTo) : ''}`} className="text-[var(--color-accent)] hover:underline">Sign In</Link>
               </p>
             </form>
           )}
@@ -462,7 +464,7 @@ export default function RegisterPage() {
                 {phoneLoading ? 'Sending…' : 'Send OTP'}
               </button>
               <p className="text-center text-sm text-[var(--color-txt2)]">
-                Already have an account? <Link href="/login" className="text-[var(--color-accent)] hover:underline">Sign In</Link>
+                Already have an account? <Link href={`/login${redirectTo ? '?redirect='+encodeURIComponent(redirectTo) : ''}`} className="text-[var(--color-accent)] hover:underline">Sign In</Link>
               </p>
             </div>
           )}

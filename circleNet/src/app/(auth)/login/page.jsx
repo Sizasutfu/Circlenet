@@ -4,17 +4,23 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import OtpInput from '@/components/ui/OtpInput';
 
 export default function LoginPage() {
   const { login, sendPhoneOtp, verifyPhoneOtp, user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ── Get redirect target from URL ──
+  const redirectTo = searchParams.get('redirect') || '/feed';
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user) router.push('/feed');
-  }, [user, router]);
+    if (user) {
+      router.push(redirectTo);
+    }
+  }, [user, router, redirectTo]);
 
   // ── Email login state ──
   const [email, setEmail] = useState('');
@@ -42,7 +48,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      router.push('/feed');
+      router.push(redirectTo);
     } catch (err) {
       setError(err.message || 'Login failed');
     } finally {
@@ -92,10 +98,9 @@ export default function LoginPage() {
     setPhoneError('');
     try {
       await verifyPhoneOtp(fullPhone, code);
-      router.push('/feed');
+      router.push(redirectTo);
     } catch (err) {
       setPhoneError(err.message || 'Invalid code');
-      // Reset OTP inputs (shake handled by OtpInput? We'll handle externally)
       setPhoneCode('');
     } finally {
       setPhoneLoading(false);
@@ -105,9 +110,8 @@ export default function LoginPage() {
   const handleResendOtp = async () => {
     if (!canResend) return;
     setCanResend(false);
-    setPhoneStep('step1'); // go back to send step
-    // Or we could resend directly, but we'll just go back to step1
-    // Actually, we can resend directly:
+    setPhoneStep('step1');
+    // Actually resend directly instead of going back to step1:
     const digits = phone.replace(/\D/g, '');
     const fullPhone = dialCode + digits;
     setPhoneLoading(true);
@@ -221,7 +225,7 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
           <p className="text-center text-sm text-[var(--color-txt2)]">
-            Don't have an account? <Link href="/register" className="text-[var(--color-accent)] hover:underline">Register</Link>
+            Don't have an account? <Link href={`/register${redirectTo ? '?redirect='+encodeURIComponent(redirectTo) : ''}`} className="text-[var(--color-accent)] hover:underline">Register</Link>
           </p>
           <p className="text-center text-sm">
             <Link href="/reset-password" className="text-[var(--color-txt2)] hover:text-[var(--color-accent)]">Forgot password?</Link>

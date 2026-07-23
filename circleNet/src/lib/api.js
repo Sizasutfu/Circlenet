@@ -17,41 +17,52 @@ export async function apiClient(endpoint, options = {}) {
   const url = `${getBaseURL()}${endpoint}`;
   const headers = {};
 
-  if (!(options.body instanceof FormData)) {
+  // ── Extract admin flag ──
+  const { admin = false, ...restOptions } = options;
+
+  if (!(restOptions.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
 
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('circle_token');
+    // ── Use admin token if flagged, otherwise regular token ──
+    const tokenKey = admin ? 'circle_admin_token' : 'circle_token';
+    const token = localStorage.getItem(tokenKey);
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const userString = localStorage.getItem('circle_user');
-    if (userString) {
-      try {
-        const user = JSON.parse(userString);
-        if (user?.id) headers['X-User-Id'] = String(user.id);
-      } catch (e) {
-        console.warn('Failed to parse circle_user for API auth header', e);
+    // For regular API calls, include user ID in header
+    if (!admin) {
+      const userString = localStorage.getItem('circle_user');
+      if (userString) {
+        try {
+          const user = JSON.parse(userString);
+          if (user?.id) headers['X-User-Id'] = String(user.id);
+        } catch (e) {
+          console.warn('Failed to parse circle_user for API auth header', e);
+        }
       }
     }
   } else {
+    // Server-side – use cookies
     try {
       const { cookies } = await import('next/headers');
       const cookieStore = await cookies();
-      const token = cookieStore.get('circle_token')?.value;
+      const tokenKey = admin ? 'circle_admin_token' : 'circle_token';
+      const token = cookieStore.get(tokenKey)?.value;
       if (token) headers['Authorization'] = `Bearer ${token}`;
-    } catch (e) {}
+    } catch (e) {
+      // ignore
+    }
   }
 
-  const fetchOptions = { ...options, headers };
-  if (!(options.body instanceof FormData) && options.body) {
-    fetchOptions.body = JSON.stringify(options.body);
+  const fetchOptions = { ...restOptions, headers };
+  if (!(restOptions.body instanceof FormData) && restOptions.body) {
+    fetchOptions.body = JSON.stringify(restOptions.body);
   }
 
   const res = await fetch(url, fetchOptions);
   const contentType = res.headers.get('content-type') || '';
 
-  // ── Check if the response is JSON ──
   if (!contentType.includes('application/json')) {
     const text = await res.text();
     throw new Error(

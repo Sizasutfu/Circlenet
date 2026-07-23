@@ -10,9 +10,11 @@ import { useGroups } from '@/contexts/GroupsContext';
 import PostCard from '@/components/ui/PostCard';
 import ArticleCard from '@/components/articles/ArticleCard';
 import QuoteModal from '@/components/ui/QuoteModal';
+import AdSlot from '@/components/ui/AdSlot';
+import SignupPrompt from '@/components/ui/SignupPrompt';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function resolveMediaUrl(url) {
@@ -41,8 +43,6 @@ function timeAgo(dateString) {
   else if (months < 12) return `${months}mo ago`;
   else return `${years}y ago`;
 }
-
-// ─── Removed local AvatarPlaceholder – using shared one ───
 
 // ─── Toast ──────────────────────────────────────────────────────────────
 function Toast({ message, type, onClose }) {
@@ -106,7 +106,6 @@ function PostSkeletonList({ count = 3 }) {
 
 // ─── Comment Preview Components ────────────────────────────────────────
 
-/** Single comment preview – small avatar, name, truncated text, time */
 function CommentPreview({ comment }) {
   const displayName = comment.author || comment.user?.name || 'Anonymous';
   const username = comment.user?.username || '';
@@ -127,9 +126,7 @@ function CommentPreview({ comment }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1 text-xs">
           <span className="font-semibold text-[var(--color-txt)]">{displayName}</span>
-          {username && (
-            <span className="text-[var(--color-txt2)]">@{username}</span>
-          )}
+          {username && <span className="text-[var(--color-txt2)]">@{username}</span>}
           <span className="text-[var(--color-txt3)]">· {time}</span>
         </div>
         <p className="text-sm text-[var(--color-txt)] break-words line-clamp-2">{truncated}</p>
@@ -138,7 +135,6 @@ function CommentPreview({ comment }) {
   );
 }
 
-/** List of comment previews with a vertical thread line */
 function CommentPreviewList({ comments, postId, totalComments }) {
   if (!comments || comments.length === 0) return null;
 
@@ -151,16 +147,16 @@ function CommentPreviewList({ comments, postId, totalComments }) {
         <CommentPreview key={comment.id} comment={comment} />
       ))}
       {remaining > 0 && (
-        <Link
-          href={`/post/${postId}`}
-          className="block text-sm text-[var(--color-accent)] hover:underline mt-1"
-        >
+        <Link href={`/post/${postId}`} className="block text-sm text-[var(--color-accent)] hover:underline mt-1">
           Show {remaining} more {remaining === 1 ? 'reply' : 'replies'}
         </Link>
       )}
     </div>
   );
 }
+
+// ─── Ad config ──────────────────────────────────────────────────────────
+const AD_INTERVAL = 3;
 
 // ─── Main FeedClient ───────────────────────────────────────────────────
 export default function FeedClient({ initialPosts = null }) {
@@ -211,7 +207,15 @@ export default function FeedClient({ initialPosts = null }) {
   const loadMoreRef = useRef(null);
   const [toast, setToast] = useState(null);
   const [quoteTarget, setQuoteTarget] = useState(null);
+  const [showSignupPrompt, setShowSignupPrompt] = useState(false);
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
+
+  // ── Reset signup prompt when user logs in ──
+  useEffect(() => {
+    if (user) {
+      setShowSignupPrompt(false);
+    }
+  }, [user]);
 
   // ── WS: update counts ──
   useEffect(() => {
@@ -283,6 +287,11 @@ export default function FeedClient({ initialPosts = null }) {
               fetchArticles(articlesPage + 1, true);
             }
           } else {
+            // ── Guest gate: prevent loading beyond page 2 ──
+            if (!user && page >= 2) {
+              setShowSignupPrompt(true);
+              return;
+            }
             if (hasMore && !loadingMore) {
               loadMore();
             }
@@ -293,7 +302,7 @@ export default function FeedClient({ initialPosts = null }) {
     );
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore, fetchArticles, articlesPage]);
+  }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore, fetchArticles, articlesPage, user, page]);
 
   // ── Interaction handlers ──
   const handleLike = async (postId) => {
@@ -457,8 +466,6 @@ export default function FeedClient({ initialPosts = null }) {
       );
     }
 
-    // Determine if we should show previews for this page
-    // Only pages 1 and 2 get comment previews (first 40 posts)
     const showPreviews = page <= 2 && user;
 
     return (
@@ -474,9 +481,7 @@ export default function FeedClient({ initialPosts = null }) {
           </div>
         ) : (
           posts.map((post, index) => {
-            // Only show previews for the first 40 posts (page 1 and 2)
             const shouldShowPreview = showPreviews && index < 40;
-            // Use server‑provided recentComments (already filtered to followed accounts)
             const recentComments = post.recentComments || [];
             const totalComments = post.commentCount || 0;
 
@@ -491,7 +496,6 @@ export default function FeedClient({ initialPosts = null }) {
                   onShare={handleShare}
                   onQuote={handleQuote}
                 />
-                {/* Comment preview with thread line – only if we should show and there are recent comments */}
                 {shouldShowPreview && recentComments.length > 0 && (
                   <CommentPreviewList
                     comments={recentComments}
@@ -499,15 +503,24 @@ export default function FeedClient({ initialPosts = null }) {
                     totalComments={totalComments}
                   />
                 )}
+                {(index + 1) % AD_INTERVAL === 0 && (
+                  <AdSlot key={`ad-${post.id}`} placement="feed" className="my-4" />
+                )}
               </div>
             );
           })
         )}
-        {hasMore && (
-          <div ref={loadMoreRef} className="text-center py-4 text-[var(--color-txt2)]">
-            {loadingMore ? <PostSkeletonList count={2} /> : 'Load more'}
-          </div>
+
+        {!user && showSignupPrompt && hasMore ? (
+          <SignupPrompt className="my-4" />
+        ) : (
+          hasMore && (
+            <div ref={loadMoreRef} className="text-center py-4 text-[var(--color-txt2)]">
+              {loadingMore ? <PostSkeletonList count={2} /> : 'Load more'}
+            </div>
+          )
         )}
+
         {!hasMore && posts.length > 0 && (
           <p className="text-center text-sm text-[var(--color-txt3)] py-4">You've seen it all! 🎉</p>
         )}
@@ -523,7 +536,6 @@ export default function FeedClient({ initialPosts = null }) {
       {user && activeTab !== 'articles' && (
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[var(--radius-radius)] p-4 mb-6 shadow-sm mx-4">
           <div className="flex items-start gap-3">
-            {/* ─── Composer avatar ───────────────────────────────────── */}
             <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm">
               {user?.picture ? (
                 <img src={resolveMediaUrl(user.picture)} alt={user.name} className="w-full h-full rounded-full object-cover" />

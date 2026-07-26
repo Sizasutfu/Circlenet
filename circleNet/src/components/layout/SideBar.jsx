@@ -121,6 +121,13 @@ const AdminIcon = (props) => (
   </svg>
 );
 
+const XIcon = (props) => (
+  <svg fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" {...props}>
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
 export default function SideBar({ isOpen = false, onClose = () => {} }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -279,15 +286,24 @@ export default function SideBar({ isOpen = false, onClose = () => {} }) {
         } md:translate-x-0`}
       >
         {/* ── Header ── */}
-        <div className="flex items-center gap-3 px-5 py-5 border-b border-[var(--color-border)] flex-shrink-0">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-accent)] shadow-md shadow-[var(--color-accent-glow)]">
-            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white">
-              <circle cx="12" cy="12" r="9" />
-            </svg>
+        <div className="flex items-center justify-between gap-3 px-5 py-5 border-b border-[var(--color-border)] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-accent)] shadow-md shadow-[var(--color-accent-glow)]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white">
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+            </div>
+            <span className="text-xl font-bold bg-gradient-to-r from-[var(--color-accent)] to-[var(--color-accent-h)] bg-clip-text text-transparent">
+              Circlenet
+            </span>
           </div>
-          <span className="text-xl font-bold bg-gradient-to-r from-[var(--color-accent)] to-[var(--color-accent-h)] bg-clip-text text-transparent">
-            Circlenet
-          </span>
+          <button
+            onClick={onClose}
+            className="md:hidden inline-flex items-center justify-center p-2 rounded-lg text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)] transition"
+            aria-label="Close sidebar"
+          >
+            <XIcon className="w-5 h-5" />
+          </button>
         </div>
 
         {/* ── Navigation (scrollable, scrollbar hidden) ── */}

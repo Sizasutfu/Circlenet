@@ -14,6 +14,13 @@
 //                 × similarityMultiplier   (user attributes)
 //                 × collaborativeMultiplier
 //                 × contentTypeMultiplier
+//                 × dmAffinityMultiplier   (DM conversations)
+//                 × mediaBoost             (video/image/text)
+//                 × lengthBoost            (content length)
+//                 × mutualFollowBoost      (mutual follows)
+//                 × groupAffinityBoost     (group membership)
+//                 × sessionBoost           (session activity)
+//                 × velocityBoost          (engagement velocity)
 //                 × jitter
 //
 //  Each factor is independently logged in scoreDebug.
@@ -61,6 +68,10 @@ function generateReasons(post, {
   viewerEngagedPosts = new Set(),
   postSimilarityMap = {},
   contentTypeBoost = { text: 0.5, image: 0.5, video: 0.5 },
+  dmAffinity = null,
+  mutualFollows = new Set(),
+  userGroups = new Set(),
+  sessionPosts = [],
 } = {}) {
   const reasons = [];
 
@@ -69,7 +80,12 @@ function generateReasons(post, {
     reasons.push('You follow this author');
   }
 
-  // 2. Author engagement (likes/comments/reposts)
+  // 2. Mutual follow
+  if (mutualFollows.has(post.userId)) {
+    reasons.push('You follow each other');
+  }
+
+  // 3. Author engagement (likes/comments/reposts)
   const eng = engagementMap[post.userId] || {};
   let authorEngagement = [];
   if (eng.likes > 0) authorEngagement.push(`liked ${eng.likes} of their posts`);
@@ -79,7 +95,7 @@ function generateReasons(post, {
     reasons.push(`You have ${authorEngagement.join(', ')}`);
   }
 
-  // 3. Topic interest
+  // 4. Topic interest
   const postTopics = post._topics || [];
   let strongTopics = [];
   if (postTopics.length) {
@@ -92,7 +108,7 @@ function generateReasons(post, {
     }
   }
 
-  // 4. Collaborative filtering – similar to posts you engaged with
+  // 5. Collaborative filtering – similar to posts you engaged with
   const sims = postSimilarityMap[post.id] || [];
   let similarPostsCount = 0;
   if (sims.length && viewerEngagedPosts.size) {
@@ -106,7 +122,7 @@ function generateReasons(post, {
     }
   }
 
-  // 5. User‑attribute similarity
+  // 6. User‑attribute similarity
   const v = viewerAttributes;
   const a = post;
   let attrs = [];
@@ -119,7 +135,7 @@ function generateReasons(post, {
     reasons.push(`You share ${attrs.join(', ')} with the author`);
   }
 
-  // 6. Newness / recency
+  // 7. Newness / recency
   const hoursOld = (Date.now() - new Date(post.createdAt).getTime()) / 3_600_000;
   if (hoursOld < 2) {
     reasons.push('This is a very recent post');
@@ -127,7 +143,7 @@ function generateReasons(post, {
     reasons.push('This post is from today');
   }
 
-  // 7. Content‑type preference
+  // 8. Content‑type preference
   let type = 'text';
   if (post.video) type = 'video';
   else if (post.image) type = 'image';
@@ -136,7 +152,7 @@ function generateReasons(post, {
     reasons.push(`You often engage with ${type} content`);
   }
 
-  // 8. High engagement (popular)
+  // 9. High engagement (popular)
   const likeCount = post.likes?.length || 0;
   const commentCount = post.comments?.length || 0;
   const repostCount = post.reposts?.length || 0;
@@ -144,7 +160,38 @@ function generateReasons(post, {
     reasons.push('This post is popular in your network');
   }
 
-  // 9. Exploration (if tagged)
+  // 10. DM affinity
+  if (dmAffinity && dmAffinity.has(post.userId)) {
+    const score = dmAffinity.get(post.userId);
+    if (score > 1) {
+      reasons.push(`You've messaged ${post.user?.name || 'this user'} recently`);
+    }
+  }
+
+  // 11. Media
+  if (post.video) reasons.push('This post has a video');
+  else if (post.image) reasons.push('This post has an image');
+
+  // 12. Group
+  if (post.groupId && userGroups.has(post.groupId)) {
+    reasons.push(`From a group you're in: ${post.groupName || post.groupTopic || 'group'}`);
+  }
+
+  // 13. Session (if similar to what you viewed this session)
+  const sessionSimilar = sessionPosts.filter(p => 
+    p._topics?.some(t => post._topics?.includes(t)) || 
+    p.userId === post.userId
+  ).length;
+  if (sessionSimilar > 0) {
+    reasons.push('Similar to what you\'ve been viewing');
+  }
+
+  // 14. Velocity (engagement velocity)
+  if (hoursOld < 1 && (likeCount > 3 || commentCount > 2)) {
+    reasons.push('This post is gaining traction quickly');
+  }
+
+  // 15. Exploration (if tagged)
   if (post._explore) {
     reasons.push('We thought you might like something different');
   }
@@ -166,6 +213,10 @@ function computeScore(post, {
   viewerEngagedPosts = new Set(),
   postSimilarityMap = {},
   contentTypeBoost = { text: 0.5, image: 0.5, video: 0.5 },
+  dmAffinity = null,
+  mutualFollows = new Set(),
+  userGroups = new Set(),
+  sessionPosts = [],
 } = {}) {
 
   // ── 1. Base engagement ──────────────────────────────────
@@ -266,10 +317,58 @@ function computeScore(post, {
   const typeBoost = contentTypeBoost[type] ?? 0.5;
   const contentTypeMultiplier = 0.8 + 0.4 * typeBoost;
 
-  // ── 11. Jitter ────────────────────────────────────────────
+  // ── 11. DM affinity multiplier ───────────────────────────
+  let dmAffinityMultiplier = 1.0;
+  if (viewerUserId && dmAffinity && dmAffinity.has(post.userId)) {
+    const dmScore = dmAffinity.get(post.userId);
+    dmAffinityMultiplier = 1 + (dmScore / C.DM_AFFINITY_SCALE);
+  }
+
+  // ── 12. Media quality boost ──────────────────────────────
+  let mediaBoost = C.MEDIA_BOOST_TEXT;
+  if (post.video) mediaBoost = C.MEDIA_BOOST_VIDEO;
+  else if (post.image) mediaBoost = C.MEDIA_BOOST_IMAGE;
+
+  // ── 13. Content length boost ─────────────────────────────
+  const wordCount = (post.text || '').split(/\s+/).length;
+  let lengthBoost = 1;
+  if (wordCount > C.LENGTH_LONG_WORDS) lengthBoost = C.LENGTH_BOOST_LONG;
+  else if (wordCount > C.LENGTH_MEDIUM_WORDS) lengthBoost = C.LENGTH_BOOST_MEDIUM;
+  else if (wordCount < 5) lengthBoost = C.LENGTH_BOOST_SHORT;
+
+  // ── 14. Mutual follow boost ──────────────────────────────
+  const mutualFollowBoost = mutualFollows.has(post.userId) ? C.MUTUAL_FOLLOW_BOOST : 1;
+
+  // ── 15. Group affinity boost ─────────────────────────────
+  const groupAffinityBoost = (post.groupId && userGroups.has(post.groupId)) ? C.GROUP_AFFINITY_BOOST : 1;
+
+  // ── 16. Session activity boost ───────────────────────────
+  let sessionBoost = 1;
+  if (sessionPosts.length > 0) {
+    const similarCount = sessionPosts.filter(p => 
+      p._topics?.some(t => post._topics?.includes(t)) ||
+      p.userId === post.userId
+    ).length;
+    if (similarCount > 0) {
+      sessionBoost = Math.min(
+        C.SESSION_MAX_BOOST,
+        1 + (similarCount * C.SESSION_SIMILAR_BOOST)
+      );
+    }
+  }
+
+  // ── 17. Velocity boost (engagement velocity) ─────────────
+  let velocityBoost = 1;
+  if (hoursOld < 1) {
+    const likesPerHour = likeCount / Math.max(1, hoursOld);
+    const velocity = likesPerHour / C.VELOCITY_LIKES_PER_HOUR;
+    velocityBoost = Math.min(C.VELOCITY_BOOST_MAX, 1 + velocity * 0.1);
+  }
+
+  // ── 18. Jitter ────────────────────────────────────────────
   const jitter = 0.95 + Math.random() * 0.10;
 
-  // ── 12. Final score ──────────────────────────────────────
+  // ── 19. Final score ──────────────────────────────────────
   const preMultiplied = baseScore + newnessBoost + recencyScore;
   const finalScore    = preMultiplied
     * affinityMultiplier
@@ -278,9 +377,16 @@ function computeScore(post, {
     * similarityMultiplier
     * collaborativeMultiplier
     * contentTypeMultiplier
+    * dmAffinityMultiplier
+    * mediaBoost
+    * lengthBoost
+    * mutualFollowBoost
+    * groupAffinityBoost
+    * sessionBoost
+    * velocityBoost
     * jitter;
 
-  // ── 13. Debug payload ──────────────────────────────────
+  // ── 20. Debug payload ──────────────────────────────────
   if (C.DEBUG_SCORES) {
     post._scoreDebug = {
       finalScore:          +finalScore.toFixed(3),
@@ -299,12 +405,20 @@ function computeScore(post, {
       contentTypeMultiplier: +contentTypeMultiplier.toFixed(3),
       typeBoost:           +typeBoost.toFixed(3),
       content_type:        type,
+      dmAffinityMultiplier: +dmAffinityMultiplier.toFixed(3),
+      mediaBoost:          +mediaBoost.toFixed(3),
+      lengthBoost:         +lengthBoost.toFixed(3),
+      mutualFollowBoost:   +mutualFollowBoost.toFixed(3),
+      groupAffinityBoost:  +groupAffinityBoost.toFixed(3),
+      sessionBoost:        +sessionBoost.toFixed(3),
+      velocityBoost:       +velocityBoost.toFixed(3),
       jitter:              +jitter.toFixed(3),
       signals: {
         likes: likeCount, comments: commentCount,
         reposts: repostCount, views: viewCount, dwellSeconds,
         skips: negSignals.skips || 0, shortViews: negSignals.shortViews || 0,
         isFollowing, postTopics, topicRaw: +topicRaw.toFixed(3),
+        wordCount,
         viewerAttributes: v,
         authorAttributes: {
           location: a.authorLocation,
@@ -315,6 +429,11 @@ function computeScore(post, {
         },
         engagedPostCount: viewerEngagedPosts.size,
         similarityHits: sims.filter(s => viewerEngagedPosts.has(s.post_id)).length,
+        dmAffinity: dmAffinity && dmAffinity.has(post.userId) ? dmAffinity.get(post.userId) : 0,
+        sessionSimilarCount: sessionPosts.filter(p => 
+          p._topics?.some(t => post._topics?.includes(t)) ||
+          p.userId === post.userId
+        ).length,
       },
     };
   }

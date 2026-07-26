@@ -98,6 +98,7 @@ export default function ClientLayout({ children }) {
     '/whisper/inbox',
     '/profile',
     '/settings',
+    
   ];
 
   // ── Header hiding for specific routes ──

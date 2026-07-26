@@ -61,10 +61,6 @@ async function getRepostCount(postId) {
 }
 
 // ── Hydrate raw post rows with engagement data ─────────────
-// Options:
-//   { followingIds: number[] | null, includeFullComments: boolean }
-// - includeFullComments: when false, returns `recentComments` (max 3)
-//   from followed users instead of the full comment tree.
 async function hydratePosts(posts, options = {}) {
   const { followingIds = null, includeFullComments = true } = options;
   if (!posts.length) return posts;
@@ -390,6 +386,33 @@ async function findById(postId) {
   return rows[0] || null;
 }
 
+// ── GET /api/posts/:id with user data ──────────────────────
+async function getPostByIdWithUser(postId) {
+  const [rows] = await db.query(
+    `SELECT
+       p.id,
+       p.user_id          AS userId,
+       u.name             AS author,
+       u.username         AS authorUsername,
+       u.picture          AS authorPicture,
+       u.verified         AS authorVerified,
+       p.text,
+       p.image,
+       p.video,
+       p.is_repost        AS isRepost,
+       p.original_post_id AS originalPostId,
+       p.created_at       AS createdAt,
+       p.is_live,
+       p.live_session_id,
+       p.youtube_id       AS youtubeId
+     FROM posts p
+     JOIN users u ON u.id = p.user_id
+     WHERE p.id = ?`,
+    [postId]
+  );
+  return rows[0] || null;
+}
+
 // ── Like / unlike ──────────────────────────────────────────
 async function getLike(userId, postId) {
   const [rows] = await db.query(
@@ -441,6 +464,7 @@ async function getCommentsOnUserPosts(userId, limit = 3) {
   const [rows] = await db.query(
     `SELECT c.id, c.post_id, c.text, c.created_at,
             u.name AS commenterName
+            u.username AS authorUsername
      FROM comments c
      JOIN posts p ON p.id = c.post_id
      JOIN users u ON u.id = c.user_id
@@ -504,8 +528,8 @@ async function deleteRepost(userId, originalPostId) {
 
 async function getOriginalPostEmbed(originalPostId) {
   const [rows] = await db.query(
-    `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
-            u.verified AS authorVerified,
+    `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
+            u.picture AS authorPicture, u.verified AS authorVerified,
             p.text, p.image, p.video, p.created_at AS createdAt,
             p.is_live, p.live_session_id, p.youtube_id
      FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?`,
@@ -836,6 +860,7 @@ module.exports = {
   updatePost,
   deletePost,
   findById,
+  getPostByIdWithUser,
   getLike,
   addLike,
   removeLike,
@@ -847,7 +872,7 @@ module.exports = {
   deleteRepost,
   getOriginalPostEmbed,
   searchPosts,
-  getVideos,            // ✅ added
+  getVideos,
   savePostTopics,
   saveCommentTopics,
   getTopics,

@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation'; // ✅ import router
 import { useDm } from '@/contexts/DmContext';
 import { useAuth } from '@/lib/auth';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
@@ -10,6 +11,7 @@ import VerificationBadge from '@/components/ui/VerificationBadge';
 export default function DmInbox() {
   const { user } = useAuth();
   const { inbox, activeConvId, openConversation } = useDm();
+  const router = useRouter(); // ✅ router for back navigation
   const [filter, setFilter] = useState('');
 
   const filtered = inbox.filter(
@@ -23,10 +25,24 @@ export default function DmInbox() {
 
   return (
     <div className="flex flex-col h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--color-surface)]">
-      <div className="flex-shrink-0 p-3 sm:p-4 pb-3 border-b border-[var(--color-border)]">
-        <h2 className="font-head text-lg font-extrabold text-[var(--color-txt)] mb-3">
+      {/* ─── Header with back button ─── */}
+      <div className="flex-shrink-0 flex items-center gap-2 p-3 sm:p-4 pb-3 border-b border-[var(--color-border)]">
+        <button
+          onClick={() => router.back()}
+          className="p-1 rounded-full hover:bg-[var(--color-accent-bg)] transition flex-shrink-0"
+          aria-label="Go back"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <h2 className="font-head text-lg font-extrabold text-[var(--color-txt)] flex-1">
           Messages
         </h2>
+      </div>
+
+      {/* ─── Search bar ─── */}
+      <div className="flex-shrink-0 px-3 sm:px-4 pb-3">
         <div className="relative">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-txt3)] pointer-events-none"
@@ -48,6 +64,7 @@ export default function DmInbox() {
         </div>
       </div>
 
+      {/* ─── Conversation list ─── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 min-w-0">
         {!user ? (
           <div className="text-center py-12 px-4 text-[var(--color-txt2)]">
@@ -149,6 +166,7 @@ export default function DmInbox() {
         )}
       </div>
 
+      {/* ─── New Message button ─── */}
       <button
         onClick={openNewModal}
         className="flex-shrink-0 mx-3 sm:mx-4 mb-3 sm:mb-4 py-2.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer w-[calc(100%-1.5rem)] sm:w-[calc(100%-2rem)]"

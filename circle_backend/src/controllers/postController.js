@@ -51,7 +51,7 @@ function extractYouTubeId(text) {
   return null;
 }
 
-// GET /api/posts?userId=<id>&feed=global|following&page=<n>&limit=<n>&media=video
+// ── GET /api/posts ──────────────────────────────────────────────
 async function getPosts(req, res) {
   const profileUserId = req.query.userId ? parseInt(req.query.userId) : null;
   const feedMode      = req.query.feed === 'following' ? 'following' : 'global';
@@ -77,37 +77,16 @@ async function getPosts(req, res) {
   }
 }
 
-// GET /api/posts/:id
+// ── GET /api/posts/:id ─────────────────────────────────────────
 async function getPostById(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
 
   try {
-    const [rows] = await db.query(
-      `SELECT
-         p.id,
-         p.user_id          AS userId,
-         u.name             AS author,
-         u.picture          AS authorPicture,
-         u.verified         AS authorVerified,
-         p.text,
-         p.image,
-         p.video,
-         p.is_repost        AS isRepost,
-         p.original_post_id AS originalPostId,
-         p.created_at       AS createdAt,
-         p.is_live,
-         p.live_session_id,
-         p.youtube_id       AS youtubeId
-       FROM posts p
-       JOIN users u ON u.id = p.user_id
-       WHERE p.id = ?`,
-      [postId]
-    );
+    const rawPost = await PostModel.getPostByIdWithUser(postId);
+    if (!rawPost) return sendError(res, 404, 'Post not found.');
 
-    if (!rows.length) return sendError(res, 404, 'Post not found.');
-
-    const [post] = await PostModel.hydratePosts(rows);
+    const [post] = await PostModel.hydratePosts([rawPost]);
     return sendOk(res, 200, 'Post fetched.', post);
   } catch (err) {
     console.error('getPostById error:', err);
@@ -115,7 +94,7 @@ async function getPostById(req, res) {
   }
 }
 
-// POST /api/posts
+// ── POST /api/posts ─────────────────────────────────────────────
 async function createPost(req, res) {
   const userId = req.actorId;
   const text   = req.body.text || '';
@@ -216,7 +195,7 @@ async function createPost(req, res) {
   }
 }
 
-// DELETE /api/posts/:id
+// ── DELETE /api/posts/:id ──────────────────────────────────────
 async function deletePost(req, res) {
   const postId = parseInt(req.params.id);
 
@@ -233,7 +212,7 @@ async function deletePost(req, res) {
   }
 }
 
-// POST /api/posts/:id/like
+// ── POST /api/posts/:id/like ──────────────────────────────────
 async function toggleLike(req, res) {
   const postId = parseInt(req.params.id);
   const userId = req.actorId;
@@ -275,7 +254,7 @@ async function toggleLike(req, res) {
   }
 }
 
-// POST /api/posts/:id/comment
+// ── POST /api/posts/:id/comment ──────────────────────────────
 async function addComment(req, res) {
   const postId             = parseInt(req.params.id);
   const userId             = req.actorId;
@@ -338,7 +317,7 @@ async function addComment(req, res) {
   }
 }
 
-// POST /api/posts/:id/repost
+// ── POST /api/posts/:id/repost ─────────────────────────────────
 async function repost(req, res) {
   const origId  = parseInt(req.params.id);
   const userId  = req.actorId;
@@ -414,6 +393,7 @@ async function broadcastPostCounts(postId) {
   });
 }
 
+// ── GET /api/posts/:id/comments-on-posts ──────────────────────
 async function getCommentsOnUserPosts(req, res) {
   const userId = parseInt(req.params.id);
   const limit = Math.min(50, parseInt(req.query.limit) || 3);
@@ -426,7 +406,7 @@ async function getCommentsOnUserPosts(req, res) {
   }
 }
 
-// POST /api/posts/:id/view
+// ── POST /api/posts/:id/view ──────────────────────────────────
 async function recordView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
@@ -450,7 +430,7 @@ async function recordView(req, res) {
   }
 }
 
-// POST /api/posts/:id/skip
+// ── POST /api/posts/:id/skip ──────────────────────────────────
 async function recordSkip(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
@@ -467,7 +447,7 @@ async function recordSkip(req, res) {
   }
 }
 
-// POST /api/posts/:id/video-view
+// ── POST /api/posts/:id/video-view ────────────────────────────
 async function recordVideoView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
@@ -503,7 +483,7 @@ async function recordVideoView(req, res) {
   }
 }
 
-// GET /api/topics?limit=<n>
+// ── GET /api/topics ────────────────────────────────────────────
 async function getTopics(req, res) {
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
   try {
@@ -515,7 +495,7 @@ async function getTopics(req, res) {
   }
 }
 
-// GET /api/topics/:topic/posts?page=<n>&limit=<n>
+// ── GET /api/topics/:topic/posts ──────────────────────────────
 async function getPostsByTopic(req, res) {
   const topic = req.params.topic?.toLowerCase();
   if (!topic) return sendError(res, 400, 'Topic is required.');
@@ -530,7 +510,7 @@ async function getPostsByTopic(req, res) {
   }
 }
 
-// GET /api/groups/:groupId/posts?page=<n>&limit=<n>
+// ── GET /api/groups/:groupId/posts ────────────────────────────
 async function getGroupPosts(req, res) {
   const groupId = parseInt(req.params.groupId);
   if (isNaN(groupId) || groupId < 1)
@@ -548,7 +528,7 @@ async function getGroupPosts(req, res) {
   }
 }
 
-// PUT /api/posts/:id
+// ── PUT /api/posts/:id ────────────────────────────────────────
 async function updatePost(req, res) {
   const postId = Number(req.params.id);
   const { text, isLive, liveSessionId, youtubeId } = req.body;
@@ -598,18 +578,15 @@ async function updatePost(req, res) {
   }
 }
 
-// ── GET /api/videos?page=1&limit=50 ─────────────────────────
+// ── GET /api/videos ────────────────────────────────────────────
 async function getVideos(req, res) {
+  const viewerUserId = req.actorId || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
   const page  = Math.max(1, parseInt(req.query.page)  || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
 
   try {
-    const result = await PostModel.getVideos({ page, limit });
-    return sendOk(res, 200, 'Videos fetched.', result.videos, {
-      page: result.page,
-      limit: result.limit,
-      hasMore: result.hasMore,
-    });
+    const result = await getPostsPage(viewerUserId, 'global', page, limit, 'video');
+    return sendOk(res, 200, 'Videos fetched.', result);
   } catch (err) {
     console.error('getVideos error:', err);
     return sendError(res, 500, 'Server error.');
@@ -632,5 +609,5 @@ module.exports = {
   getGroupPosts,
   updatePost,
   getCommentsOnUserPosts,
-  getVideos,           // ✅ added
+  getVideos,
 };

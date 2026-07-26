@@ -12,6 +12,9 @@
 //    • All weights are grouped and commented so tuning is easy.
 //    • NEW: user‑attribute similarity boosts posts from authors
 //      who share location, school, occupation, gender, or age.
+//    • NEW: DM affinity boosts posts from users you message.
+//    • NEW: Media quality, content length, mutual follows,
+//      group affinity, and session activity signals.
 // ============================================================
 
 module.exports = {
@@ -40,6 +43,13 @@ module.exports = {
   AFFINITY_FOLLOW_BONUS:   0.40,   // flat bonus if you follow this author
   AFFINITY_MULTIPLIER_MIN: 0.80,   // floor  — unfamiliar author still surfaces
   AFFINITY_MULTIPLIER_MAX: 2.00,   // ceiling — cap so one author doesn't monopolise
+
+  // ── DM affinity multiplier ───────────────────────────────
+  // Posts from users you've exchanged DMs with get a boost.
+  // The score is computed based on message count and recency.
+  // Score = clamp(0.1, recency_weight/10 + countBonus, 2.0)
+  // Final multiplier = 1.0 + (dmScore / DM_AFFINITY_SCALE)
+  DM_AFFINITY_SCALE:       5.0,   // higher = smaller boost (1 + score/5)
 
   // ── Topic interest multiplier ────────────────────────────
   // topicScore from user_topic_preferences, normalised to [0,1]
@@ -93,14 +103,46 @@ module.exports = {
   SIMILARITY_MAX_MULTIPLIER:    2.00,   // cap to avoid over‑boost
 
   // ── Collaborative filtering ──────────────────────────────
-// Boost posts similar to those the user has engaged with.
-COLLABORATIVE_SCALE:       2.0,   // multiplier = 1.0 + (avgSim * scale)
-COLLABORATIVE_MAX_BOOST:   2.0,   // cap multiplier at this value
-MAX_ENGAGED_POSTS:         200,   // limit recent interactions for performance
+  // Boost posts similar to those the user has engaged with.
+  COLLABORATIVE_SCALE:       2.0,   // multiplier = 1.0 + (avgSim * scale)
+  COLLABORATIVE_MAX_BOOST:   2.0,   // cap multiplier at this value
+  MAX_ENGAGED_POSTS:         200,   // limit recent interactions for performance
 
-// ── Content‑type preference ───────────────────────────────
-CONTENT_TYPE_BOOST_MIN: 0.8,
-CONTENT_TYPE_BOOST_MAX: 1.2,
+  // ── Content‑type preference ───────────────────────────────
+  CONTENT_TYPE_BOOST_MIN: 0.8,
+  CONTENT_TYPE_BOOST_MAX: 1.2,
+
+  // ── Media Quality Boost ──────────────────────────────────
+  // Posts with media get a boost; plain text gets a slight penalty.
+  MEDIA_BOOST_VIDEO:  1.15,   // video content
+  MEDIA_BOOST_IMAGE:  1.05,   // image content
+  MEDIA_BOOST_TEXT:   0.90,   // plain text (penalty)
+
+  // ── Content Length Boost ─────────────────────────────────
+  // Longer, more substantive content gets a boost.
+  LENGTH_LONG_WORDS:    100,   // >100 words = "long"
+  LENGTH_MEDIUM_WORDS:  50,    // 50-100 words = "medium"
+  LENGTH_BOOST_LONG:    1.15,  // boost for long posts
+  LENGTH_BOOST_MEDIUM:  1.05,  // boost for medium posts
+  LENGTH_BOOST_SHORT:   0.85,  // penalty for very short posts (<5 words)
+
+  // ── Mutual Follow Boost ──────────────────────────────────
+  // Posts from users who follow each other get a boost.
+  MUTUAL_FOLLOW_BOOST:  1.30,  // strong social bond signal
+
+  // ── Group Affinity Boost ─────────────────────────────────
+  // Posts from groups the user has joined get a boost.
+  GROUP_AFFINITY_BOOST: 1.20,  // user is a member of the group
+
+  // ── Session Activity Boost ──────────────────────────────
+  // Boosts content similar to what the user engaged with in this session.
+  SESSION_SIMILAR_BOOST:    1.05,   // per similar post in session (capped)
+  SESSION_MAX_BOOST:        1.30,   // maximum session boost
+
+  // ── Author Engagement Velocity ──────────────────────────
+  // Boosts posts that are getting engagement quickly after publishing.
+  VELOCITY_BOOST_MAX:       1.50,   // maximum velocity boost
+  VELOCITY_LIKES_PER_HOUR:  10,     // scale factor for likes/hour
 
   // ── Score debug flag ─────────────────────────────────────
   // Set to true to attach _scoreDebug to each post object.

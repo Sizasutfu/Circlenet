@@ -11,6 +11,7 @@ import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
 import { resolveMediaUrl } from '@/lib/url';
 import { apiClient } from '@/lib/api';
+import QuoteModal from '@/components/ui/QuoteModal';
 
 function highlight(text, q) {
   if (!text) return '';
@@ -31,6 +32,23 @@ function timeAgo(timestamp) {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(timestamp).toLocaleDateString();
+}
+
+// ─── Toast component ──────────────────────────────────────────────────
+function Toast({ message, type, onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 4000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+  const bgColor = type === 'error' ? 'var(--color-rose)' : 'var(--color-green)';
+  return (
+    <div
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium"
+      style={{ background: bgColor }}
+    >
+      {message}
+    </div>
+  );
 }
 
 // ─── Skeleton components ──────────────────────────────────────────────
@@ -112,7 +130,9 @@ const GroupIcon = () => (
 );
 
 // ─── Autocomplete dropdown ────────────────────────────────────────────
-function AutocompleteDropdown({ suggestions, query, onSelect, loading }) {
+function AutocompleteDropdown({ suggestions, query, onSelect, loading, activeTab }) {
+  const router = useRouter();
+  
   if (!query || query.length < 2) return null;
   if (loading) {
     return (
@@ -193,7 +213,7 @@ function AutocompleteDropdown({ suggestions, query, onSelect, loading }) {
         <button
           onClick={() => {
             const q = query;
-            const url = `/search?q=${encodeURIComponent(q)}&type=${activeTab}`;
+            const url = `/search?q=${encodeURIComponent(q)}&type=${activeTab || 'all'}`;
             router.push(url);
           }}
           className="w-full text-center text-sm text-[var(--color-accent)] hover:underline"
@@ -201,6 +221,103 @@ function AutocompleteDropdown({ suggestions, query, onSelect, loading }) {
           See all results for "{query}"
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── People Card Component ────────────────────────────────────────────
+function PeopleCard({ user: u, query, currentUser, onFollowUpdate }) {
+  const router = useRouter();
+  const [isFollowing, setIsFollowing] = useState(u.isFollowing || false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [followerCount, setFollowerCount] = useState(u.followerCount || 0);
+  
+  const avatarUrl = resolveMediaUrl(u.picture);
+  const isVerified = u.verified === 1 || u.verified === true;
+
+  const handleProfileClick = (e) => {
+    e.stopPropagation();
+    if (u.username) {
+      router.push(`/profile/${u.username}`);
+    } else {
+      router.push(`/profile?userId=${u.id}`);
+    }
+  };
+
+  const handleFollowClick = async (e) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      router.push('/login');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      // Use the same endpoint pattern as ProfileClient
+      const method = isFollowing ? 'DELETE' : 'POST';
+      const endpoint = isFollowing ? `/api/unfollow/${u.id}` : `/api/follow/${u.id}`;
+      
+      const response = await apiClient(endpoint, { method });
+      
+      const newFollowState = !isFollowing;
+      setIsFollowing(newFollowState);
+      setFollowerCount(prev => newFollowState ? prev + 1 : prev - 1);
+      
+      if (onFollowUpdate) {
+        onFollowUpdate(u.id, newFollowState);
+      }
+    } catch (err) {
+      console.error('Failed to update follow:', err);
+      // Show error toast via event
+      const toastEvent = new CustomEvent('showToast', { 
+        detail: { message: 'Failed to update follow status.', type: 'error' } 
+      });
+      window.dispatchEvent(toastEvent);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition">
+      <div 
+        className="flex-shrink-0 cursor-pointer"
+        onClick={handleProfileClick}
+      >
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={u.name}
+            className="w-10 h-10 rounded-full object-cover"
+          />
+        ) : (
+          <AvatarPlaceholder size="w-10 h-10" />
+        )}
+      </div>
+      <div 
+        className="flex-1 min-w-0 cursor-pointer"
+        onClick={handleProfileClick}
+      >
+        <div className="font-semibold text-[var(--color-txt)] flex items-center gap-1">
+          <span dangerouslySetInnerHTML={{ __html: highlight(u.name, query) }} />
+          {isVerified && <VerificationBadge size="w-3.5 h-3.5" />}
+        </div>
+        <div className="text-sm text-[var(--color-txt2)]" dangerouslySetInnerHTML={{ __html: highlight(u.username || '', query) }} />
+        <div className="text-xs text-[var(--color-txt3)]">{u.postCount || 0} posts · {followerCount} followers</div>
+      </div>
+      {currentUser && currentUser.id !== u.id && (
+        <button
+          onClick={handleFollowClick}
+          disabled={isLoading}
+          className={`px-4 py-1.5 text-sm rounded-full transition ${
+            isFollowing
+              ? 'bg-[var(--color-surface)] text-[var(--color-txt)] border border-[var(--color-border)] hover:bg-[var(--color-rose-bg)] hover:text-[var(--color-rose)] hover:border-[var(--color-rose)]'
+              : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)]'
+          } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {isLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+        </button>
+      )}
     </div>
   );
 }
@@ -233,6 +350,19 @@ export default function SearchClient() {
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [quoteTarget, setQuoteTarget] = useState(null);
+
+  const showToast = (msg, type = 'success') => setToast({ message: msg, type });
+
+  // Listen for toast events from child components
+  useEffect(() => {
+    const handleToast = (e) => {
+      showToast(e.detail.message, e.detail.type);
+    };
+    window.addEventListener('showToast', handleToast);
+    return () => window.removeEventListener('showToast', handleToast);
+  }, []);
 
   // ── Debounced autocomplete ──
   useEffect(() => {
@@ -329,40 +459,83 @@ export default function SearchClient() {
     setShowSuggestions(false);
   };
 
-  // ── People card ──
-  const PeopleCard = ({ user: u, query }) => {
-    const avatarUrl = resolveMediaUrl(u.picture);
-    const isVerified = u.verified === 1 || u.verified === true;
+  // ── Post interaction handlers (same as feed) ──
+  const handleLike = async (postId) => {
+    if (!user) { showToast('Log in to like.', 'error'); return; }
+    // Optimistic update
+    const postIndex = results.findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    const post = results[postIndex];
+    const isLiked = post.isLiked || false;
+    const newLikeCount = isLiked ? (post.likeCount || 0) - 1 : (post.likeCount || 0) + 1;
+    results[postIndex] = { ...post, isLiked: !isLiked, likeCount: newLikeCount };
+    
+    try {
+      await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
+    } catch (_) {
+      // Rollback on error
+      results[postIndex] = post;
+      showToast('Failed to like.', 'error');
+    }
+  };
 
-    return (
-      <div
-        className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-card)] hover:bg-[var(--color-surface)] transition cursor-pointer"
-        onClick={() => router.push(`/profile?userId=${u.id}`)}
-      >
-        {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt={u.name}
-            className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
-          />
-        ) : (
-          <AvatarPlaceholder size="w-10 h-10" />
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-[var(--color-txt)] flex items-center gap-1">
-            <span dangerouslySetInnerHTML={{ __html: highlight(u.name, query) }} />
-            {isVerified && <VerificationBadge size="w-3.5 h-3.5" />}
-          </div>
-          <div className="text-sm text-[var(--color-txt2)]" dangerouslySetInnerHTML={{ __html: highlight(u.email || u.username || '', query) }} />
-          <div className="text-xs text-[var(--color-txt3)]">{u.postCount || 0} posts · {u.followerCount || 0} followers</div>
-        </div>
-        {user && user.id !== u.id && (
-          <button className="px-4 py-1.5 text-sm rounded-full bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] transition">
-            {u.isFollowing ? 'Following' : 'Follow'}
-          </button>
-        )}
-      </div>
-    );
+  const handleComment = (postId) => {
+    if (!user) { showToast('Please log in to comment.', 'error'); return; }
+    router.push(`/post/${postId}`);
+  };
+
+  const handleRepost = async (postId) => {
+    if (!user) { showToast('Log in to repost.', 'error'); return; }
+    const postIndex = results.findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    const post = results[postIndex];
+    const hasReposted = post.hasReposted || false;
+    const newRepostCount = hasReposted ? (post.repostCount || 0) - 1 : (post.repostCount || 0) + 1;
+    results[postIndex] = { ...post, hasReposted: !hasReposted, repostCount: newRepostCount };
+    
+    try {
+      await apiClient(`/api/posts/${postId}/repost`, { method: 'POST', body: { text: '' } });
+      showToast(hasReposted ? 'Repost removed! 🔁' : 'Reposted! 🔁', 'success');
+    } catch (_) {
+      results[postIndex] = post;
+      showToast('Failed to repost.', 'error');
+    }
+  };
+
+  const handleQuote = (postId) => {
+    if (!user) {
+      showToast('Please log in to quote.', 'error');
+      return;
+    }
+    const post = results.find((p) => p.id === postId);
+    if (post) setQuoteTarget(post);
+  };
+
+  const handleQuoteSuccess = () => {
+    setQuoteTarget(null);
+    showToast('Quote posted! 🎉', 'success');
+    // Refresh search results
+    const q = searchParams?.get('q') || '';
+    const t = searchParams?.get('type') || 'all';
+    if (q) search(q, t);
+  };
+
+  const handleShare = (postId) => {
+    const url = `${window.location.origin}/post/${postId}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Check this post', url });
+    } else {
+      navigator.clipboard.writeText(url).then(() => showToast('Link copied!', 'success'));
+    }
+  };
+
+  // ── Handle follow update ──
+  const handleFollowUpdate = (userId, newFollowState) => {
+    // Update the user in results if needed
+    const userIndex = results.findIndex(u => u.id === userId);
+    if (userIndex !== -1) {
+      results[userIndex] = { ...results[userIndex], isFollowing: newFollowState };
+    }
   };
 
   // ── No query – show history ──
@@ -381,6 +554,8 @@ export default function SearchClient() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6" ref={containerRef}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
       {/* ─── Search bar with autocomplete ─── */}
       <form onSubmit={handleSubmit} className="mb-6 relative">
         <div className="relative">
@@ -429,6 +604,7 @@ export default function SearchClient() {
             query={inputValue}
             onSelect={handleSuggestionSelect}
             loading={suggestionsLoading}
+            activeTab={activeTab}
           />
         )}
       </form>
@@ -536,15 +712,53 @@ export default function SearchClient() {
                       item.topic !== undefined ? 'group' :
                       'user'
                     );
-                    if (type === 'post') return <PostCard key={item.id} post={item} />;
+                    if (type === 'post') {
+                      return (
+                        <PostCard
+                          key={item.id}
+                          post={item}
+                          onLike={handleLike}
+                          onComment={handleComment}
+                          onRepost={handleRepost}
+                          onShare={handleShare}
+                          onQuote={handleQuote}
+                        />
+                      );
+                    }
                     if (type === 'group') return <GroupCard key={item.id} group={item} />;
-                    return <PeopleCard key={item.id} user={item} query={inputValue} />;
+                    return (
+                      <PeopleCard 
+                        key={item.id} 
+                        user={item} 
+                        query={inputValue}
+                        currentUser={user}
+                        onFollowUpdate={handleFollowUpdate}
+                      />
+                    );
                   })}
                 </div>
               ) : activeTab === 'posts' ? (
-                results.map((post) => <PostCard key={post.id} post={post} />)
+                results.map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    onLike={handleLike}
+                    onComment={handleComment}
+                    onRepost={handleRepost}
+                    onShare={handleShare}
+                    onQuote={handleQuote}
+                  />
+                ))
               ) : activeTab === 'people' ? (
-                results.map((u) => <PeopleCard key={u.id} user={u} query={inputValue} />)
+                results.map((u) => (
+                  <PeopleCard 
+                    key={u.id} 
+                    user={u} 
+                    query={inputValue}
+                    currentUser={user}
+                    onFollowUpdate={handleFollowUpdate}
+                  />
+                ))
               ) : activeTab === 'groups' ? (
                 results.map((group) => <GroupCard key={group.id} group={group} />)
               ) : null}
@@ -560,6 +774,14 @@ export default function SearchClient() {
             </button>
           )}
         </div>
+      )}
+
+      {quoteTarget && (
+        <QuoteModal
+          post={quoteTarget}
+          onClose={() => setQuoteTarget(null)}
+          onSuccess={handleQuoteSuccess}
+        />
       )}
     </div>
   );

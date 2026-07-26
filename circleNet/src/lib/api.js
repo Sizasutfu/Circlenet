@@ -10,7 +10,7 @@ const getBaseURL = () => {
     return '';
   }
 
-  return 'http://10.174.18.203:5000';
+  return 'http://localhost:5000';
 };
 
 export async function apiClient(endpoint, options = {}) {

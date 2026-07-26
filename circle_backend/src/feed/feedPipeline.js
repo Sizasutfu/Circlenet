@@ -30,6 +30,7 @@ const UserModel                       = require('../models/UserModel');
 const TopicPreferenceModel            = require('../models/topicPreferenceModel');
 const NegativeSignalModel             = require('../models/negativeSignalModel');
 const ContentTypePreference           = require('../models/contentTypePreferenceModel');
+const { getDmAffinity }               = require('../models/dmAffinityModel');
 const { computeScore, generateReasons } = require('./feedScorer');
 const { applyDiversity }              = require('./feedDiversity');
 const { fetchExplorationPosts,
@@ -140,6 +141,7 @@ async function getPostsPage(
        p.id,
        p.user_id          AS userId,
        u.name             AS author,
+       u.username         AS authorUsername,
        u.picture          AS authorPicture,
        u.verified         AS authorVerified,
        u.location         AS authorLocation,
@@ -243,6 +245,57 @@ async function getPostsPage(
     contentTypeBoost = await ContentTypePreference.getContentTypeBoost(viewerUserId);
   }
 
+  // ── DM Affinity ────────────────────────────────────────────
+  let dmAffinity = null;
+  if (viewerUserId) {
+    dmAffinity = await getDmAffinity(viewerUserId);
+  }
+
+  // ── Mutual follows ─────────────────────────────────────────
+  let mutualFollows = new Set();
+  if (viewerUserId) {
+    // Find users who follow the viewer back
+    const authorIds = [...new Set(candidates.map(p => p.userId))];
+    if (authorIds.length) {
+      const ph = authorIds.map(() => '?').join(',');
+      const [rows] = await db.query(
+        `SELECT follower_id FROM follows 
+         WHERE follower_id IN (${ph}) AND following_id = ?`,
+        [...authorIds, viewerUserId]
+      );
+      mutualFollows = new Set(rows.map(r => r.follower_id));
+    }
+  }
+
+  // ── User groups ────────────────────────────────────────────
+  let userGroups = new Set();
+  if (viewerUserId) {
+    const [rows] = await db.query(
+      `SELECT group_id FROM group_members WHERE user_id = ?`,
+      [viewerUserId]
+    );
+    userGroups = new Set(rows.map(r => r.group_id));
+  }
+
+  // ── Session posts (last 10 engaged posts) ─────────────────
+  let sessionPosts = [];
+  if (viewerUserId) {
+    const [rows] = await db.query(
+      `SELECT post_id FROM likes WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`,
+      [viewerUserId]
+    );
+    const sessionPostIds = rows.map(r => r.post_id);
+    if (sessionPostIds.length) {
+      const ph = sessionPostIds.map(() => '?').join(',');
+      const [postRows] = await db.query(
+        `SELECT id, user_id, text FROM posts WHERE id IN (${ph})`,
+        sessionPostIds
+      );
+      // We'll just store the post IDs and user IDs for session tracking
+      sessionPosts = postRows;
+    }
+  }
+
   // ── Stage 4: Score ─────────────────────────────────────
   const followingSet = new Set(followingIds);
   const scoringContext = {
@@ -256,6 +309,10 @@ async function getPostsPage(
     viewerEngagedPosts,
     postSimilarityMap,
     contentTypeBoost,
+    dmAffinity,
+    mutualFollows,
+    userGroups,
+    sessionPosts,
   };
 
   hydrated.forEach(p => {

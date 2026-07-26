@@ -5,7 +5,7 @@ const UserModel = {
 
   async findByEmail(email) {
     const [rows] = await db.query(
-      "SELECT id, name, email, password, email_verified FROM users WHERE email = ?",
+      "SELECT id, name, email, password, email_verified, role FROM users WHERE email = ?",
       [email]
     );
     return rows[0] || null;
@@ -18,7 +18,8 @@ const UserModel = {
          phone, location, school, occupation, website,
          date_of_birth  AS dateOfBirth,
          gender,
-         verified,                 -- ✅ verification flag
+         verified,
+         role,                  -- ✅ added role
          created_at     AS createdAt
        FROM users WHERE id = ?`,
       [id]
@@ -147,7 +148,8 @@ const UserModel = {
       `SELECT
          id, name, username, bio, picture, cover_image AS coverImage,
          location, school, occupation, website, gender,
-         verified                  -- ✅ verification flag
+         verified,
+         role                  -- ✅ added role
        FROM users WHERE id = ?`,
       [targetId]
     );
@@ -183,7 +185,7 @@ const UserModel = {
   async searchUsers(query, excludeId, limit = 10) {
     const like = `%${query}%`;
     const [rows] = await db.query(
-      `SELECT id, name, email, picture
+      `SELECT id, name, email, picture, role  -- ✅ added role
        FROM users
        WHERE (name LIKE ? OR email LIKE ?)
          AND id != ?
@@ -231,7 +233,8 @@ async function getNewMembers(viewerId, limit = 10) {
         u.id,
         u.name,
         u.picture,
-        u.created_at AS createdAt
+        u.created_at AS createdAt,
+        u.role        -- ✅ added role
       FROM users u
       WHERE u.created_at >= NOW() - INTERVAL 7 DAY
         AND u.id != ?
@@ -248,7 +251,8 @@ async function getNewMembers(viewerId, limit = 10) {
         u.id,
         u.name,
         u.picture,
-        u.created_at AS createdAt
+        u.created_at AS createdAt,
+        u.role        -- ✅ added role
       FROM users u
       WHERE u.created_at >= NOW() - INTERVAL 7 DAY
       ORDER BY u.created_at DESC
@@ -270,7 +274,8 @@ async function getByUsername(username) {
        cover_image AS coverImage,
        location, school, occupation, website, gender, phone,
        date_of_birth AS dateOfBirth,
-       verified,                 -- ✅ verification flag
+       verified,
+       role,                  -- ✅ added role
        created_at  AS joined
      FROM users
      WHERE username = ?`,

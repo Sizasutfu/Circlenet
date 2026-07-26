@@ -22,16 +22,19 @@ const { MAX_PER_AUTHOR, MAX_CONSECUTIVE_TOPIC } = require('../config/constants')
  * @returns {Object[]}          Diversity-filtered order (same length)
  */
 function applyDiversity(sorted) {
-  const authorCount   = {};          // authorId → how many times placed
-  const overflow      = [];          // posts deferred due to rule violations
-  const result        = [];
+  if (!sorted.length) return sorted;
 
-  let lastTopics      = [];          // topics of the last placed post
-  let consecutiveTopic = 0;          // current same-topic streak length
+  const authorCount = {};          // authorId → how many times placed
+  const overflow = [];             // posts deferred due to rule violations
+  const result = [];
 
+  let lastTopics = [];             // topics of the last placed post
+  let consecutiveTopic = 0;        // current same-topic streak length
+
+  // ── First pass: try to place each post ─────────────────────
   for (const post of sorted) {
-    const authorId     = post.userId;
-    const postTopics   = post._topics || [];
+    const authorId = post.userId || post.authorId;
+    const postTopics = post._topics || [];
 
     // ── Author cap check ────────────────────────────────────
     const authorSoFar = authorCount[authorId] || 0;
@@ -52,6 +55,7 @@ function applyDiversity(sorted) {
     result.push(post);
     authorCount[authorId] = authorSoFar + 1;
 
+    // Update topic streak
     if (overlaps && postTopics.length > 0) {
       consecutiveTopic++;
     } else {
@@ -60,8 +64,45 @@ function applyDiversity(sorted) {
     lastTopics = postTopics;
   }
 
-  // Append overflow (still score-ordered among themselves)
-  return [...result, ...overflow];
+  // ── Second pass: try to place overflow posts ──────────────
+  // Reset topic streak tracking for overflow placement
+  let overflowResult = [];
+  let overflowTopics = [];
+  let overflowConsecutive = 0;
+
+  for (const post of overflow) {
+    const authorId = post.userId || post.authorId;
+    const postTopics = post._topics || [];
+
+    // Check author cap (shouldn't exceed MAX_PER_AUTHOR in overflow)
+    const authorSoFar = authorCount[authorId] || 0;
+    if (authorSoFar >= MAX_PER_AUTHOR) {
+      // Already at cap; push to end
+      overflowResult.push(post);
+      continue;
+    }
+
+    // Check topic streak in overflow
+    const overlaps = postTopics.some(t => overflowTopics.includes(t));
+    if (overlaps && overflowConsecutive >= MAX_CONSECUTIVE_TOPIC) {
+      overflowResult.push(post);
+      continue;
+    }
+
+    // We can place this post now
+    overflowResult.push(post);
+    authorCount[authorId] = (authorCount[authorId] || 0) + 1;
+
+    if (overlaps && postTopics.length > 0) {
+      overflowConsecutive++;
+    } else {
+      overflowConsecutive = postTopics.length > 0 ? 1 : 0;
+    }
+    overflowTopics = postTopics;
+  }
+
+  // ── Return combined result ─────────────────────────────────
+  return [...result, ...overflowResult];
 }
 
 module.exports = { applyDiversity };

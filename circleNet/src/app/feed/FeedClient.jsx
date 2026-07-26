@@ -13,16 +13,10 @@ import QuoteModal from '@/components/ui/QuoteModal';
 import AdSlot from '@/components/ui/AdSlot';
 import SignupPrompt from '@/components/ui/SignupPrompt';
 import { useRouter } from 'next/navigation';
+import { resolveMediaUrl } from '@/lib/url';
 import Link from 'next/link';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-function resolveMediaUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-  return `${base}${url}`;
-}
 
 function timeAgo(dateString) {
   const now = Date.now();

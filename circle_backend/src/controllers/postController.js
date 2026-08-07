@@ -744,9 +744,6 @@ async function updatePost(req, res) {
       updatedVideoPath = null;
     }
 
-    // TODO: PostModel.updatePost needs to accept image/video params too —
-    // paste postModel.js so this call (and the SQL/UPDATE inside it) can be
-    // updated to actually persist updatedImagePath / updatedVideoPath.
     await PostModel.updatePost(
       postId,
       updatedText,

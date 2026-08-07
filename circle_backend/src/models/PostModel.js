@@ -627,7 +627,7 @@ async function deletePost(postId, userId = null) {
 }
 
 // ── Update a post's text ───────────────────────────────────
-async function updatePost(postId, text, userId = null, isLive = null, liveSessionId = null, youtubeId = null) {
+async function updatePost(postId, text, userId = null, isLive = null, liveSessionId = null, youtubeId = null, image = undefined, video = undefined) {
   if (!postId || isNaN(postId) || postId <= 0) {
     throw new Error('Invalid post ID');
   }
@@ -658,6 +658,14 @@ async function updatePost(postId, text, userId = null, isLive = null, liveSessio
   if (youtubeId !== undefined) {
     query += ', youtube_id = ?';
     params.push(youtubeId);
+  }
+  if (image !== undefined) {
+    query += ', image = ?';
+    params.push(image);
+  }
+  if (video !== undefined) {
+    query += ', video = ?';
+    params.push(video);
   }
   query += ' WHERE id = ?';
   params.push(postId);

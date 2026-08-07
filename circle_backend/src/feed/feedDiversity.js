@@ -7,6 +7,7 @@
 //  Rules enforced:
 //    1. MAX_PER_AUTHOR  — no creator appears more than N times
 //    2. MAX_CONSECUTIVE_TOPIC — same topic can't run N+ in a row
+//    3. MENTION_PRIORITY — mentioned posts get a boost in ordering
 //
 //  Posts that violate a rule are pushed to an overflow list and
 //  appended at the end, so no post is dropped entirely — just
@@ -35,6 +36,7 @@ function applyDiversity(sorted) {
   for (const post of sorted) {
     const authorId = post.userId || post.authorId;
     const postTopics = post._topics || [];
+    const isMentioned = post._isMentioned || false; // ⬅️ NEW
 
     // ── Author cap check ────────────────────────────────────
     const authorSoFar = authorCount[authorId] || 0;
@@ -70,7 +72,14 @@ function applyDiversity(sorted) {
   let overflowTopics = [];
   let overflowConsecutive = 0;
 
-  for (const post of overflow) {
+  // ⬅️ NEW: Separate mentioned posts from non-mentioned in overflow
+  const mentionedOverflow = overflow.filter(p => p._isMentioned);
+  const nonMentionedOverflow = overflow.filter(p => !p._isMentioned);
+
+  // Place mentioned overflow posts first (priority)
+  const sortedOverflow = [...mentionedOverflow, ...nonMentionedOverflow];
+
+  for (const post of sortedOverflow) {
     const authorId = post.userId || post.authorId;
     const postTopics = post._topics || [];
 

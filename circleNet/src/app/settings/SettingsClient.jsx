@@ -1,78 +1,80 @@
 // src/app/settings/SettingsClient.jsx
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/lib/auth';
-import { apiClient } from '@/lib/api';
-import { useRouter } from 'next/navigation';
-import { useWhisper } from '@/contexts/WhisperContext';
-import ToggleSwitch from '@/components/ui/ToggleSwitch';
-import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
+import { useState, useEffect } from "react";
+import { useAuth } from "@/lib/auth";
+import { apiClient } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { useWhisper } from "@/contexts/WhisperContext";
+import ToggleSwitch from "@/components/ui/ToggleSwitch";
+import AvatarPlaceholder from "@/components/ui/AvatarPlaceholder";
 
 // ── Country dial codes ──
 const DIAL_CODES = [
-  { code: '+1', country: 'US/CA' },
-  { code: '+44', country: 'UK' },
-  { code: '+61', country: 'AU' },
-  { code: '+81', country: 'JP' },
-  { code: '+86', country: 'CN' },
-  { code: '+91', country: 'IN' },
-  { code: '+49', country: 'DE' },
-  { code: '+33', country: 'FR' },
-  { code: '+39', country: 'IT' },
-  { code: '+34', country: 'ES' },
-  { code: '+55', country: 'BR' },
-  { code: '+7', country: 'RU' },
-  { code: '+82', country: 'KR' },
-  { code: '+31', country: 'NL' },
-  { code: '+46', country: 'SE' },
-  { code: '+41', country: 'CH' },
-  { code: '+27', country: 'ZA' },
-  { code: '+234', country: 'NG' },
-  { code: '+254', country: 'KE' },
-  { code: '+256', country: 'UG' },
-  { code: '+255', country: 'TZ' },
-  { code: '+233', country: 'GH' },
-  { code: '+52', country: 'MX' },
-  { code: '+54', country: 'AR' },
-  { code: '+56', country: 'CL' },
-  { code: '+57', country: 'CO' },
-  { code: '+60', country: 'MY' },
-  { code: '+63', country: 'PH' },
-  { code: '+64', country: 'NZ' },
-  { code: '+65', country: 'SG' },
-  { code: '+66', country: 'TH' },
-  { code: '+351', country: 'PT' },
-  { code: '+353', country: 'IE' },
-  { code: '+45', country: 'DK' },
-  { code: '+47', country: 'NO' },
-  { code: '+358', country: 'FI' },
-  { code: '+30', country: 'GR' },
-  { code: '+90', country: 'TR' },
-  { code: '+966', country: 'SA' },
-  { code: '+971', country: 'AE' },
-  { code: '+92', country: 'PK' },
-  { code: '+880', country: 'BD' },
-  { code: '+62', country: 'ID' },
+  { code: "+268", country: "SZ" },
+  { code: "+1", country: "US/CA" },
+  { code: "+44", country: "UK" },
+  { code: "+61", country: "AU" },
+  { code: "+81", country: "JP" },
+  { code: "+86", country: "CN" },
+  { code: "+91", country: "IN" },
+  { code: "+49", country: "DE" },
+  { code: "+33", country: "FR" },
+  { code: "+39", country: "IT" },
+  { code: "+34", country: "ES" },
+  { code: "+55", country: "BR" },
+  { code: "+7", country: "RU" },
+  { code: "+82", country: "KR" },
+  { code: "+31", country: "NL" },
+  { code: "+46", country: "SE" },
+  { code: "+41", country: "CH" },
+  { code: "+27", country: "ZA" },
+  { code: "+234", country: "NG" },
+  { code: "+254", country: "KE" },
+  { code: "+256", country: "UG" },
+  { code: "+255", country: "TZ" },
+  { code: "+233", country: "GH" },
+  { code: "+52", country: "MX" },
+  { code: "+54", country: "AR" },
+  { code: "+56", country: "CL" },
+  { code: "+57", country: "CO" },
+  { code: "+60", country: "MY" },
+  { code: "+63", country: "PH" },
+  { code: "+64", country: "NZ" },
+  { code: "+65", country: "SG" },
+  { code: "+66", country: "TH" },
+  { code: "+351", country: "PT" },
+  { code: "+353", country: "IE" },
+  { code: "+45", country: "DK" },
+  { code: "+47", country: "NO" },
+  { code: "+358", country: "FI" },
+  { code: "+30", country: "GR" },
+  { code: "+90", country: "TR" },
+  { code: "+966", country: "SA" },
+  { code: "+971", country: "AE" },
+  { code: "+92", country: "PK" },
+  { code: "+880", country: "BD" },
+  { code: "+62", country: "ID" },
 ];
 
 function resolveMediaUrl(url) {
   if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+  if (url.startsWith("http")) return url;
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
   return `${base}${url}`;
 }
-
-// ─── Removed local AvatarPlaceholder – using shared one ───
 
 function Toast({ message, type, onClose }) {
   useEffect(() => {
     const timer = setTimeout(onClose, 4000);
     return () => clearTimeout(timer);
   }, [onClose]);
-  const bgColor = type === 'error' ? 'var(--color-rose)' : 'var(--color-green)';
+  const bgColor = type === "error" ? "var(--color-rose)" : "var(--color-green)";
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium" style={{ background: bgColor }}>
+    <div
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium"
+      style={{ background: bgColor }}
+    >
       {message}
     </div>
   );
@@ -81,22 +83,23 @@ function Toast({ message, type, onClose }) {
 export default function SettingsClient() {
   const { user, login } = useAuth();
   const router = useRouter();
-  const { settings, fetchSettings, regenerateSlug, updateSettings } = useWhisper();
+  const { settings, fetchSettings, regenerateSlug, updateSettings } =
+    useWhisper();
 
   // ── Form state ──
-  const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [bio, setBio] = useState('');
-  const [password, setPassword] = useState('');
-  const [location, setLocation] = useState('');
-  const [school, setSchool] = useState('');
-  const [occupation, setOccupation] = useState('');
-  const [website, setWebsite] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [gender, setGender] = useState('');
-  const [dialCode, setDialCode] = useState('+1');
-  const [phone, setPhone] = useState('');
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [bio, setBio] = useState("");
+  const [password, setPassword] = useState("");
+  const [location, setLocation] = useState("");
+  const [school, setSchool] = useState("");
+  const [occupation, setOccupation] = useState("");
+  const [website, setWebsite] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("");
+  const [dialCode, setDialCode] = useState("+1");
+  const [phone, setPhone] = useState("");
 
   // ── Notification preferences ──
   const [notifPrefs, setNotifPrefs] = useState({
@@ -132,11 +135,16 @@ export default function SettingsClient() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // ── Delete Account state ──
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+
   // ── Load user data and whisper settings ──
   useEffect(() => {
     async function loadData() {
       if (!user) {
-        router.push('/login');
+        router.push("/login");
         return;
       }
 
@@ -147,20 +155,20 @@ export default function SettingsClient() {
 
         const merged = { ...user, ...profile };
 
-        setName(merged.name || '');
-        setUsername(merged.username || '');
-        setEmail(merged.email || '');
-        setBio(merged.bio || '');
-        setLocation(merged.location || '');
-        setSchool(merged.school || '');
-        setOccupation(merged.occupation || '');
-        setWebsite(merged.website || '');
-        setGender(merged.gender || '');
+        setName(merged.name || "");
+        setUsername(merged.username || "");
+        setEmail(merged.email || "");
+        setBio(merged.bio || "");
+        setLocation(merged.location || "");
+        setSchool(merged.school || "");
+        setOccupation(merged.occupation || "");
+        setWebsite(merged.website || "");
+        setGender(merged.gender || "");
         if (merged.dateOfBirth) {
-          setDateOfBirth(merged.dateOfBirth.split('T')[0]);
+          setDateOfBirth(merged.dateOfBirth.split("T")[0]);
         }
-        const phoneRaw = merged.phone || '';
-        const parts = phoneRaw.split('|');
+        const phoneRaw = merged.phone || "";
+        const parts = phoneRaw.split("|");
         if (parts.length === 2) {
           setDialCode(parts[0]);
           setPhone(parts[1]);
@@ -168,7 +176,7 @@ export default function SettingsClient() {
           setPhone(phoneRaw);
         }
 
-        const storedPrefs = localStorage.getItem('circle_notif_prefs');
+        const storedPrefs = localStorage.getItem("circle_notif_prefs");
         if (storedPrefs) {
           const parsed = JSON.parse(storedPrefs);
           setNotifPrefs((prev) => ({ ...prev, ...parsed }));
@@ -185,10 +193,10 @@ export default function SettingsClient() {
         // ── Load Whisper settings ──
         await fetchSettings();
       } catch (err) {
-        console.error('Failed to load profile data:', err);
-        setName(user.name || '');
-        setUsername(user.username || '');
-        setEmail(user.email || '');
+        console.error("Failed to load profile data:", err);
+        setName(user.name || "");
+        setUsername(user.username || "");
+        setEmail(user.email || "");
       } finally {
         setLoading(false);
       }
@@ -197,13 +205,13 @@ export default function SettingsClient() {
   }, [user, router, fetchSettings]);
 
   // ── Show toast ──
-  const showToast = (msg, type = 'success') => {
+  const showToast = (msg, type = "success") => {
     setToast({ message: msg, type });
   };
 
   // ── Handle phone change ──
   const handlePhoneChange = (e) => {
-    const digits = e.target.value.replace(/\D/g, '');
+    const digits = e.target.value.replace(/\D/g, "");
     setPhone(digits);
   };
 
@@ -211,20 +219,25 @@ export default function SettingsClient() {
   const handleToggleWhisper = async (enabled) => {
     try {
       await updateSettings(enabled);
-      showToast(enabled ? 'Whisper enabled' : 'Whisper disabled');
+      showToast(enabled ? "Whisper enabled" : "Whisper disabled");
     } catch {
-      showToast('Failed to update whisper settings', 'error');
+      showToast("Failed to update whisper settings", "error");
     }
   };
 
   // ── Regenerate Whisper link ──
   const handleRegenerateSlug = async () => {
-    if (!confirm('This will generate a new link for your Whisper page. Your old link will stop working. Continue?')) return;
+    if (
+      !confirm(
+        "This will generate a new link for your Whisper page. Your old link will stop working. Continue?",
+      )
+    )
+      return;
     try {
       await regenerateSlug();
-      showToast('New Whisper link generated! 🔗', 'success');
+      showToast("New Whisper link generated! 🔗", "success");
     } catch {
-      showToast('Failed to generate new link.', 'error');
+      showToast("Failed to generate new link.", "error");
     }
   };
 
@@ -232,15 +245,18 @@ export default function SettingsClient() {
   const handleSave = async () => {
     if (!user) return;
     if (!name.trim()) {
-      showToast('Name is required.', 'error');
+      showToast("Name is required.", "error");
       return;
     }
     if (!email.trim()) {
-      showToast('Email is required.', 'error');
+      showToast("Email is required.", "error");
       return;
     }
     if (username && !/^[a-z0-9_]{3,25}$/.test(username)) {
-      showToast('Username must be 3–25 letters, numbers, underscores.', 'error');
+      showToast(
+        "Username must be 3–25 letters, numbers, underscores.",
+        "error",
+      );
       return;
     }
 
@@ -250,14 +266,18 @@ export default function SettingsClient() {
       const patch = { name: name.trim(), email: email.trim() };
       const current = user;
 
-      if (bio !== (current.bio || '')) patch.bio = bio || null;
-      if (location !== (current.location || '')) patch.location = location || null;
-      if (school !== (current.school || '')) patch.school = school || null;
-      if (occupation !== (current.occupation || '')) patch.occupation = occupation || null;
-      if (website !== (current.website || '')) patch.website = website || null;
-      if (gender !== (current.gender || '')) patch.gender = gender || null;
+      if (bio !== (current.bio || "")) patch.bio = bio || null;
+      if (location !== (current.location || ""))
+        patch.location = location || null;
+      if (school !== (current.school || "")) patch.school = school || null;
+      if (occupation !== (current.occupation || ""))
+        patch.occupation = occupation || null;
+      if (website !== (current.website || "")) patch.website = website || null;
+      if (gender !== (current.gender || "")) patch.gender = gender || null;
 
-      const currentDob = current.dateOfBirth ? current.dateOfBirth.split('T')[0] : null;
+      const currentDob = current.dateOfBirth
+        ? current.dateOfBirth.split("T")[0]
+        : null;
       if (dateOfBirth !== currentDob) patch.dateOfBirth = dateOfBirth || null;
 
       const fullPhone = phone ? `${dialCode}|${phone}` : null;
@@ -268,7 +288,7 @@ export default function SettingsClient() {
       let updatedUser = { ...current };
       if (Object.keys(patch).length > 0) {
         const res = await apiClient(`/api/users/${user.id}`, {
-          method: 'PUT',
+          method: "PUT",
           body: patch,
         });
         updatedUser = { ...updatedUser, ...res.data };
@@ -276,36 +296,79 @@ export default function SettingsClient() {
 
       if (username && username !== current.username) {
         await apiClient(`/api/users/${user.id}/username`, {
-          method: 'PUT',
+          method: "PUT",
           body: { username },
         });
         updatedUser.username = username;
       }
 
       const prefs = { ...notifPrefs, ...privPrefs, pushEnabled, ...pushPrefs };
-      localStorage.setItem('circle_notif_prefs', JSON.stringify(prefs));
+      localStorage.setItem("circle_notif_prefs", JSON.stringify(prefs));
 
       const finalUser = {
         ...updatedUser,
         picture: resolveMediaUrl(updatedUser.picture),
       };
-      localStorage.setItem('circle_user', JSON.stringify(finalUser));
+      localStorage.setItem("circle_user", JSON.stringify(finalUser));
       login(finalUser);
 
-      showToast('Profile updated successfully! ✅', 'success');
+      showToast("Profile updated successfully! ✅", "success");
 
       try {
-        await apiClient('/api/posts', {
-          method: 'POST',
-          body: { type: 'profile_update', text: bio || '' },
+        await apiClient("/api/posts", {
+          method: "POST",
+          body: { type: "profile_update", text: bio || "" },
         });
       } catch (_) {}
 
-      setTimeout(() => router.push('/profile'), 800);
+      setTimeout(() => router.push("/profile"), 800);
     } catch (err) {
-      showToast('Error: ' + err.message, 'error');
+      showToast("Error: " + err.message, "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ─── Delete Account ──────────────────────────────────────────────────────────
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== "DELETE") {
+      showToast('Please type DELETE to confirm.', 'error');
+      return;
+    }
+
+    if (!deletePassword) {
+      showToast('Please enter your password to confirm.', 'error');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Backend requires email + password in the body to verify identity
+      // before soft-deleting the account.
+      await apiClient(`/api/users/${user.id}`, {
+        method: 'DELETE',
+        body: { email: user.email, password: deletePassword },
+      });
+
+      // Clear local storage
+      localStorage.removeItem('circle_token');
+      localStorage.removeItem('circle_user');
+      localStorage.removeItem('circle_admin_token');
+      localStorage.removeItem('circle_admin');
+      
+      showToast('Account deleted successfully.', 'success');
+      
+      setTimeout(() => {
+        router.push('/login');
+      }, 1500);
+    } catch (err) {
+      showToast('Failed to delete account: ' + err.message, 'error');
+    } finally {
+      setSaving(false);
+      setShowDeleteDialog(false);
+      setDeleteConfirmText('');
+      setDeletePassword('');
     }
   };
 
@@ -322,9 +385,17 @@ export default function SettingsClient() {
   // ── Render ──
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
 
-      <h1 className="text-2xl font-head font-bold text-[var(--color-txt)] mb-6">Settings</h1>
+      <h1 className="text-2xl font-head font-bold text-[var(--color-txt)] mb-6">
+        Settings
+      </h1>
 
       {/* ── Profile Picture ── */}
       <div className="mb-8 flex items-center gap-4">
@@ -340,7 +411,9 @@ export default function SettingsClient() {
         <div>
           <p className="font-medium text-[var(--color-txt)]">{user?.name}</p>
           <p className="text-sm text-[var(--color-txt2)]">@{user?.username}</p>
-          <p className="text-xs text-[var(--color-txt3)] mt-1">Profile picture can be changed on your profile page.</p>
+          <p className="text-xs text-[var(--color-txt3)] mt-1">
+            Profile picture can be changed on your profile page.
+          </p>
         </div>
       </div>
 
@@ -348,7 +421,9 @@ export default function SettingsClient() {
       <div className="space-y-6">
         {/* Name */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Name *</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Name *
+          </label>
           <input
             type="text"
             value={name}
@@ -359,7 +434,9 @@ export default function SettingsClient() {
 
         {/* Username */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Username</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Username
+          </label>
           <input
             type="text"
             value={username}
@@ -371,7 +448,9 @@ export default function SettingsClient() {
 
         {/* Email */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Email *</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Email *
+          </label>
           <input
             type="email"
             value={email}
@@ -382,7 +461,9 @@ export default function SettingsClient() {
 
         {/* Bio */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Bio</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Bio
+          </label>
           <textarea
             value={bio}
             onChange={(e) => setBio(e.target.value)}
@@ -393,7 +474,9 @@ export default function SettingsClient() {
 
         {/* Location */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Location</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Location
+          </label>
           <input
             type="text"
             value={location}
@@ -404,7 +487,9 @@ export default function SettingsClient() {
 
         {/* School */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">School</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            School
+          </label>
           <input
             type="text"
             value={school}
@@ -415,7 +500,9 @@ export default function SettingsClient() {
 
         {/* Occupation */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Occupation</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Occupation
+          </label>
           <input
             type="text"
             value={occupation}
@@ -426,7 +513,9 @@ export default function SettingsClient() {
 
         {/* Website */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Website</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Website
+          </label>
           <input
             type="url"
             value={website}
@@ -437,7 +526,9 @@ export default function SettingsClient() {
 
         {/* Date of Birth */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Date of Birth</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Date of Birth
+          </label>
           <input
             type="date"
             value={dateOfBirth}
@@ -448,7 +539,9 @@ export default function SettingsClient() {
 
         {/* Gender */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Gender</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Gender
+          </label>
           <select
             value={gender}
             onChange={(e) => setGender(e.target.value)}
@@ -464,7 +557,9 @@ export default function SettingsClient() {
 
         {/* Phone */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Phone</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Phone
+          </label>
           <div className="flex gap-2">
             <select
               value={dialCode}
@@ -489,7 +584,9 @@ export default function SettingsClient() {
 
         {/* Password */}
         <div>
-          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">Change Password</label>
+          <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+            Change Password
+          </label>
           <input
             type="password"
             value={password}
@@ -502,7 +599,9 @@ export default function SettingsClient() {
 
       {/* ── Whisper Settings ── */}
       <div className="mt-10 border-t border-[var(--color-border)] pt-6">
-        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">💬 Whisper</h2>
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">
+          💬 Whisper
+        </h2>
 
         <ToggleSwitch
           checked={settings.enabled || false}
@@ -513,21 +612,27 @@ export default function SettingsClient() {
 
         <div className="mt-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wider">Your Whisper link</div>
+            <div className="text-[11px] font-bold text-[var(--color-txt3)] uppercase tracking-wider">
+              Your Whisper link
+            </div>
             {settings.link_slug ? (
               <div className="text-sm font-mono text-[var(--color-accent)] break-all">
                 {`${window.location.origin}/whisper/send/${settings.link_slug}`}
               </div>
             ) : (
-              <div className="text-sm text-[var(--color-txt2)]">No link generated yet.</div>
+              <div className="text-sm text-[var(--color-txt2)]">
+                No link generated yet.
+              </div>
             )}
           </div>
           <div className="flex gap-2">
             {settings.link_slug && (
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/whisper/send/${settings.link_slug}`);
-                  showToast('Link copied! 🔗', 'success');
+                  navigator.clipboard.writeText(
+                    `${window.location.origin}/whisper/send/${settings.link_slug}`,
+                  );
+                  showToast("Link copied! 🔗", "success");
                 }}
                 className="px-4 py-2 bg-[var(--color-accent-bg)] text-[var(--color-accent)] rounded-full text-sm font-bold hover:bg-[var(--color-accent)]/20 transition"
               >
@@ -538,7 +643,13 @@ export default function SettingsClient() {
               onClick={handleRegenerateSlug}
               className="flex items-center gap-1.5 px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-bold hover:bg-[var(--color-accent-bg)] transition"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                viewBox="0 0 24 24"
+              >
                 <path d="M23 4v6h-6" />
                 <path d="M1 20v-6h6" />
                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
@@ -547,54 +658,74 @@ export default function SettingsClient() {
             </button>
           </div>
         </div>
-        <p className="text-xs text-[var(--color-txt3)] mt-2">Generate a new link to stop spam on your old link.</p>
+        <p className="text-xs text-[var(--color-txt3)] mt-2">
+          Generate a new link to stop spam on your old link.
+        </p>
       </div>
 
       {/* ── Notification Preferences ── */}
       <div className="mt-10">
-        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Notification Preferences</h2>
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">
+          Notification Preferences
+        </h2>
         <div className="space-y-2">
           <ToggleSwitch
             checked={notifPrefs.likes}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, likes: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, likes: val }))
+            }
             label="Likes on my posts"
           />
           <ToggleSwitch
             checked={notifPrefs.comments}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, comments: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, comments: val }))
+            }
             label="Comments on my posts"
           />
           <ToggleSwitch
             checked={notifPrefs.reposts}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, reposts: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, reposts: val }))
+            }
             label="Reposts of my posts"
           />
           <ToggleSwitch
             checked={notifPrefs.new_post}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, new_post: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, new_post: val }))
+            }
             label="New posts from people I follow"
           />
           <ToggleSwitch
             checked={notifPrefs.profile_pic}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, profile_pic: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, profile_pic: val }))
+            }
             label="Profile picture updates from friends"
           />
           <ToggleSwitch
             checked={notifPrefs.mention}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, mention: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, mention: val }))
+            }
             label="Mentions"
           />
           <ToggleSwitch
             checked={notifPrefs.milestone}
-            onChange={(val) => setNotifPrefs((prev) => ({ ...prev, milestone: val }))}
+            onChange={(val) =>
+              setNotifPrefs((prev) => ({ ...prev, milestone: val }))
+            }
             label="Milestones"
           />
         </div>
       </div>
 
-      {/* ── Push Notifications (styled with ToggleSwitch) ── */}
+      {/* ── Push Notifications ── */}
       <div className="mt-8">
-        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">🔔 Push Notifications</h2>
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">
+          🔔 Push Notifications
+        </h2>
         <div className="space-y-4">
           <ToggleSwitch
             checked={pushEnabled}
@@ -607,37 +738,51 @@ export default function SettingsClient() {
             <div className="ml-6 border-l-2 border-[var(--color-border)] pl-4 space-y-2">
               <ToggleSwitch
                 checked={pushPrefs.likes}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, likes: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, likes: val }))
+                }
                 label="Likes"
               />
               <ToggleSwitch
                 checked={pushPrefs.comments}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, comments: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, comments: val }))
+                }
                 label="Comments"
               />
               <ToggleSwitch
                 checked={pushPrefs.reposts}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, reposts: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, reposts: val }))
+                }
                 label="Reposts"
               />
               <ToggleSwitch
                 checked={pushPrefs.new_post}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, new_post: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, new_post: val }))
+                }
                 label="New posts"
               />
               <ToggleSwitch
                 checked={pushPrefs.profile_pic}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, profile_pic: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, profile_pic: val }))
+                }
                 label="Profile picture updates"
               />
               <ToggleSwitch
                 checked={pushPrefs.mention}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, mention: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, mention: val }))
+                }
                 label="Mentions"
               />
               <ToggleSwitch
                 checked={pushPrefs.milestone}
-                onChange={(val) => setPushPrefs((prev) => ({ ...prev, milestone: val }))}
+                onChange={(val) =>
+                  setPushPrefs((prev) => ({ ...prev, milestone: val }))
+                }
                 label="Milestones"
               />
             </div>
@@ -647,37 +792,134 @@ export default function SettingsClient() {
 
       {/* ── Privacy Preferences ── */}
       <div className="mt-8">
-        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">Privacy Preferences</h2>
+        <h2 className="text-lg font-head font-semibold text-[var(--color-txt)] mb-3">
+          Privacy Preferences
+        </h2>
         <div className="space-y-2">
           <ToggleSwitch
             checked={privPrefs.account}
-            onChange={(val) => setPrivPrefs((prev) => ({ ...prev, account: val }))}
+            onChange={(val) =>
+              setPrivPrefs((prev) => ({ ...prev, account: val }))
+            }
             label="Account visible to everyone"
           />
           <ToggleSwitch
             checked={privPrefs.activity}
-            onChange={(val) => setPrivPrefs((prev) => ({ ...prev, activity: val }))}
+            onChange={(val) =>
+              setPrivPrefs((prev) => ({ ...prev, activity: val }))
+            }
             label="Show my activity status"
           />
         </div>
       </div>
 
-      {/* ── Save Button ── */}
+      {/* ─── Delete Account ────────────────────────────────────────────────── */}
+      <div className="mt-10 border-t border-[var(--color-border)] pt-6">
+        <h2 className="text-lg font-head font-semibold text-[var(--color-rose)] mb-3">
+          ⚠️ Danger Zone
+        </h2>
+        <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-[var(--color-txt)]">Delete Account</p>
+              <p className="text-sm text-[var(--color-txt2)]">
+                Permanently delete your account and all associated data. This action cannot be undone.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDeleteDialog(true)}
+              className="px-6 py-2 bg-rose-500 text-white rounded-[var(--radius-radius-sm)] font-medium hover:bg-rose-600 transition whitespace-nowrap"
+            >
+              Delete Account
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Save Button ── */}
       <div className="mt-8 flex gap-3">
         <button
           onClick={handleSave}
           disabled={saving}
           className="px-6 py-2 bg-[var(--color-accent)] text-white rounded-[var(--radius-radius-sm)] font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save Changes'}
+          {saving ? "Saving…" : "Save Changes"}
         </button>
         <button
-          onClick={() => router.push('/profile')}
+          onClick={() => router.push("/profile")}
           className="px-6 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-[var(--radius-radius-sm)] hover:bg-[var(--color-accent-bg)] transition"
         >
           Cancel
         </button>
       </div>
+
+      {/* ─── Delete Account Dialog ─── */}
+      {showDeleteDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <h3 className="text-lg font-head font-bold text-[var(--color-rose)]">Delete Account</h3>
+            <p className="text-sm text-[var(--color-txt2)] mt-2">
+              Are you sure you want to permanently delete your account? This will:
+            </p>
+            <ul className="text-sm text-[var(--color-txt2)] mt-2 space-y-1 list-disc list-inside">
+              <li>Delete all your posts, comments, and likes</li>
+              <li>Remove all your followers and following relationships</li>
+              <li>Delete all your direct messages</li>
+              <li>Remove all your notifications</li>
+              <li>This action <span className="font-bold text-[var(--color-rose)]">cannot be undone</span></li>
+            </ul>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+                Type <span className="font-bold text-[var(--color-rose)]">DELETE</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                className="w-full rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-rose)] focus:outline-none"
+                autoFocus
+              />
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-[var(--color-txt2)] mb-1">
+                Enter your password
+              </label>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Password"
+                className="w-full rounded-[var(--radius-radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-rose)] focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && deleteConfirmText === 'DELETE' && deletePassword) {
+                    handleDeleteAccount();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowDeleteDialog(false);
+                  setDeleteConfirmText('');
+                  setDeletePassword('');
+                }}
+                className="flex-1 px-4 py-2 border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt2)] hover:bg-[var(--color-surface)] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={saving || deleteConfirmText !== 'DELETE' || !deletePassword}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Deleting…' : 'Delete Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -118,6 +118,11 @@ async function login(req, res) {
     const user = await UserModel.findByEmail(email);
     if (!user) return sendError(res, 404, 'No account with that email.');
 
+    // Check if account is soft-deleted
+    if (user.deleted_at) {
+      return sendError(res, 403, 'Your account has been deleted. You can restore it within 30 days.');
+    }
+
     const match = await bcrypt.compare(password, user.password);
     if (!match) return sendError(res, 401, 'Wrong password.');
 
@@ -132,7 +137,7 @@ async function login(req, res) {
     const token = generateToken({ id: user.id, email: user.email, name: user.name });
 
     // Never send the password hash to the client
-    const { password: _, email_verified: __, ...safeUser } = user;
+    const { password: _, email_verified: __, deleted_at: ___, ...safeUser } = user;
     return sendOk(res, 200, 'Login successful.', { ...safeUser, token });
   } catch (err) {
     console.error('login error:', err);
@@ -350,6 +355,178 @@ async function toggleVerification(req, res) {
   }
 }
 
+// ─── DELETE /api/users/:id ────────────────────────────────────────────────────
+// Soft delete user account with email and password confirmation (30-day grace period)
+
+async function deleteAccount(req, res) {
+  const userId = parseInt(req.params.id);
+  
+  // ─── DEBUG: Log the request ────────────────────────────────────
+  console.log('📝 DELETE /api/users/:id');
+  console.log('📝 User ID:', userId);
+  console.log('📝 req.actorId:', req.actorId);
+  console.log('📝 req.body:', req.body);
+  console.log('📝 req.rawBody:', req.rawBody);
+  console.log('📝 Content-Type:', req.headers['content-type']);
+
+  // ─── Check if body exists and has content ──────────────────────
+  let body = req.body;
+
+  // If body is undefined or empty, try to parse from raw body
+  if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
+    if (req.rawBody) {
+      try {
+        body = JSON.parse(req.rawBody);
+        console.log('📝 Parsed from raw body:', body);
+      } catch (err) {
+        console.error('📝 Failed to parse raw body:', err);
+      }
+    }
+  }
+
+  // Final check - if still no body, return error
+  if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Request body is missing. Please ensure Content-Type: application/json is set.'
+    });
+  }
+
+  const { email, password } = body;
+  
+  // Verify user is deleting their own account
+  if (req.actorId !== userId) {
+    return sendError(res, 403, 'You can only delete your own account.');
+  }
+
+  // Validate email and password are provided
+  if (!email || !password) {
+    return sendError(res, 400, 'Email and password are required to delete your account.');
+  }
+
+  // Validate email format
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    return sendError(res, 400, 'Please provide a valid email address.');
+  }
+
+  // Validate password
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return sendError(res, 400, 'Password must be at least 6 characters.');
+  }
+
+  try {
+    // Verify the user exists
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      return sendError(res, 404, 'User not found or already deleted.');
+    }
+
+    // Verify email matches
+    if (user.email.toLowerCase() !== email.toLowerCase()) {
+      return sendError(res, 401, 'Email does not match our records.');
+    }
+
+    // Verify password
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return sendError(res, 401, 'Incorrect password.');
+    }
+
+    // Soft delete - mark as deleted with timestamp
+    await UserModel.softDeleteUser(userId);
+
+    // Get deletion status to show user how many days they have
+    const status = await UserModel.getDeletionStatus(userId);
+
+    return sendOk(res, 200, 'Your account has been scheduled for deletion.', {
+      message: 'Your account will be permanently deleted in 30 days. You can restore your account at any time during this period by logging in.',
+      deletedAt: status?.deletedAt,
+      daysRemaining: status?.daysRemaining || 30,
+    });
+  } catch (err) {
+    console.error('deleteAccount error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ─── POST /api/users/restore ──────────────────────────────────────────────────
+// Restore a soft-deleted account
+
+async function restoreAccount(req, res) {
+  const { email, password } = req.body;
+  
+  if (!email || !password) {
+    return sendError(res, 400, 'Email and password are required.');
+  }
+
+  try {
+    // Find the deleted user by email
+    const user = await UserModel.findDeletedByEmail(email);
+    if (!user) {
+      return sendError(res, 404, 'No deleted account found with that email.');
+    }
+
+    // Verify the password
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return sendError(res, 401, 'Wrong password.');
+    }
+
+    // Check if the 30-day window has passed
+    const status = await UserModel.getDeletionStatus(user.id);
+    if (status && status.daysRemaining <= 0) {
+      return sendError(res, 410, 'Your account has been permanently deleted and cannot be restored.');
+    }
+
+    // Restore the account
+    await UserModel.restoreUser(user.id);
+
+    // Generate new token
+    const token = generateToken({ id: user.id, email: user.email, name: user.name });
+
+    // Get the restored user data
+    const restoredUser = await UserModel.findById(user.id);
+    const { password: _, deleted_at: __, ...safeUser } = restoredUser;
+
+    return sendOk(res, 200, 'Account restored successfully.', {
+      ...safeUser,
+      token,
+      message: 'Your account has been restored. Welcome back!',
+    });
+  } catch (err) {
+    console.error('restoreAccount error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ─── GET /api/users/:id/deletion-status ──────────────────────────────────────
+// Get the deletion status for a user
+
+async function getDeletionStatus(req, res) {
+  const userId = parseInt(req.params.id);
+  
+  if (req.actorId !== userId) {
+    return sendError(res, 403, 'You can only check your own account status.');
+  }
+
+  try {
+    const status = await UserModel.getDeletionStatus(userId);
+    if (!status) {
+      return sendOk(res, 200, 'Account is active.', { isDeleted: false });
+    }
+
+    return sendOk(res, 200, 'Account deletion status.', {
+      isDeleted: true,
+      deletedAt: status.deletedAt,
+      daysRemaining: Math.max(0, status.daysRemaining),
+      canRestore: status.daysRemaining > 0,
+    });
+  } catch (err) {
+    console.error('getDeletionStatus error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // ─── Export ────────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -363,5 +540,8 @@ module.exports = {
   searchUsers,
   getNewMembers,
   getUserByUsername,
-  toggleVerification,   // (optional)
+  toggleVerification,
+  deleteAccount,
+  restoreAccount,
+  getDeletionStatus,
 };

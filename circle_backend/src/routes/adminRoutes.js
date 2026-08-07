@@ -19,6 +19,7 @@ router.post('/logout', requireAdmin, adminController.logout);
 // Dashboard
 router.get('/stats',   requireAdmin, adminController.getStats);
 router.get('/charts',  requireAdmin, adminController.getCharts);
+router.get('/mentions', requireAdmin, adminController.getMentionStats); // ⬅️ NEW
 
 // Users
 router.get('/users',              requireAdmin, adminController.getUsers);
@@ -26,7 +27,7 @@ router.put('/users/:id/suspend',  requireAdmin, adminController.suspendUser);
 router.put('/users/:id/unsuspend',requireAdmin, adminController.unsuspendUser);
 router.delete('/users/:id',       requireAdmin, adminController.deleteUser);
 router.put('/users/:id/role',     requireAdmin, adminController.updateUserRole);
-router.put('/users/:id/verify',   requireAdmin, adminController.toggleVerification); // ✅ new route
+router.put('/users/:id/verify',   requireAdmin, adminController.toggleVerification);
 
 // Posts
 router.get('/posts',      requireAdmin, adminController.getPosts);
@@ -34,7 +35,7 @@ router.delete('/posts/:id', requireAdmin, adminController.deletePost);
 
 // Reports
 router.get('/reports',         requireAdmin, adminController.getReports);
-router.post('/reports',        requireAuth,  adminController.createReport);  // normal users submit reports
+router.post('/reports',        requireAuth,  adminController.createReport);
 router.put('/reports/:id/resolve', requireAdmin, adminController.resolveReport);
 router.put('/reports/:id/ignore',  requireAdmin, adminController.ignoreReport);
 

@@ -6,6 +6,7 @@ import { useDm } from '@/contexts/DmContext';
 import { useDmCall } from '@/contexts/DmCallContext';
 import { useAuth } from '@/lib/auth';
 import DmVideoCall from './DmVideoCall';
+import DmMediaUpload from './DmMediaUpload';
 import { resolveMediaUrl } from '@/lib/url';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
@@ -55,6 +56,107 @@ function timeAgo(timestamp) {
   return `${days}d ago`;
 }
 
+function MediaPreview({ url, type, name, size }) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  // Check if it's a Cloudinary URL
+  const isCloudinary = url?.includes('cloudinary.com');
+  
+  // Get file extension
+  const getFileExtension = (url) => {
+    if (!url) return '';
+    const parts = url.split('.');
+    return parts[parts.length - 1].toLowerCase();
+  };
+
+  const ext = getFileExtension(url);
+
+  if (type === 'image') {
+    return (
+      <div className="relative">
+        {isLoading && (
+          <div className="w-full h-48 bg-[var(--color-bg)] rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        <img
+          src={url}
+          alt={name || 'Image'}
+          className={`max-w-full rounded-lg ${isLoading ? 'hidden' : ''}`}
+          style={{ maxHeight: '300px' }}
+          loading="lazy"
+          onLoad={() => setIsLoading(false)}
+          onError={(e) => {
+            setIsLoading(false);
+            setError(true);
+            e.target.style.display = 'none';
+          }}
+        />
+        {error && (
+          <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg text-red-600 dark:text-red-400 text-sm">
+            Failed to load image
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  if (type === 'video') {
+    return (
+      <video
+        src={url}
+        controls
+        className="max-w-full rounded-lg"
+        style={{ maxHeight: '300px' }}
+        controlsList="nodownload"
+        playsInline
+        poster={isCloudinary ? `${url}.jpg` : undefined}
+        onError={() => setError(true)}
+      >
+        <source src={url} type={`video/${ext}`} />
+        Your browser does not support the video tag.
+      </video>
+    );
+  }
+  
+  if (type === 'audio') {
+    return (
+      <audio
+        src={url}
+        controls
+        className="w-full mt-1"
+        controlsList="nodownload"
+        onError={() => setError(true)}
+      >
+        <source src={url} type={`audio/${ext}`} />
+        Your browser does not support the audio element.
+      </audio>
+    );
+  }
+  
+  // File
+  const fileSize = size ? `${Math.round(size / 1024)}KB` : '';
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 p-2 bg-[var(--color-accent-bg)] rounded-lg hover:bg-[var(--color-accent)] hover:text-white transition group"
+    >
+      <svg className="w-5 h-5 flex-shrink-0 text-[var(--color-accent)] group-hover:text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+        <polyline points="13 2 13 9 20 9" />
+      </svg>
+      <span className="text-sm truncate flex-1">{name || 'File'}</span>
+      {fileSize && <span className="text-xs opacity-60 group-hover:text-white/80 flex-shrink-0">{fileSize}</span>}
+      <svg className="w-4 h-4 flex-shrink-0 opacity-60 group-hover:text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>
+  );
+}
+
 export default function DmChat() {
   const { user } = useAuth();
   const {
@@ -78,6 +180,7 @@ export default function DmChat() {
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [mediaToSend, setMediaToSend] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -91,7 +194,7 @@ export default function DmChat() {
   const menuRef = useRef(null);
 
   const avatarUrl = resolveMediaUrl(activeOther?.picture);
-  const isVerified = !!activeOther?.verified; // ✅ safe boolean
+  const isVerified = !!activeOther?.verified;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -107,15 +210,16 @@ export default function DmChat() {
   }, [messages, loadingMore]);
 
   const handleSend = async () => {
-    if (!input.trim() || sending) return;
+    if ((!input.trim() && !mediaToSend) || sending) return;
     setSending(true);
     try {
-      await sendMessage(input);
+      await sendMessage(input, mediaToSend);
       setInput('');
+      setMediaToSend(null);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       emitTyping(false);
     } catch (err) {
-      // handle error
+      console.error('Send error:', err);
     } finally {
       setSending(false);
     }
@@ -407,7 +511,22 @@ export default function DmChat() {
                     </div>
                   ) : (
                     <>
-                      <div dangerouslySetInnerHTML={{ __html: escHtml(displayText).replace(/\n/g, '<br>') }} />
+                      {displayText && (
+                        <div dangerouslySetInnerHTML={{ __html: escHtml(displayText).replace(/\n/g, '<br>') }} />
+                      )}
+                      
+                      {/* Media display */}
+                      {msg.media_type && msg.media_url && (
+                        <div className={`${displayText ? 'mt-2' : ''}`}>
+                          <MediaPreview 
+                            url={msg.media_url}
+                            type={msg.media_type}
+                            name={msg.media_name}
+                            size={msg.media_size}
+                          />
+                        </div>
+                      )}
+                      
                       {editedLabel}
                       <div className={`text-[10px] mt-1 opacity-60 ${mine ? 'text-right' : 'text-left'}`}>
                         {fmtTime(msg.created_at)}
@@ -426,26 +545,79 @@ export default function DmChat() {
 
       {/* ── Compose ── */}
       <div className="flex items-end gap-2.5 px-4 py-3 border-t border-[var(--color-border)] flex-shrink-0 bg-[var(--color-surface)]">
+        {/* Media preview if any */}
+        {mediaToSend && (
+          <div className="relative flex-shrink-0">
+            {mediaToSend.type === 'image' && (
+              <img
+                src={mediaToSend.url}
+                alt="Preview"
+                className="w-12 h-12 rounded-lg object-cover border border-[var(--color-border)]"
+              />
+            )}
+            {mediaToSend.type === 'video' && (
+              <div className="w-12 h-12 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center">
+                <svg className="w-6 h-6 text-[var(--color-txt3)]" fill="currentColor" viewBox="0 0 24 24">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </div>
+            )}
+            {mediaToSend.type === 'audio' && (
+              <div className="w-12 h-12 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center">
+                <svg className="w-6 h-6 text-[var(--color-txt3)]" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                </svg>
+              </div>
+            )}
+            {!mediaToSend.type || mediaToSend.type === 'file' && (
+              <div className="w-12 h-12 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center">
+                <svg className="w-6 h-6 text-[var(--color-txt3)]" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+                  <polyline points="13 2 13 9 20 9" />
+                </svg>
+              </div>
+            )}
+            {mediaToSend.name && (
+              <div className="absolute -bottom-5 left-0 right-0 text-[8px] text-[var(--color-txt3)] truncate text-center">
+                {mediaToSend.name}
+              </div>
+            )}
+            <button
+              onClick={() => setMediaToSend(null)}
+              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600 transition shadow-md"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         <textarea
           ref={inputRef}
           className="flex-1 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl px-4 py-2.5 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] resize-none max-h-[120px] overflow-y-auto leading-relaxed focus:border-[var(--color-accent)] outline-none transition"
-          placeholder="Type a message…"
+          placeholder={mediaToSend ? 'Add a caption...' : 'Type a message…'}
           value={input}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           rows={1}
           style={{ height: 'auto' }}
         />
-        <button
-          onClick={handleSend}
-          disabled={sending || !input.trim()}
-          className="w-11 h-11 rounded-full bg-[var(--color-accent)] text-white flex items-center justify-center flex-shrink-0 hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </button>
+
+        <div className="flex gap-2">
+          <DmMediaUpload
+            onMediaSelected={setMediaToSend}
+            disabled={sending}
+          />
+          <button
+            onClick={handleSend}
+            disabled={sending || (!input.trim() && !mediaToSend)}
+            className="w-11 h-11 rounded-full bg-[var(--color-accent)] text-white flex items-center justify-center flex-shrink-0 hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {isCallActive && <DmVideoCall onClose={() => endCall()} />}

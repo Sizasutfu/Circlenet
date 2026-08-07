@@ -59,6 +59,8 @@ async function getPosts(req, res) {
   const limit         = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
 
   try {
+    const viewerUserId = req.actorId || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
+
     if (profileUserId) {
       const result  = await PostModel.getProfilePosts(profileUserId, page, limit);
       const posts   = result.posts   ?? result ?? [];
@@ -66,7 +68,6 @@ async function getPosts(req, res) {
       return sendOk(res, 200, 'Posts fetched.', { posts, hasMore, page, limit });
     }
 
-    const viewerUserId = req.actorId || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
     const mediaFilter  = req.query.media === 'video' ? 'video' : null;
 
     const result = await getPostsPage(viewerUserId, feedMode, page, limit, mediaFilter);
@@ -86,7 +87,8 @@ async function getPostById(req, res) {
     const rawPost = await PostModel.getPostByIdWithUser(postId);
     if (!rawPost) return sendError(res, 404, 'Post not found.');
 
-    const [post] = await PostModel.hydratePosts([rawPost]);
+    const viewerUserId = req.actorId || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
+    const [post] = await PostModel.hydratePosts([rawPost], { viewerUserId });
     return sendOk(res, 200, 'Post fetched.', post);
   } catch (err) {
     console.error('getPostById error:', err);
@@ -139,6 +141,57 @@ async function createPost(req, res) {
 
     await PostModel.savePostTopics(postId, text);
 
+    // ── Handle mentions in post ──
+    const mentionedUsernames = PostModel.extractMentions(text);
+    if (mentionedUsernames.length) {
+      const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
+      const mentionedUserIds = [];
+      
+      for (const [username, id] of userIdMap) {
+        if (id !== userId) {
+          mentionedUserIds.push(id);
+        }
+      }
+
+      if (mentionedUserIds.length) {
+        await PostModel.createMentions(postId, userId, mentionedUserIds, 'post');
+        
+        // ── Send notifications for mentions ──
+        for (const mentionedId of mentionedUserIds) {
+          // Create notification using NotificationModel
+          await NotificationModel.createNotification(
+            mentionedId,
+            userId,
+            'mention',
+            postId
+          );
+          
+          // Real-time WebSocket notification
+          notifyUser(mentionedId, 'mention', {
+            actorId: userId,
+            actorName: user.name,
+            postId,
+          });
+
+          // Push notification for offline users
+          if (!isOnline(mentionedId)) {
+            try {
+              await PushModel.sendPushToUser(
+                mentionedId,
+                'mention',
+                `${user.name} mentioned you`,
+                text ? text.slice(0, 100) : 'mentioned you in a post',
+                `/post/${postId}`,
+                { postId, actorId: userId }
+              );
+            } catch (pushErr) {
+              console.error('Push notification error for mention:', pushErr);
+            }
+          }
+        }
+      }
+    }
+
     const followerIds = await FollowModel.getFollowerIds(userId);
     const sampled = [...followerIds]
       .sort(() => Math.random() - 0.5)
@@ -146,22 +199,25 @@ async function createPost(req, res) {
 
     await Promise.all(
       sampled.map(async fId => {
-        const notif = await NotificationModel.createNotification(fId, userId, 'new_post', postId);
+        await NotificationModel.createNotification(fId, userId, 'new_post', postId);
         notifyUser(fId, 'new_post', {
           actorId:   userId,
           actorName: user.name,
           postId,
-          notifId:   notif?.insertId ?? null,
         });
         if (!isOnline(fId)) {
-          await PushModel.sendPushToUser(
-            fId,
-            'new_post',
-            user.name,
-            text ? text.slice(0, 100) : '📷 New post',
-            './',
-            { postId, actorId: userId, notifId: notif?.insertId ?? null }
-          );
+          try {
+            await PushModel.sendPushToUser(
+              fId,
+              'new_post',
+              user.name,
+              text ? text.slice(0, 100) : '📷 New post',
+              `/post/${postId}`,
+              { postId, actorId: userId }
+            );
+          } catch (pushErr) {
+            console.error('Push notification error for new_post:', pushErr);
+          }
         }
       })
     );
@@ -233,7 +289,9 @@ async function toggleLike(req, res) {
 
       const post = await PostModel.findById(postId);
       if (post && post.user_id !== userId) {
-        const notif = await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
+        // Use NotificationModel which handles deduplication
+        await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
+        
         const topics = await TopicPreferenceModel.getPostTopics(postId);
         await TopicPreferenceModel.recordEngagement(userId, topics, 'like');
         const actor = await UserModel.findById(userId);
@@ -241,7 +299,6 @@ async function toggleLike(req, res) {
           actorId:   userId,
           actorName: actor?.name ?? 'Someone',
           postId,
-          notifId:   notif?.insertId ?? null,
         });
       }
 
@@ -289,6 +346,56 @@ async function addComment(req, res) {
       replies:       parentIdInt ? undefined : [],
     };
 
+    // ── Handle mentions in comment ──
+    const mentionedUsernames = PostModel.extractMentions(text);
+    if (mentionedUsernames.length) {
+      const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
+      const mentionedUserIds = [];
+      
+      for (const [username, id] of userIdMap) {
+        if (id !== userId) {
+          mentionedUserIds.push(id);
+        }
+      }
+
+      if (mentionedUserIds.length) {
+        await PostModel.createMentions(postId, userId, mentionedUserIds, 'reply');
+        
+        // ── Send notifications for mentions in comments ──
+        for (const mentionedId of mentionedUserIds) {
+          await NotificationModel.createNotification(
+            mentionedId,
+            userId,
+            'mention',
+            postId
+          );
+          
+          notifyUser(mentionedId, 'mention', {
+            actorId: userId,
+            actorName: user.name,
+            postId,
+            commentId,
+          });
+
+          if (!isOnline(mentionedId)) {
+            try {
+              await PushModel.sendPushToUser(
+                mentionedId,
+                'mention',
+                `${user.name} mentioned you in a comment`,
+                text.slice(0, 100),
+                `/post/${postId}`,
+                { postId, actorId: userId, commentId }
+              );
+            } catch (pushErr) {
+              console.error('Push notification error for comment mention:', pushErr);
+            }
+          }
+        }
+      }
+    }
+
+    // ── Notify post author about comment (if not the same as commenter) ──
     if (post.user_id !== userId) {
       await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
       notifyUser(post.user_id, 'comment', {
@@ -341,6 +448,40 @@ async function repost(req, res) {
 
     await ContentTypePreference.incrementEngagement(userId, origId);
 
+    // ── Handle mentions in repost text ──
+    if (text) {
+      const mentionedUsernames = PostModel.extractMentions(text);
+      if (mentionedUsernames.length) {
+        const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
+        const mentionedUserIds = [];
+        
+        for (const [username, id] of userIdMap) {
+          if (id !== userId) {
+            mentionedUserIds.push(id);
+          }
+        }
+
+        if (mentionedUserIds.length) {
+          await PostModel.createMentions(repostId, userId, mentionedUserIds, 'post');
+          
+          for (const mentionedId of mentionedUserIds) {
+            await NotificationModel.createNotification(
+              mentionedId,
+              userId,
+              'mention',
+              repostId
+            );
+            notifyUser(mentionedId, 'mention', {
+              actorId: userId,
+              actorName: user.name,
+              postId: repostId,
+            });
+          }
+        }
+      }
+    }
+
+    // ── Notify original post author about repost ──
     if (original.user_id !== userId) {
       await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
       notifyUser(original.user_id, 'repost', {
@@ -531,9 +672,26 @@ async function getGroupPosts(req, res) {
 // ── PUT /api/posts/:id ────────────────────────────────────────
 async function updatePost(req, res) {
   const postId = Number(req.params.id);
-  const { text, isLive, liveSessionId, youtubeId } = req.body;
+  const { text, isLive, liveSessionId, youtubeId, deleteImage, deleteVideo } = req.body || {};
 
-  if (text === undefined && isLive === undefined && liveSessionId === undefined && youtubeId === undefined) {
+  // New uploaded files (if any), resolved the same way createPost does
+  const { path: newImagePath } = resolveFileUrl(req.compressedFiles?.image, req);
+  const { path: newVideoPath } = resolveFileUrl(req.compressedFiles?.video, req);
+
+  const wantsDeleteImage = deleteImage === true || deleteImage === 'true';
+  const wantsDeleteVideo = deleteVideo === true || deleteVideo === 'true';
+
+  const noFieldsGiven =
+    text === undefined &&
+    isLive === undefined &&
+    liveSessionId === undefined &&
+    youtubeId === undefined &&
+    !newImagePath &&
+    !newVideoPath &&
+    !wantsDeleteImage &&
+    !wantsDeleteVideo;
+
+  if (noFieldsGiven) {
     return sendError(res, 400, 'No fields to update.');
   }
 
@@ -570,7 +728,36 @@ async function updatePost(req, res) {
       updatedYoutubeId = youtubeId;
     }
 
-    await PostModel.updatePost(postId, updatedText, updatedIsLive, updatedLiveSessionId, updatedYoutubeId);
+    // Resolve image: new upload > deletion flag > keep existing
+    let updatedImagePath = post.image;
+    if (newImagePath) {
+      updatedImagePath = newImagePath;
+    } else if (wantsDeleteImage) {
+      updatedImagePath = null;
+    }
+
+    // Resolve video: new upload > deletion flag > keep existing
+    let updatedVideoPath = post.video;
+    if (newVideoPath) {
+      updatedVideoPath = newVideoPath;
+    } else if (wantsDeleteVideo) {
+      updatedVideoPath = null;
+    }
+
+    // TODO: PostModel.updatePost needs to accept image/video params too —
+    // paste postModel.js so this call (and the SQL/UPDATE inside it) can be
+    // updated to actually persist updatedImagePath / updatedVideoPath.
+    await PostModel.updatePost(
+      postId,
+      updatedText,
+      req.actorId,
+      updatedIsLive,
+      updatedLiveSessionId,
+      updatedYoutubeId,
+      updatedImagePath,
+      updatedVideoPath
+    );
+
     return sendOk(res, 200, 'Post updated.');
   } catch (e) {
     console.error('Edit post error:', e);
@@ -593,6 +780,56 @@ async function getVideos(req, res) {
   }
 }
 
+// ── GET /api/mentions ──────────────────────────────────────────
+async function getMentions(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Authentication required.');
+  
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+  const status = req.query.status || 'all';
+
+  try {
+    const result = await PostModel.getMentions(userId, { page, limit, status });
+    return sendOk(res, 200, 'Mentions fetched.', result);
+  } catch (err) {
+    console.error('getMentions error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ── GET /api/mentions/unread/count ────────────────────────────
+async function getUnreadMentionCount(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Authentication required.');
+
+  try {
+    const count = await PostModel.getUnreadMentionCount(userId);
+    return sendOk(res, 200, 'Unread mentions count.', { count });
+  } catch (err) {
+    console.error('getUnreadMentionCount error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ── PUT /api/mentions/read ─────────────────────────────────────
+async function markMentionsAsRead(req, res) {
+  const userId = req.actorId;
+  if (!userId) return sendError(res, 401, 'Authentication required.');
+  
+  const { mentionIds } = req.body;
+
+  try {
+    const result = await PostModel.markMentionsAsRead(userId, mentionIds);
+    return sendOk(res, 200, 'Mentions marked as read.', { 
+      updated: result.affectedRows 
+    });
+  } catch (err) {
+    console.error('markMentionsAsRead error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 module.exports = {
   getPosts,
   getPostById,
@@ -610,4 +847,8 @@ module.exports = {
   updatePost,
   getCommentsOnUserPosts,
   getVideos,
+  // ── Mention exports ──
+  getMentions,
+  getUnreadMentionCount,
+  markMentionsAsRead,
 };

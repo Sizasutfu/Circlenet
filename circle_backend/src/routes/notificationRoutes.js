@@ -16,4 +16,8 @@ router.get('/:userId/unread-count',      notificationController.getUnreadCount);
 router.put('/:userId/read-all',          notificationController.markAllRead);
 router.put('/:id/read',                  notificationController.markOneRead);
 
+// ── Get mentions (using postController) ──
+// This is a convenience route that can be mounted separately
+// or handled through userRoutes.js
+
 module.exports = router;

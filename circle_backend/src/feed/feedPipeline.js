@@ -54,6 +54,22 @@ async function fetchTopicsForPosts(postIds) {
 }
 
 /**
+ * Fetch mention data for a viewer on a set of posts
+ * Returns a Set of post IDs where the viewer is mentioned
+ */
+async function fetchMentionedPostIds(viewerUserId, postIds) {
+  if (!viewerUserId || !postIds.length) return new Set();
+  
+  const ph = postIds.map(() => '?').join(',');
+  const [rows] = await db.query(
+    `SELECT DISTINCT post_id FROM mentions 
+     WHERE mentioned_user_id = ? AND post_id IN (${ph})`,
+    [viewerUserId, ...postIds]
+  );
+  return new Set(rows.map(r => r.post_id));
+}
+
+/**
  * Write served post IDs to post_views so they are excluded
  * from future pages for this viewer.
  * Uses INSERT IGNORE so re-serving a post (e.g. after a bug)
@@ -104,15 +120,40 @@ async function getPostsPage(
   // ── Following / global filter ────────────────────────────
   if (feedMode === 'following' && viewerUserId) {
     if (!followingIds.length) return { posts: [], hasMore: false, page, limit };
-    const ph = followingIds.map(() => '?').join(',');
-    conditions.push(`p.user_id IN (${ph})`);
-    whereParams.push(...followingIds);
+    
+    const followedIds = followingIds.map(() => '?').join(',');
+    
+    // ⬅️ ONLY show reposts from users the viewer follows
+    // Get repost post IDs from followed users only
+    const [repostIds] = await db.query(
+      `SELECT DISTINCT r.repost_post_id 
+       FROM reposts r
+       JOIN posts p ON p.id = r.repost_post_id
+       WHERE r.user_id IN (${followedIds})
+         AND p.is_repost = 1`,
+      followingIds
+    );
+    const repostPostIds = repostIds.map(r => r.repost_post_id);
+    
+    // Build query: posts from followed users OR reposts by followed users ONLY
+    if (repostPostIds.length) {
+      const repostPh = repostPostIds.map(() => '?').join(',');
+      conditions.push(`(p.user_id IN (${followedIds}) OR p.id IN (${repostPh}))`);
+      whereParams.push(...followingIds, ...repostPostIds);
+    } else {
+      const ph = followingIds.map(() => '?').join(',');
+      conditions.push(`p.user_id IN (${ph})`);
+      whereParams.push(...followingIds);
+    }
   } else if (feedMode === 'global' && viewerUserId && followingIds.length) {
+    // Global mode: Show reposts from followed users only
     const ph = followingIds.map(() => '?').join(',');
-    conditions.push(`(p.is_repost = 0 OR p.user_id = ? OR p.user_id IN (${ph}))`);
-    whereParams.push(viewerUserId, ...followingIds);
+    // ⬅️ Only include reposts from followed users, not from anyone
+    conditions.push(`(p.user_id = ? OR p.user_id IN (${ph}) OR (p.is_repost = 1 AND p.user_id IN (${ph})))`);
+    whereParams.push(viewerUserId, ...followingIds, ...followingIds);
   } else if (feedMode === 'global' && viewerUserId) {
-    conditions.push(`(p.is_repost = 0 OR p.user_id = ?)`);
+    // No following users - show normal posts only (no reposts from strangers)
+    conditions.push(`p.user_id = ? AND p.is_repost = 0`);
     whereParams.push(viewerUserId);
   }
 
@@ -175,125 +216,103 @@ async function getPostsPage(
     includeFullComments: false,
   });
 
-  // ── Stage 3: Enrich ────────────────────────────────────
+  // ── Stage 3: Enrich (BATCHED) ──────────────────────────
   const postIds = hydrated.map(p => p.id);
+  const authorIds = [...new Set(candidates.map(p => p.userId))];
 
   const [
     topicsByPost,
     engagementMap,
     topicScoreMap,
     negativeMap,
+    mentionedPostIds,
+    viewerAttributes,
+    viewerEngagedPostsResult,
+    contentTypeBoost,
+    dmAffinity,
+    mutualFollowsArray,
+    userGroupsArray,
+    sessionPostsArray,
   ] = await Promise.all([
     fetchTopicsForPosts(postIds),
     PostModel.getEngagementMap(viewerUserId),
     TopicPreferenceModel.getTopicScoreMap(viewerUserId),
     NegativeSignalModel.getNegativeSignalMap(viewerUserId, postIds),
-  ]);
-
-  hydrated.forEach(p => { p._topics = topicsByPost[p.id] || []; });
-
-  // ── Fetch viewer attributes for similarity ──────────────
-  let viewerAttributes = {};
-  if (viewerUserId) {
-    const profile = await UserModel.findById(viewerUserId);
-    if (profile) {
-      viewerAttributes = {
-        location: profile.location || null,
-        school: profile.school || null,
-        occupation: profile.occupation || null,
-        gender: profile.gender || null,
-        birthDate: profile.dateOfBirth || null,
-      };
-    }
-  }
-
-  // ── Fetch viewer engaged posts and post similarities ──
-  let viewerEngagedPosts = new Set();
-  let postSimilarityMap = {};
-  if (viewerUserId) {
-    const [engaged] = await db.query(
-      `(SELECT post_id FROM likes    WHERE user_id = ?)
+    fetchMentionedPostIds(viewerUserId, postIds),
+    
+    viewerUserId ? UserModel.findById(viewerUserId) : Promise.resolve({}),
+    
+    viewerUserId ? db.query(
+      `(SELECT post_id FROM likes WHERE user_id = ?)
        UNION
        (SELECT post_id FROM comments WHERE user_id = ?)
        UNION
        (SELECT original_post_id AS post_id FROM reposts WHERE user_id = ?)
-       ORDER BY post_id DESC LIMIT ?`,
+       LIMIT ?`,
       [viewerUserId, viewerUserId, viewerUserId, C.MAX_ENGAGED_POSTS]
-    );
-    viewerEngagedPosts = new Set(engaged.map(r => r.post_id));
-
-    if (postIds.length && viewerEngagedPosts.size) {
-      const ph = postIds.map(() => '?').join(',');
-      const [simRows] = await db.query(
-        `SELECT post_id, similar_post_id, score
-         FROM post_similarities
-         WHERE post_id IN (${ph})
-           AND similar_post_id IN (${[...viewerEngagedPosts].map(() => '?').join(',')})`,
-        [...postIds, ...viewerEngagedPosts]
-      );
-      simRows.forEach(({ post_id, similar_post_id, score }) => {
-        if (!postSimilarityMap[post_id]) postSimilarityMap[post_id] = [];
-        postSimilarityMap[post_id].push({ post_id: similar_post_id, score });
-      });
-    }
-  }
-
-  // ── Content‑type preferences ─────────────────────────────
-  let contentTypeBoost = { text: 0.5, image: 0.5, video: 0.5 };
-  if (viewerUserId) {
-    await ContentTypePreference.incrementImpressions(viewerUserId, hydrated);
-    contentTypeBoost = await ContentTypePreference.getContentTypeBoost(viewerUserId);
-  }
-
-  // ── DM Affinity ────────────────────────────────────────────
-  let dmAffinity = null;
-  if (viewerUserId) {
-    dmAffinity = await getDmAffinity(viewerUserId);
-  }
-
-  // ── Mutual follows ─────────────────────────────────────────
-  let mutualFollows = new Set();
-  if (viewerUserId) {
-    // Find users who follow the viewer back
-    const authorIds = [...new Set(candidates.map(p => p.userId))];
-    if (authorIds.length) {
-      const ph = authorIds.map(() => '?').join(',');
-      const [rows] = await db.query(
-        `SELECT follower_id FROM follows 
-         WHERE follower_id IN (${ph}) AND following_id = ?`,
-        [...authorIds, viewerUserId]
-      );
-      mutualFollows = new Set(rows.map(r => r.follower_id));
-    }
-  }
-
-  // ── User groups ────────────────────────────────────────────
-  let userGroups = new Set();
-  if (viewerUserId) {
-    const [rows] = await db.query(
+    ) : Promise.resolve([[]]),
+    
+    viewerUserId ? ContentTypePreference.getContentTypeBoost(viewerUserId) : Promise.resolve({ text: 0.5, image: 0.5, video: 0.5 }),
+    
+    viewerUserId ? getDmAffinity(viewerUserId) : Promise.resolve(null),
+    
+    viewerUserId ? db.query(
+      `SELECT follower_id FROM follows 
+       WHERE follower_id IN (${authorIds.map(() => '?').join(',')}) 
+       AND following_id = ?`,
+      [...authorIds, viewerUserId]
+    ) : Promise.resolve([[]]),
+    
+    viewerUserId ? db.query(
       `SELECT group_id FROM group_members WHERE user_id = ?`,
       [viewerUserId]
-    );
-    userGroups = new Set(rows.map(r => r.group_id));
-  }
-
-  // ── Session posts (last 10 engaged posts) ─────────────────
-  let sessionPosts = [];
-  if (viewerUserId) {
-    const [rows] = await db.query(
+    ) : Promise.resolve([[]]),
+    
+    viewerUserId ? db.query(
       `SELECT post_id FROM likes WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`,
       [viewerUserId]
+    ) : Promise.resolve([[]]),
+  ]);
+
+  // Process results
+  hydrated.forEach(p => { p._topics = topicsByPost[p.id] || []; });
+
+  const viewerEngagedPosts = new Set((viewerEngagedPostsResult[0] || []).map(r => r.post_id));
+  const mutualFollows = new Set((mutualFollowsArray[0] || []).map(r => r.follower_id));
+  const userGroups = new Set((userGroupsArray[0] || []).map(r => r.group_id));
+
+  let sessionPosts = [];
+  const sessionPostIds = (sessionPostsArray[0] || []).map(r => r.post_id);
+  if (sessionPostIds.length) {
+    const ph = sessionPostIds.map(() => '?').join(',');
+    const [postRows] = await db.query(
+      `SELECT id, user_id, text FROM posts WHERE id IN (${ph})`,
+      sessionPostIds
     );
-    const sessionPostIds = rows.map(r => r.post_id);
-    if (sessionPostIds.length) {
-      const ph = sessionPostIds.map(() => '?').join(',');
-      const [postRows] = await db.query(
-        `SELECT id, user_id, text FROM posts WHERE id IN (${ph})`,
-        sessionPostIds
-      );
-      // We'll just store the post IDs and user IDs for session tracking
-      sessionPosts = postRows;
+    // Fetch topics for session posts
+    if (postRows.length) {
+      const sessionPostIds2 = postRows.map(p => p.id);
+      const topicsForSession = await fetchTopicsForPosts(sessionPostIds2);
+      postRows.forEach(p => { p._topics = topicsForSession[p.id] || []; });
     }
+    sessionPosts = postRows;
+  }
+
+  // Fetch post similarities (depends on viewerEngagedPosts)
+  let postSimilarityMap = {};
+  if (postIds.length && viewerEngagedPosts.size) {
+    const ph = postIds.map(() => '?').join(',');
+    const [simRows] = await db.query(
+      `SELECT post_id, similar_post_id, score
+       FROM post_similarities
+       WHERE post_id IN (${ph})
+         AND similar_post_id IN (${[...viewerEngagedPosts].map(() => '?').join(',')})`,
+      [...postIds, ...viewerEngagedPosts]
+    );
+    simRows.forEach(({ post_id, similar_post_id, score }) => {
+      if (!postSimilarityMap[post_id]) postSimilarityMap[post_id] = [];
+      postSimilarityMap[post_id].push({ post_id: similar_post_id, score });
+    });
   }
 
   // ── Stage 4: Score ─────────────────────────────────────
@@ -313,6 +332,7 @@ async function getPostsPage(
     mutualFollows,
     userGroups,
     sessionPosts,
+    mentionedPostIds,
   };
 
   hydrated.forEach(p => {
@@ -344,9 +364,20 @@ async function getPostsPage(
       explorationNeeded,
     );
     finalPosts = injectExplorationPosts(personalisedSlice, explorationPosts);
+    
+    // ── Cap the result to prevent page size drift ──────
+    const maxAllowed = LIMIT + explorationNeeded;
+    if (finalPosts.length > maxAllowed) {
+      finalPosts = finalPosts.slice(0, maxAllowed);
+    }
   }
 
   const hasMore = diversified.length > LIMIT || poolHasMore;
+
+  // ── Stage 8.5: Record impressions on final posts only ──
+  if (viewerUserId && finalPosts.length) {
+    await ContentTypePreference.incrementImpressions(viewerUserId, finalPosts);
+  }
 
   // ── Stage 9: Mark seen ──────────────────────────────────
   const servedIds = finalPosts.map(p => p.id);

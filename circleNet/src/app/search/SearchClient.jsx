@@ -144,7 +144,7 @@ function AutocompleteDropdown({ suggestions, query, onSelect, loading, activeTab
       </div>
     );
   }
-  if (!suggestions.length) {
+  if (!suggestions || !suggestions.length) {
     return (
       <div className="absolute left-0 right-0 top-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-lg p-3 z-50">
         <p className="text-sm text-[var(--color-txt2)]">No suggestions found</p>
@@ -253,11 +253,10 @@ function PeopleCard({ user: u, query, currentUser, onFollowUpdate }) {
     
     setIsLoading(true);
     try {
-      // Use the same endpoint pattern as ProfileClient
       const method = isFollowing ? 'DELETE' : 'POST';
       const endpoint = isFollowing ? `/api/unfollow/${u.id}` : `/api/follow/${u.id}`;
       
-      const response = await apiClient(endpoint, { method });
+      await apiClient(endpoint, { method });
       
       const newFollowState = !isFollowing;
       setIsFollowing(newFollowState);
@@ -268,7 +267,6 @@ function PeopleCard({ user: u, query, currentUser, onFollowUpdate }) {
       }
     } catch (err) {
       console.error('Failed to update follow:', err);
-      // Show error toast via event
       const toastEvent = new CustomEvent('showToast', { 
         detail: { message: 'Failed to update follow status.', type: 'error' } 
       });
@@ -421,8 +419,11 @@ export default function SearchClient() {
       setActiveTab(t);
       setType(t);
       search(q, t);
+    } else {
+      // Load history when on the search page without query
+      loadHistory();
     }
-    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   // ── Handle tab switch ──
@@ -459,22 +460,22 @@ export default function SearchClient() {
     setShowSuggestions(false);
   };
 
-  // ── Post interaction handlers (same as feed) ──
+  // ── Post interaction handlers ──
   const handleLike = async (postId) => {
     if (!user) { showToast('Log in to like.', 'error'); return; }
-    // Optimistic update
     const postIndex = results.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
     const post = results[postIndex];
     const isLiked = post.isLiked || false;
     const newLikeCount = isLiked ? (post.likeCount || 0) - 1 : (post.likeCount || 0) + 1;
-    results[postIndex] = { ...post, isLiked: !isLiked, likeCount: newLikeCount };
+    const updatedResults = [...results];
+    updatedResults[postIndex] = { ...post, isLiked: !isLiked, likeCount: newLikeCount };
+    results.splice(0, results.length, ...updatedResults);
     
     try {
       await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
     } catch (_) {
-      // Rollback on error
-      results[postIndex] = post;
+      results.splice(0, results.length, post);
       showToast('Failed to like.', 'error');
     }
   };
@@ -491,13 +492,15 @@ export default function SearchClient() {
     const post = results[postIndex];
     const hasReposted = post.hasReposted || false;
     const newRepostCount = hasReposted ? (post.repostCount || 0) - 1 : (post.repostCount || 0) + 1;
-    results[postIndex] = { ...post, hasReposted: !hasReposted, repostCount: newRepostCount };
+    const updatedResults = [...results];
+    updatedResults[postIndex] = { ...post, hasReposted: !hasReposted, repostCount: newRepostCount };
+    results.splice(0, results.length, ...updatedResults);
     
     try {
       await apiClient(`/api/posts/${postId}/repost`, { method: 'POST', body: { text: '' } });
       showToast(hasReposted ? 'Repost removed! 🔁' : 'Reposted! 🔁', 'success');
     } catch (_) {
-      results[postIndex] = post;
+      results.splice(0, results.length, post);
       showToast('Failed to repost.', 'error');
     }
   };
@@ -514,7 +517,6 @@ export default function SearchClient() {
   const handleQuoteSuccess = () => {
     setQuoteTarget(null);
     showToast('Quote posted! 🎉', 'success');
-    // Refresh search results
     const q = searchParams?.get('q') || '';
     const t = searchParams?.get('type') || 'all';
     if (q) search(q, t);
@@ -523,18 +525,19 @@ export default function SearchClient() {
   const handleShare = (postId) => {
     const url = `${window.location.origin}/post/${postId}`;
     if (navigator.share) {
-      navigator.share({ title: 'Check this post', url });
+      navigator.share({ title: 'Check this post', url }).catch(() => {});
     } else {
-      navigator.clipboard.writeText(url).then(() => showToast('Link copied!', 'success'));
+      navigator.clipboard.writeText(url).then(() => showToast('Link copied!', 'success')).catch(() => {});
     }
   };
 
   // ── Handle follow update ──
   const handleFollowUpdate = (userId, newFollowState) => {
-    // Update the user in results if needed
     const userIndex = results.findIndex(u => u.id === userId);
     if (userIndex !== -1) {
-      results[userIndex] = { ...results[userIndex], isFollowing: newFollowState };
+      const updatedResults = [...results];
+      updatedResults[userIndex] = { ...results[userIndex], isFollowing: newFollowState };
+      results.splice(0, results.length, ...updatedResults);
     }
   };
 
@@ -569,7 +572,7 @@ export default function SearchClient() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onFocus={() => {
-              if (inputValue.length >= 2 && suggestions.length > 0) {
+              if (inputValue.length >= 2 && suggestions && suggestions.length > 0) {
                 setShowSuggestions(true);
               }
             }}
@@ -586,6 +589,8 @@ export default function SearchClient() {
                 setShowSuggestions(false);
                 const url = `/search`;
                 router.push(url);
+                // Reload history when clearing search
+                loadHistory();
               }}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-txt3)] hover:text-[var(--color-txt)] transition"
             >
@@ -629,15 +634,16 @@ export default function SearchClient() {
       {/* ─── Content ─── */}
       {showHistory ? (
         <div>
-          {user && history.length > 0 && (
+          {user && history && history.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-[var(--color-txt2)]">Recent searches</h2>
                 <button
                   onClick={async () => {
-                    if (confirm('Clear all search history?')) {
+                    if (window.confirm('Clear all search history?')) {
                       await clearHistory();
-                      loadHistory();
+                      // Reload history after clearing
+                      await loadHistory();
                     }
                   }}
                   className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-rose)] transition"
@@ -659,9 +665,11 @@ export default function SearchClient() {
                     <span className="flex-1 text-sm text-[var(--color-txt)]">{item.query}</span>
                     <span className="text-xs text-[var(--color-txt3)]">{timeAgo(item.searched_at)}</span>
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        deleteHistoryEntry(item.id, item.query, item.tab);
+                        await deleteHistoryEntry(item.id, item.query, item.tab);
+                        // Reload history after deletion
+                        await loadHistory();
                       }}
                       className="opacity-0 group-hover:opacity-100 text-[var(--color-txt3)] hover:text-[var(--color-rose)] transition p-1"
                       aria-label="Delete"
@@ -677,7 +685,7 @@ export default function SearchClient() {
             </div>
           )}
 
-          {user && history.length === 0 && (
+          {user && history && history.length === 0 && (
             <div className="text-center text-sm text-[var(--color-txt3)] py-8">
               No recent searches
             </div>

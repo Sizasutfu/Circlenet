@@ -1,14 +1,14 @@
 // src/components/ui/PostCard.jsx
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLightbox } from '@/hooks/useLightbox';
 import { useAuth } from '@/lib/auth';
 import { generatePostCard } from '@/lib/postCardGenerator';
 import { useLive } from '@/contexts/LiveContext';
-import { formatPostText } from '@/lib/formatText';
+import { formatPostText, extractMentions } from '@/lib/formatText';
 import { apiClient } from '@/lib/api';
 import LikeButton from './LikeButton';
 import CommentButton from './CommentButton';
@@ -69,6 +69,7 @@ export default function PostCard({
   showFollowButton = false,
   isFollowing = false,
   onFollowToggle = null,
+  isMentioned = false,
 }) {
   if (!post) return null;
 
@@ -110,9 +111,14 @@ export default function PostCard({
 
   const initialLiked =
     currentUser && likes.length > 0 ? likes.some((id) => id === currentUser.id) : false;
+  
+  const initialReposted =
+    currentUser && reposts.length > 0 ? reposts.some((id) => id === currentUser.id) : false;
 
   const [isLiked, setIsLiked] = useState(initialLiked);
   const [likeCount, setLikeCount] = useState(likes.length || 0);
+  const [isReposted, setIsReposted] = useState(initialReposted);
+  const [repostCountState, setRepostCountState] = useState(reposts.length || 0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
@@ -134,6 +140,13 @@ export default function PostCard({
   const [videoViewsState, setVideoViewsState] = useState(videoViews || 0);
 
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
+
+  // ── Check if current user is mentioned in this post ──
+  const isUserMentioned = useMemo(() => {
+    if (!currentUser || !text) return false;
+    const mentions = extractMentions(text);
+    return mentions.some(m => m.toLowerCase() === currentUser.username?.toLowerCase());
+  }, [text, currentUser]);
 
   // ── Pause other videos when this one starts playing ──
   useEffect(() => {
@@ -300,6 +313,12 @@ export default function PostCard({
     if (onLike) onLike(id);
   };
 
+  const handleRepost = () => {
+    setIsReposted(!isReposted);
+    setRepostCountState((prev) => (isReposted ? prev - 1 : prev + 1));
+    if (onRepost) onRepost(id);
+  };
+
   const toggleExpand = () => setIsExpanded(!isExpanded);
   const shouldTruncate = text?.length > 200 && !isExpanded;
 
@@ -325,11 +344,9 @@ export default function PostCard({
     }
   };
 
-  // ── Video click handler ──
   const handleVideoClick = (e) => {
     e.stopPropagation();
     if (postVideoUrl) {
-      // Pause the video if it's playing
       if (videoRef.current && !videoRef.current.paused) {
         videoRef.current.pause();
       }
@@ -351,7 +368,6 @@ export default function PostCard({
 
   const handleVideoDblClick = (e) => {
     e.stopPropagation();
-    // Optional: keep for zoom or other behavior
   };
 
   const handleVideoError = () => {
@@ -445,6 +461,19 @@ export default function PostCard({
       return;
     }
     router.push(`/post/${id}`);
+  };
+
+  // ── Render mention badge ──
+  const renderMentionBadge = () => {
+    if (!isUserMentioned && !isMentioned) return null;
+    return (
+      <span className="inline-flex items-center gap-1 ml-2 text-xs bg-[var(--color-accent-bg)] text-[var(--color-accent)] px-2 py-0.5 rounded-full">
+        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        </svg>
+        Mentioned you
+      </span>
+    );
   };
 
   const renderMedia = () => {
@@ -775,10 +804,18 @@ export default function PostCard({
     );
   };
 
+  // ── Get card style with mention highlight ──
+  const getCardStyle = () => {
+    if (isUserMentioned || isMentioned) {
+      return `${cardClasses} bg-[var(--color-accent-bg)] border-l-4 border-[var(--color-accent)]`;
+    }
+    return cardClasses;
+  };
+
   // ── Repost layout ──
   if (isRepost && originalPost) {
     return (
-      <div className={cardClasses}>
+      <div className={getCardStyle()}>
         <div className="flex items-start gap-3">
           {profileUrl ? (
             <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -808,6 +845,7 @@ export default function PostCard({
                   </span>
                 )}
                 {renderRepostedIndicator()}
+                {renderMentionBadge()}
                 {renderFollowButton()}
                 {username &&
                   (profileUrl ? (
@@ -944,8 +982,9 @@ export default function PostCard({
                 onClick={() => onComment && onComment(id)}
               />
               <RepostButton
-                count={repostCount ?? reposts.length}
-                onClick={() => onRepost && onRepost(id)}
+                count={repostCountState}
+                active={isReposted}
+                onClick={handleRepost}
               />
               <button
                 onClick={(e) => {
@@ -1000,6 +1039,7 @@ export default function PostCard({
                     {isVerified && <VerificationBadge size="w-4 h-4" />}
                   </span>
                 )}
+                {renderMentionBadge()}
                 {renderFollowButton()}
                 {username &&
                   (profileUrl ? (
@@ -1147,8 +1187,9 @@ export default function PostCard({
                 onClick={() => onComment && onComment(id)}
               />
               <RepostButton
-                count={repostCount ?? reposts.length}
-                onClick={() => onRepost && onRepost(id)}
+                count={repostCountState}
+                active={isReposted}
+                onClick={handleRepost}
               />
               <button
                 onClick={(e) => {
@@ -1172,7 +1213,7 @@ export default function PostCard({
 
   // ── Regular post layout ──
   return (
-    <div className={cardClasses}>
+    <div className={getCardStyle()}>
       <div className="flex items-start gap-3">
         {profileUrl ? (
           <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -1202,6 +1243,7 @@ export default function PostCard({
                     {isVerified && <VerificationBadge size="w-4 h-4" />}
                   </span>
                 )}
+                {renderMentionBadge()}
                 {renderFollowButton()}
                 {username &&
                   (profileUrl ? (
@@ -1354,8 +1396,9 @@ export default function PostCard({
               onClick={() => onComment && onComment(id)}
             />
             <RepostButton
-              count={repostCount ?? reposts.length}
-              onClick={() => onRepost && onRepost(id)}
+              count={repostCountState}
+              active={isReposted}
+              onClick={handleRepost}
             />
             <button
               onClick={(e) => {

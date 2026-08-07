@@ -5,7 +5,8 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAuth } from '@/lib/auth';
-import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import { resolveMediaUrl } from '@/lib/url';
 
 // ── Constants (icons, helpers) ──
 const NOTIF_ICONS = {
@@ -21,6 +22,8 @@ const NOTIF_ICONS = {
   milestone: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   report_resolved: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><polyline points="20 6 9 17 4 12"/></svg>`,
   report_ignored: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+  verified: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  unverified: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
 };
 
 function escHtml(str) {
@@ -47,8 +50,7 @@ function formatTime(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// ─── Removed local AvatarPlaceholder – using shared one ───
-
+// ── Notification copy for each type ──
 const NOTIF_COPY = {
   like: (name) => `<strong>${escHtml(name)}</strong> liked your post`,
   comment: (name) => `<strong>${escHtml(name)}</strong> commented on your post`,
@@ -58,53 +60,161 @@ const NOTIF_COPY = {
   new_post: (name) => `<strong>${escHtml(name)}</strong> published a new post`,
   live: (name) => `<strong>${escHtml(name)}</strong> just started a live stream`,
   profile_pic: (name) => `<strong>${escHtml(name)}</strong> updated their profile picture`,
-  mention: (name) => `<strong>${escHtml(name)}</strong> mentioned you in a post`,
+  mention: (name, context) => {
+    if (context === 'reply') {
+      return `<strong>${escHtml(name)}</strong> mentioned you in a comment`;
+    }
+    return `<strong>${escHtml(name)}</strong> mentioned you in a post`;
+  },
   milestone: (name) => `🎉 <strong>${escHtml(name)}</strong>`,
   report_resolved: () => `<strong>Report resolved</strong>`,
   report_ignored: () => `<strong>Report reviewed</strong>`,
+  verified: () => `<strong>✅ Your account has been verified!</strong> You now have a verification badge.`,
+  unverified: () => `<strong>❌ Your verification badge has been removed.</strong>`,
 };
 
+// ── Get notification text ──
+function getNotifText(notification) {
+  const { type, actorName, message, customMessage } = notification;
+  
+  if (customMessage) return escHtml(customMessage);
+  if (message) return escHtml(message);
+  
+  const copyFn = NOTIF_COPY[type];
+  if (!copyFn) return `<strong>${escHtml(actorName || 'Someone')}</strong> interacted with you`;
+  
+  // For mention, check if it's from a comment
+  if (type === 'mention') {
+    const context = notification.mentionType || 'post';
+    return copyFn(actorName || 'Someone', context);
+  }
+  
+  // For verification, no actor name needed
+  if (type === 'verified' || type === 'unverified') {
+    return copyFn();
+  }
+  
+  return copyFn(actorName || 'Someone');
+}
+
+// ── Get notification icon color ──
+function getNotifColor(type) {
+  const colors = {
+    like: 'text-rose-500',
+    comment: 'text-blue-500',
+    reply: 'text-blue-500',
+    repost: 'text-green-500',
+    follow: 'text-cyan-500',
+    new_post: 'text-purple-500',
+    live: 'text-rose-500',
+    profile_pic: 'text-amber-500',
+    mention: 'text-indigo-500',
+    milestone: 'text-yellow-500',
+    report_resolved: 'text-green-500',
+    report_ignored: 'text-gray-500',
+    verified: 'text-green-500',
+    unverified: 'text-rose-500',
+  };
+  return colors[type] || 'text-[var(--color-txt2)]';
+}
+
 function NotificationItem({ notification, onClick }) {
-  const { id, type, actorName, actorPicture, message, postSnippet, createdAt, isRead, actorId, sessionId, postId } = notification;
+  const { 
+    id, 
+    type, 
+    actorName, 
+    actorPicture, 
+    actorUsername,
+    message, 
+    postSnippet, 
+    createdAt, 
+    isRead, 
+    actorId, 
+    sessionId, 
+    postId,
+    customMessage 
+  } = notification;
+  
   const isSystem = !actorId;
   const initial = (actorName || '?').charAt(0).toUpperCase();
+  const avatarUrl = resolveMediaUrl(actorPicture);
+  const isVerification = type === 'verified' || type === 'unverified';
+  const isMention = type === 'mention';
 
   const avatarHtml = isSystem ? (
     <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg bg-[var(--color-accent-bg)] text-[var(--color-accent)]">
-      🛡️
+      {isVerification ? '✅' : '🛡️'}
     </div>
-  ) : actorPicture ? (
+  ) : avatarUrl ? (
     <img
-      src={actorPicture}
-      alt={initial}
+      src={avatarUrl}
+      alt={actorName || 'User'}
       className="flex-shrink-0 w-10 h-10 rounded-full object-cover"
     />
   ) : (
-    <AvatarPlaceholder size="w-10 h-10" />
+    <AvatarPlaceholder size="w-10 h-10" name={actorName} />
   );
 
-  const notifText = message ? escHtml(message) : (NOTIF_COPY[type] || NOTIF_COPY.like)(actorName || 'Someone');
+  const notifText = getNotifText(notification);
   const iconSvg = NOTIF_ICONS[type] || '';
-  const picThumb = type === 'profile_pic' && actorPicture ? (
-    <img src={actorPicture} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-[var(--color-accent)] flex-shrink-0" />
+  const iconColor = getNotifColor(type);
+  
+  // For mention notifications, use a special highlight
+  const mentionBadge = isMention ? (
+    <span className="ml-1 text-[10px] bg-[var(--color-accent-bg)] text-[var(--color-accent)] px-1.5 py-0.5 rounded-full">
+      @
+    </span>
   ) : null;
+
+  // For verification, show a special badge
+  const verificationBadge = isVerification ? (
+    <span className="ml-1 text-[10px] bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded-full">
+      {type === 'verified' ? '✓' : '✗'}
+    </span>
+  ) : null;
+
+  const picThumb = type === 'profile_pic' && avatarUrl ? (
+    <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-[var(--color-accent)] flex-shrink-0" />
+  ) : null;
+
+  // Special styling for verification notifications
+  const isVerificationUnread = isVerification && !isRead;
+  const cardBorder = isVerificationUnread ? 'border-l-4 border-l-green-500' : '';
+  const cardBg = isVerificationUnread ? 'bg-green-500/5' : '';
 
   return (
     <div
-      className={`flex items-start gap-3 p-3 border-b border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface)] transition ${!isRead ? 'bg-[var(--color-accent-bg)]/20' : ''}`}
+      className={`flex items-start gap-3 p-3 border-b border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface)] transition ${
+        !isRead ? 'bg-[var(--color-accent-bg)]/20' : ''
+      } ${cardBg} ${cardBorder} ${
+        isMention && !isRead ? 'border-l-4 border-l-[var(--color-accent)]' : ''
+      }`}
       onClick={() => onClick(notification)}
     >
       {avatarHtml}
       <div className="flex-1 min-w-0">
-        <div className="text-sm text-[var(--color-txt)]" dangerouslySetInnerHTML={{ __html: notifText }} />
+        <div className="text-sm text-[var(--color-txt)]">
+          <span dangerouslySetInnerHTML={{ __html: notifText }} />
+          {mentionBadge}
+          {verificationBadge}
+        </div>
         {postSnippet && (
-          <div className="text-xs text-[var(--color-txt2)] mt-1 truncate">"{escHtml(postSnippet)}"</div>
+          <div className="text-xs text-[var(--color-txt2)] mt-1 truncate">
+            "{escHtml(postSnippet)}"
+          </div>
         )}
-        <div className="text-xs text-[var(--color-txt3)] mt-1">{formatTime(createdAt)}</div>
+        {actorUsername && !isSystem && (
+          <div className="text-xs text-[var(--color-txt3)] mt-0.5">
+            @{escHtml(actorUsername)}
+          </div>
+        )}
+        <div className="text-xs text-[var(--color-txt3)] mt-1">
+          {formatTime(createdAt)}
+        </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {picThumb || (
-          <div className="w-6 h-6 text-[var(--color-txt3)]" dangerouslySetInnerHTML={{ __html: iconSvg }} />
+          <div className={`w-6 h-6 ${iconColor}`} dangerouslySetInnerHTML={{ __html: iconSvg }} />
         )}
         {!isRead && <div className="w-2 h-2 rounded-full bg-[var(--color-accent)] flex-shrink-0" />}
       </div>
@@ -113,7 +223,16 @@ function NotificationItem({ notification, onClick }) {
 }
 
 export default function NotificationPanel() {
-  const { notifications, loading, hasMore, fetchNotifications, isPanelOpen, closePanel, markAsRead } = useNotifications();
+  const { 
+    notifications, 
+    loading, 
+    hasMore, 
+    fetchNotifications, 
+    isPanelOpen, 
+    closePanel, 
+    markAsRead,
+    markAllRead 
+  } = useNotifications();
   const { user } = useAuth();
   const router = useRouter();
   const listRef = useRef(null);
@@ -139,6 +258,11 @@ export default function NotificationPanel() {
     // Close panel
     closePanel();
 
+    // For verification notifications, just close panel (no navigation)
+    if (notif.type === 'verified' || notif.type === 'unverified') {
+      return;
+    }
+
     // Navigate based on notification data
     if (notif.postId) {
       router.push(`/post/${notif.postId}`);
@@ -146,35 +270,65 @@ export default function NotificationPanel() {
       router.push(`/live/${notif.sessionId}`);
     } else if (notif.actorId) {
       // For follow or profile-related notifications, go to the actor's profile
-      router.push(`/profile?userId=${notif.actorId}`);
+      if (notif.type === 'follow' || notif.type === 'profile_pic') {
+        router.push(`/profile/${notif.actorUsername || notif.actorId}`);
+      } else {
+        router.push(`/profile?userId=${notif.actorId}`);
+      }
     }
-    // else: fallback – just close panel
+  };
+
+  // ── Handle "Mark all read" ──
+  const handleMarkAllRead = async () => {
+    await markAllRead();
   };
 
   if (!user) return null;
+
+  // Count unread verification notifications
+  const unreadVerifications = notifications.filter(
+    n => (n.type === 'verified' || n.type === 'unverified') && !n.isRead
+  ).length;
 
   return (
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-50 transition-opacity duration-300 ${isPanelOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 z-50 transition-opacity duration-300 ${
+          isPanelOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
         onClick={closePanel}
         style={{ background: 'rgba(0,0,0,0.5)' }}
       />
 
       {/* Panel */}
       <div
-        className={`fixed top-0 right-0 z-50 h-full w-full max-w-md bg-[var(--color-card)] shadow-xl transition-transform duration-300 ease-out ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`fixed top-0 right-0 z-50 h-full w-full max-w-md bg-[var(--color-card)] shadow-xl transition-transform duration-300 ease-out ${
+          isPanelOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-          <h2 className="text-lg font-head font-extrabold text-[var(--color-txt)]">Notifications</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-head font-extrabold text-[var(--color-txt)]">
+              Notifications
+            </h2>
+            {/* Mention count badge */}
+            {notifications.filter(n => n.type === 'mention' && !n.isRead).length > 0 && (
+              <span className="text-xs bg-[var(--color-accent)] text-white px-2 py-0.5 rounded-full">
+                {notifications.filter(n => n.type === 'mention' && !n.isRead).length} mentions
+              </span>
+            )}
+            {/* Verification count badge */}
+            {unreadVerifications > 0 && (
+              <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">
+                {unreadVerifications} {unreadVerifications === 1 ? 'update' : 'updates'}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                // Mark all read – we can call markAllRead if needed, but we don't have it in context.
-                // You can add it later.
-              }}
+              onClick={handleMarkAllRead}
               className="text-xs text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition"
             >
               Mark all read

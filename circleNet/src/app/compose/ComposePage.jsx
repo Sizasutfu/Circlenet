@@ -7,7 +7,8 @@ import { apiClient } from '@/lib/api';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { saveDraft, getDraft, deleteDraft } from '@/lib/drafts';
-import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import { extractMentions } from '@/lib/formatText'; // ✅ Import mention extractor
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -15,8 +16,6 @@ function resolveMediaUrl(url) {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
   return `${base}${url}`;
 }
-
-// ─── Removed local AvatarPlaceholder – using shared one ───
 
 function dataURLtoFile(dataUrl, filename) {
   const arr = dataUrl.split(',');
@@ -114,6 +113,92 @@ function uploadWithProgress(url, formData, onProgress, token, userId) {
   });
 }
 
+// ── Mention Autocomplete Component ──
+function MentionAutocomplete({ searchTerm, onSelect, position }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    if (!searchTerm || searchTerm.length < 1) {
+      setSuggestions([]);
+      return;
+    }
+
+    const fetchSuggestions = async () => {
+      setLoading(true);
+      try {
+        const { token, userId } = getAuthHeaders();
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api/users?search=${encodeURIComponent(searchTerm)}&limit=5`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-User-Id': String(userId),
+            }
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestions(data.data?.users || []);
+          setSelectedIndex(0);
+        }
+      } catch (err) {
+        console.error('Mention search error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const debounce = setTimeout(fetchSuggestions, 200);
+    return () => clearTimeout(debounce);
+  }, [searchTerm]);
+
+  if (!suggestions.length || loading) return null;
+
+  return (
+    <div 
+      className="absolute z-50 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl overflow-hidden min-w-[200px] max-h-60 overflow-y-auto"
+      style={{ 
+        bottom: position?.top ? 'auto' : '100%',
+        top: position?.top || 'auto',
+        left: position?.left || 0,
+        marginBottom: '4px'
+      }}
+    >
+      {suggestions.map((user, index) => (
+        <button
+          key={user.id}
+          onClick={() => onSelect(user.username)}
+          className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--color-surface)] transition ${
+            index === selectedIndex ? 'bg-[var(--color-surface)]' : ''
+          }`}
+          onMouseEnter={() => setSelectedIndex(index)}
+        >
+          {user.picture ? (
+            <img 
+              src={resolveMediaUrl(user.picture)} 
+              alt={user.name} 
+              className="w-6 h-6 rounded-full object-cover"
+            />
+          ) : (
+            <AvatarPlaceholder size="w-6 h-6" />
+          )}
+          <div>
+            <p className="text-sm font-medium text-[var(--color-txt)]">{user.name}</p>
+            <p className="text-xs text-[var(--color-txt2)]">@{user.username}</p>
+          </div>
+          {user.verified && (
+            <svg className="w-4 h-4 text-[var(--color-accent)] ml-auto" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function ComposePage({ groupId: groupIdProp = null }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -137,6 +222,11 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
   const [editKey, setEditKey] = useState(null);
   const [editingMediaType, setEditingMediaType] = useState(null);
 
+  // ── Mention state ──
+  const [mentionSearch, setMentionSearch] = useState('');
+  const [mentionPosition, setMentionPosition] = useState(null);
+  const [showMentions, setShowMentions] = useState(false);
+
   const [articleTitle, setArticleTitle] = useState('');
   const [articleExcerpt, setArticleExcerpt] = useState('');
   const [articleContent, setArticleContent] = useState('');
@@ -154,6 +244,82 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
   const textareaRef = useRef(null);
   const saveTimerRef = useRef(null);
   const draftKey = user ? getDraftKey(user.id, mode, groupId) : null;
+
+  // ── Mention detection in textarea ──
+  const handleTextChange = (e) => {
+    const newText = e.target.value;
+    const cursor = e.target.selectionStart;
+    setPostText(newText);
+
+    // Check if we're typing a mention
+    const textBeforeCursor = newText.slice(0, cursor);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtIndex !== -1 && lastAtIndex < cursor) {
+      const searchTerm = textBeforeCursor.slice(lastAtIndex + 1);
+      // Check if there's a space after the @ (meaning it's not a mention anymore)
+      if (!searchTerm.includes(' ') && searchTerm.length > 0) {
+        setMentionSearch(searchTerm);
+        setShowMentions(true);
+        // Calculate position for dropdown
+        if (textareaRef.current) {
+          const rect = textareaRef.current.getBoundingClientRect();
+          // Simple position estimation
+          setMentionPosition({
+            left: 20,
+            top: rect.height - 10
+          });
+        }
+        return;
+      }
+    }
+    
+    setShowMentions(false);
+    setMentionSearch('');
+  };
+
+  const handleMentionSelect = (username) => {
+    const cursor = textareaRef.current?.selectionStart || postText.length;
+    const textBeforeCursor = postText.slice(0, cursor);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtIndex !== -1) {
+      const before = postText.slice(0, lastAtIndex);
+      const after = postText.slice(cursor);
+      const newText = `${before}@${username} ${after}`;
+      setPostText(newText);
+      
+      // Focus and set cursor after the mention
+      setTimeout(() => {
+        if (textareaRef.current) {
+          const newCursor = before.length + username.length + 2; // +2 for @ and space
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(newCursor, newCursor);
+        }
+      }, 10);
+    }
+    
+    setShowMentions(false);
+    setMentionSearch('');
+  };
+
+  // ── Keyboard navigation for mentions ──
+  const handleKeyDown = (e) => {
+    if (showMentions) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        // Navigation handled by autocomplete component
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+      } else if (e.key === 'Enter') {
+        // If mentions are shown, the first suggestion will be selected
+        // The autocomplete component handles this
+      } else if (e.key === 'Escape') {
+        setShowMentions(false);
+        setMentionSearch('');
+      }
+    }
+  };
 
   useEffect(() => {
     const savedPref = localStorage.getItem('circle_auto_save_enabled');
@@ -271,7 +437,6 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
   const saveAutoDraft = useCallback(() => {
     if (!user || !autoSaveEnabled) return;
 
-    // ── Check content ──
     let hasContent = false;
     if (mode === 'post') {
       hasContent = postText.trim() !== '' || postImagePreview !== null || postVideoPreview !== null;
@@ -316,7 +481,6 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
       return;
     }
 
-    // ── Check content ──
     let hasContent = false;
     if (mode === 'post') {
       hasContent = postText.trim() !== '' || postImagePreview !== null || postVideoPreview !== null;
@@ -376,8 +540,8 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
   const handlePostImageSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image must be under 5MB.');
+    if (file.size > 30 * 1024 * 1024) {
+      setError('Image must be under 30MB.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -397,8 +561,8 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
   const handlePostVideoSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 50 * 1024 * 1024) {
-      setError('Video must be under 50MB.');
+    if (file.size > 200 * 1024 * 1024) {
+      setError('Video must be under 200MB.');
       if (videoInputRef.current) videoInputRef.current.value = '';
       return;
     }
@@ -483,6 +647,14 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
         setError('Please write something or add an image/video.');
         return;
       }
+
+      // ── Extract mentions for debugging/validation ──
+      const mentions = extractMentions(postText);
+      if (mentions.length) {
+        console.log('📝 Mentions detected:', mentions);
+        // You could validate mentions here before submitting
+      }
+
       setIsSubmitting(true);
       setError(null);
       setUploadProgress(0);
@@ -682,14 +854,27 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
       <div className="space-y-4">
         {mode === 'post' && (
           <>
-            <textarea
-              ref={textareaRef}
-              value={postText}
-              onChange={(e) => setPostText(e.target.value)}
-              placeholder="What's on your mind?"
-              className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none resize-none min-h-[120px]"
-              rows={4}
-            />
+            <div className="relative">
+              <textarea
+                ref={textareaRef}
+                value={postText}
+                onChange={handleTextChange}
+                onKeyDown={handleKeyDown}
+                placeholder="What's on your mind? Use @username to mention someone"
+                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none resize-none min-h-[120px]"
+                rows={4}
+              />
+              {showMentions && (
+                <MentionAutocomplete
+                  searchTerm={mentionSearch}
+                  onSelect={handleMentionSelect}
+                  position={mentionPosition}
+                />
+              )}
+              <div className="text-xs text-[var(--color-txt3)] mt-1 px-1">
+                💡 Type @ to mention someone
+              </div>
+            </div>
 
             {postImagePreview && (
               <div className="space-y-2">

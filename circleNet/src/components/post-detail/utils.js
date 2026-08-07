@@ -28,3 +28,18 @@ export function fmtNum(n) {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
   return String(n || 0);
 }
+
+// ─── Mention helper ──────────────────────────────────────────────────
+export function extractMentions(text) {
+  if (!text) return [];
+  const mentionRegex = /@([a-zA-Z0-9_\-]{3,25})/g;
+  const matches = text.matchAll(mentionRegex);
+  const usernames = [];
+  for (const match of matches) {
+    const username = match[1].toLowerCase();
+    if (!usernames.includes(username)) {
+      usernames.push(username);
+    }
+  }
+  return usernames;
+}

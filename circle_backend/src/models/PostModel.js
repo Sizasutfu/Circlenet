@@ -45,6 +45,9 @@ function nestComments(flatComments) {
 }
 
 async function getCommentCount(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM comments WHERE post_id = ?',
     [postId]
@@ -53,6 +56,9 @@ async function getCommentCount(postId) {
 }
 
 async function getRepostCount(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM reposts WHERE original_post_id = ?',
     [postId]
@@ -60,12 +66,184 @@ async function getRepostCount(postId) {
   return total;
 }
 
+// ── Extract @username mentions from text ──────────────────────
+function extractMentions(text) {
+  if (!text || typeof text !== 'string') return [];
+  
+  const mentionRegex = /@([a-zA-Z0-9_\-]{3,25})/g;
+  const matches = text.matchAll(mentionRegex);
+  const usernames = [];
+  
+  for (const match of matches) {
+    const username = match[1].toLowerCase();
+    if (!usernames.includes(username)) {
+      usernames.push(username);
+    }
+  }
+  
+  return usernames;
+}
+
+// ── Get user IDs for mentioned usernames ──────────────────────
+async function getMentionedUserIds(usernames) {
+  if (!usernames || !usernames.length) return new Map();
+  
+  const result = new Map();
+  const placeholders = usernames.map(() => '?').join(',');
+  const [rows] = await db.query(
+    `SELECT id, username FROM users WHERE username IN (${placeholders})`,
+    usernames
+  );
+  
+  rows.forEach(row => {
+    result.set(row.username.toLowerCase(), row.id);
+  });
+  
+  return result;
+}
+
+// ── Create mention records ─────────────────────────────────────
+async function createMentions(postId, mentionedByUserId, mentionedUserIds, mentionType = 'post') {
+  if (!postId || !mentionedByUserId || !mentionedUserIds || !mentionedUserIds.length) {
+    return;
+  }
+
+  const values = mentionedUserIds.map(userId => [
+    postId,
+    userId,
+    mentionedByUserId,
+    mentionType,
+    0,
+    new Date()
+  ]);
+
+  const query = `
+    INSERT INTO mentions (post_id, mentioned_user_id, mentioned_by_user_id, mention_type, is_read, created_at)
+    VALUES ?
+  `;
+
+  try {
+    const [result] = await db.query(query, [values]);
+    return result;
+  } catch (error) {
+    console.error('Error creating mentions:', error);
+    throw error;
+  }
+}
+
+// ── Get mentions for a user ───────────────────────────────────
+async function getMentions(userId, { limit = 20, page = 1, status = 'all' } = {}) {
+  if (!userId) throw new Error('User ID is required');
+  
+  limit = Math.min(50, Math.max(1, parseInt(limit) || 20));
+  page = Math.max(1, parseInt(page) || 1);
+  const offset = (page - 1) * limit;
+
+  let statusCondition = '';
+  if (status === 'read') {
+    statusCondition = 'AND m.is_read = 1';
+  } else if (status === 'unread') {
+    statusCondition = 'AND m.is_read = 0';
+  }
+
+  const query = `
+    SELECT 
+      m.id,
+      m.post_id,
+      m.mentioned_by_user_id,
+      m.mention_type,
+      m.is_read,
+      m.created_at,
+      u.id AS actor_id,
+      u.name AS actor_name,
+      u.username AS actor_username,
+      u.picture AS actor_picture,
+      u.verified AS actor_verified,
+      p.text AS post_text,
+      p.image AS post_image,
+      p.video AS post_video,
+      p.created_at AS post_created_at,
+      (SELECT COUNT(*) FROM comments WHERE post_id = p.id) AS comment_count,
+      (SELECT COUNT(*) FROM likes WHERE post_id = p.id) AS like_count
+    FROM mentions m
+    JOIN users u ON u.id = m.mentioned_by_user_id
+    LEFT JOIN posts p ON p.id = m.post_id
+    WHERE m.mentioned_user_id = ?
+    ${statusCondition}
+    ORDER BY m.created_at DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  try {
+    const [rows] = await db.query(query, [userId, limit, offset]);
+    
+    let countQuery = 'SELECT COUNT(*) AS total FROM mentions WHERE mentioned_user_id = ?';
+    if (status !== 'all') {
+      countQuery += status === 'read' ? ' AND is_read = 1' : ' AND is_read = 0';
+    }
+    const [[{ total }]] = await db.query(countQuery, [userId]);
+
+    return {
+      mentions: rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  } catch (error) {
+    console.error('Error getting mentions:', error);
+    throw error;
+  }
+}
+
+// ── Mark mentions as read ─────────────────────────────────────
+async function markMentionsAsRead(userId, mentionIds = null) {
+  if (!userId) throw new Error('User ID is required');
+
+  let query = 'UPDATE mentions SET is_read = 1 WHERE mentioned_user_id = ?';
+  const params = [userId];
+
+  if (mentionIds && mentionIds.length) {
+    const placeholders = mentionIds.map(() => '?').join(',');
+    query += ` AND id IN (${placeholders})`;
+    params.push(...mentionIds);
+  }
+
+  try {
+    const [result] = await db.query(query, params);
+    return result;
+  } catch (error) {
+    console.error('Error marking mentions as read:', error);
+    throw error;
+  }
+}
+
+// ── Get unread mention count ──────────────────────────────────
+async function getUnreadMentionCount(userId) {
+  if (!userId) return 0;
+
+  try {
+    const [[{ count }]] = await db.query(
+      'SELECT COUNT(*) AS count FROM mentions WHERE mentioned_user_id = ? AND is_read = 0',
+      [userId]
+    );
+    return count || 0;
+  } catch (error) {
+    console.error('Error getting unread mention count:', error);
+    return 0;
+  }
+}
+
 // ── Hydrate raw post rows with engagement data ─────────────
 async function hydratePosts(posts, options = {}) {
-  const { followingIds = null, includeFullComments = true } = options;
-  if (!posts.length) return posts;
+  const { followingIds = null, includeFullComments = true, viewerUserId = null } = options;
+  if (!posts || !posts.length) return posts;
 
-  const ids = posts.map(p => p.id);
+  const ids = posts.map(p => p.id).filter(id => id && !isNaN(id));
+  if (!ids.length) return posts;
+
   const ph  = ids.map(() => '?').join(',');
 
   const [[allLikes], [allReposts], [allComments], [allViews], [allVideoViews]] = await Promise.all([
@@ -98,12 +276,43 @@ async function hydratePosts(posts, options = {}) {
   ]);
 
   const lMap = {}, rMap = {}, cMap = {}, vMap = {}, vvMap = {};
-  ids.forEach(id => { lMap[id] = []; rMap[id] = []; cMap[id] = []; vMap[id] = 0; vvMap[id] = 0; });
-  allLikes.forEach(l   => lMap[l.post_id]?.push(l.user_id));
-  allReposts.forEach(r => rMap[r.original_post_id]?.push(r.user_id));
-  allComments.forEach(c => cMap[c.post_id]?.push(c));
-  allViews.forEach(v   => { if (vMap[v.post_id] !== undefined) vMap[v.post_id] = Number(v.view_count); });
-  allVideoViews.forEach(v => { if (vvMap[v.post_id] !== undefined) vvMap[v.post_id] = Number(v.view_count); });
+  ids.forEach(id => { 
+    lMap[id] = []; 
+    rMap[id] = []; 
+    cMap[id] = []; 
+    vMap[id] = 0; 
+    vvMap[id] = 0; 
+  });
+  
+  allLikes.forEach(l => {
+    if (l && l.post_id && lMap[l.post_id] !== undefined) {
+      lMap[l.post_id].push(l.user_id);
+    }
+  });
+  
+  allReposts.forEach(r => {
+    if (r && r.original_post_id && rMap[r.original_post_id] !== undefined) {
+      rMap[r.original_post_id].push(r.user_id);
+    }
+  });
+  
+  allComments.forEach(c => {
+    if (c && c.post_id && cMap[c.post_id] !== undefined) {
+      cMap[c.post_id].push(c);
+    }
+  });
+  
+  allViews.forEach(v => {
+    if (v && v.post_id && vMap[v.post_id] !== undefined) {
+      vMap[v.post_id] = Number(v.view_count);
+    }
+  });
+  
+  allVideoViews.forEach(v => {
+    if (v && v.post_id && vvMap[v.post_id] !== undefined) {
+      vvMap[v.post_id] = Number(v.view_count);
+    }
+  });
 
   // ── Fetch original posts for reposts ──────────────────────
   const origIds = [
@@ -139,6 +348,18 @@ async function hydratePosts(posts, options = {}) {
     gRows.forEach(g => { groupMap[g.id] = g; });
   }
 
+  // ── Fetch mention status for viewer ──────────────────────
+  let mentionedPostIds = new Set();
+  if (viewerUserId && ids.length) {
+    const mentionPh = ids.map(() => '?').join(',');
+    const [mentionRows] = await db.query(
+      `SELECT post_id FROM mentions 
+       WHERE mentioned_user_id = ? AND post_id IN (${mentionPh})`,
+      [viewerUserId, ...ids]
+    );
+    mentionedPostIds = new Set(mentionRows.map(r => r.post_id));
+  }
+
   // ── Process each post ────────────────────────────────────
   posts.forEach(p => {
     p.user = {
@@ -153,8 +374,9 @@ async function hydratePosts(posts, options = {}) {
     p.reposts  = rMap[p.id] || [];
     const commentsList = cMap[p.id] || [];
     p.commentCount = commentsList.length;
+    p.isMentioned = mentionedPostIds.has(p.id);
 
-    if (!includeFullComments && followingIds) {
+    if (!includeFullComments && followingIds && followingIds.length) {
       const followingSet = new Set(followingIds);
       const followedComments = commentsList.filter(c => followingSet.has(c.userId));
       followedComments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -167,7 +389,8 @@ async function hydratePosts(posts, options = {}) {
 
     p.views = vMap[p.id] || 0;
     p.videoViews = vvMap[p.id] || 0;
-    p.viewCount = p.videoViews;
+    p.viewCount = p.views;
+    p.videoViewCount = p.videoViews;
 
     if (p.isRepost && p.originalPostId) {
       const orig = origMap[p.originalPostId];
@@ -259,6 +482,12 @@ async function getSeenPostIds(viewerKey) {
 
 // ── Fetch all posts for a specific user profile ────────────
 async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) {
+  if (!profileUserId || isNaN(profileUserId) || profileUserId <= 0) {
+    throw new Error('Invalid user ID');
+  }
+  page = Math.max(1, parseInt(page) || 1);
+  limit = Math.min(100, Math.max(1, parseInt(limit) || FEED_PAGE_SIZE));
+
   const LIMIT  = limit;
   const OFFSET = (page - 1) * LIMIT;
 
@@ -297,16 +526,55 @@ async function getProfilePosts(profileUserId, page = 1, limit = FEED_PAGE_SIZE) 
 
 // ── Create a post ──────────────────────────────────────────
 async function createPost(userId, text, image, video, groupId = null, isLive = false, liveSessionId = null, youtubeId = null) {
+  if (!userId || isNaN(userId) || userId <= 0) {
+    throw new Error('Invalid user ID');
+  }
+  if (text && typeof text !== 'string') {
+    throw new Error('Text must be a string');
+  }
+  if (groupId && (isNaN(groupId) || groupId <= 0)) {
+    throw new Error('Invalid group ID');
+  }
+
   const [result] = await db.query(
     `INSERT INTO posts (user_id, text, image, video, group_id, is_live, live_session_id, youtube_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [userId, text || null, image || null, video || null, groupId || null, isLive ? 1 : 0, liveSessionId || null, youtubeId || null]
   );
-  return result.insertId;
+  
+  const postId = result.insertId;
+  if (text) {
+    await savePostTopics(postId, text);
+    
+    // ── Handle mentions ──
+    const mentionedUsernames = extractMentions(text);
+    if (mentionedUsernames.length) {
+      const userIdMap = await getMentionedUserIds(mentionedUsernames);
+      const mentionedUserIds = [];
+      
+      for (const [username, id] of userIdMap) {
+        if (id !== userId) {
+          mentionedUserIds.push(id);
+        }
+      }
+
+      if (mentionedUserIds.length) {
+        await createMentions(postId, userId, mentionedUserIds, 'post');
+      }
+    }
+  }
+  
+  return postId;
 }
 
 // ── Fetch posts scoped to a group ──────────────────────────
 async function getGroupPosts(groupId, page = 1, limit = 20) {
+  if (!groupId || isNaN(groupId) || groupId <= 0) {
+    throw new Error('Invalid group ID');
+  }
+  page = Math.max(1, parseInt(page) || 1);
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+
   const OFFSET = (page - 1) * limit;
   const [rawPosts] = await db.query(
     `SELECT
@@ -340,12 +608,43 @@ async function getGroupPosts(groupId, page = 1, limit = 20) {
 }
 
 // ── Delete a post ──────────────────────────────────────────
-async function deletePost(postId) {
+async function deletePost(postId, userId = null) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  
+  if (userId) {
+    const [post] = await db.query('SELECT user_id FROM posts WHERE id = ?', [postId]);
+    if (!post.length) {
+      throw new Error('Post not found');
+    }
+    if (post[0].user_id !== userId) {
+      throw new Error('Unauthorized: You do not own this post');
+    }
+  }
+  
   await db.query('DELETE FROM posts WHERE id=?', [postId]);
 }
 
 // ── Update a post's text ───────────────────────────────────
-async function updatePost(postId, text, isLive = null, liveSessionId = null, youtubeId = null) {
+async function updatePost(postId, text, userId = null, isLive = null, liveSessionId = null, youtubeId = null) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  if (text && typeof text !== 'string') {
+    throw new Error('Text must be a string');
+  }
+  
+  if (userId) {
+    const [post] = await db.query('SELECT user_id FROM posts WHERE id = ?', [postId]);
+    if (!post.length) {
+      throw new Error('Post not found');
+    }
+    if (post[0].user_id !== userId) {
+      throw new Error('Unauthorized: You do not own this post');
+    }
+  }
+
   let query = 'UPDATE posts SET text = ?, edited = 1, updated_at = NOW()';
   const params = [text];
   if (isLive !== null) {
@@ -366,14 +665,40 @@ async function updatePost(postId, text, isLive = null, liveSessionId = null, you
   const [result] = await db.query(query, params);
   if (!result.affectedRows) throw new Error('Post not found.');
 
+  // Update topics
   await db.query('DELETE FROM post_topics WHERE post_id = ?', [postId]);
-  await savePostTopics(postId, text);
+  if (text) {
+    await savePostTopics(postId, text);
+    
+    // ── Handle mentions on update ──
+    // Clear existing mentions for this post
+    await db.query('DELETE FROM mentions WHERE post_id = ?', [postId]);
+    
+    const mentionedUsernames = extractMentions(text);
+    if (mentionedUsernames.length) {
+      const userIdMap = await getMentionedUserIds(mentionedUsernames);
+      const mentionedUserIds = [];
+      
+      for (const [username, id] of userIdMap) {
+        if (id !== userId) {
+          mentionedUserIds.push(id);
+        }
+      }
+
+      if (mentionedUserIds.length) {
+        await createMentions(postId, userId, mentionedUserIds, 'post');
+      }
+    }
+  }
 
   return result.affectedRows;
 }
 
 // ── Find a post by id ──────────────────────────────────────
 async function findById(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [rows] = await db.query(
     `SELECT p.*, u.name AS author, u.username AS authorUsername, u.picture AS authorPicture,
             u.verified AS authorVerified,
@@ -388,6 +713,9 @@ async function findById(postId) {
 
 // ── GET /api/posts/:id with user data ──────────────────────
 async function getPostByIdWithUser(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [rows] = await db.query(
     `SELECT
        p.id,
@@ -415,6 +743,9 @@ async function getPostByIdWithUser(postId) {
 
 // ── Like / unlike ──────────────────────────────────────────
 async function getLike(userId, postId) {
+  if (!userId || isNaN(userId) || userId <= 0 || !postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid user ID or post ID');
+  }
   const [rows] = await db.query(
     'SELECT id FROM likes WHERE user_id=? AND post_id=?',
     [userId, postId]
@@ -423,14 +754,23 @@ async function getLike(userId, postId) {
 }
 
 async function addLike(userId, postId) {
+  if (!userId || isNaN(userId) || userId <= 0 || !postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid user ID or post ID');
+  }
   await db.query('INSERT INTO likes (user_id, post_id) VALUES (?,?)', [userId, postId]);
 }
 
 async function removeLike(userId, postId) {
+  if (!userId || isNaN(userId) || userId <= 0 || !postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid user ID or post ID');
+  }
   await db.query('DELETE FROM likes WHERE user_id=? AND post_id=?', [userId, postId]);
 }
 
 async function getLikeCount(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM likes WHERE post_id=?',
     [postId]
@@ -440,6 +780,19 @@ async function getLikeCount(postId) {
 
 // ── Add a comment or reply ─────────────────────────────────
 async function addComment(postId, userId, text, parentId = null) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  if (!userId || isNaN(userId) || userId <= 0) {
+    throw new Error('Invalid user ID');
+  }
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    throw new Error('Comment text is required');
+  }
+  if (parentId && (isNaN(parentId) || parentId <= 0)) {
+    throw new Error('Invalid parent comment ID');
+  }
+
   if (parentId) {
     const [parentRows] = await db.query(
       'SELECT id FROM comments WHERE id=? AND post_id=?',
@@ -457,13 +810,35 @@ async function addComment(postId, userId, text, parentId = null) {
 
   await saveCommentTopics(postId, text);
 
+  // ── Handle mentions in comments ──
+  const mentionedUsernames = extractMentions(text);
+  if (mentionedUsernames.length) {
+    const userIdMap = await getMentionedUserIds(mentionedUsernames);
+    const mentionedUserIds = [];
+    
+    for (const [username, id] of userIdMap) {
+      if (id !== userId) {
+        mentionedUserIds.push(id);
+      }
+    }
+
+    if (mentionedUserIds.length) {
+      await createMentions(postId, userId, mentionedUserIds, 'reply');
+    }
+  }
+
   return result.insertId;
 }
 
 async function getCommentsOnUserPosts(userId, limit = 3) {
+  if (!userId || isNaN(userId) || userId <= 0) {
+    throw new Error('Invalid user ID');
+  }
+  limit = Math.min(50, Math.max(1, parseInt(limit) || 3));
+  
   const [rows] = await db.query(
     `SELECT c.id, c.post_id, c.text, c.created_at,
-            u.name AS commenterName
+            u.name AS commenterName,
             u.username AS authorUsername
      FROM comments c
      JOIN posts p ON p.id = c.post_id
@@ -478,6 +853,9 @@ async function getCommentsOnUserPosts(userId, limit = 3) {
 
 // ── Repost ─────────────────────────────────────────────────
 async function getExistingRepost(userId, originalPostId) {
+  if (!userId || isNaN(userId) || userId <= 0 || !originalPostId || isNaN(originalPostId) || originalPostId <= 0) {
+    throw new Error('Invalid user ID or post ID');
+  }
   const [rows] = await db.query(
     `SELECT r.id FROM reposts r
      JOIN posts p ON p.id = r.repost_post_id
@@ -488,15 +866,28 @@ async function getExistingRepost(userId, originalPostId) {
 }
 
 async function createRepost(userId, text, originalPostId) {
-  if (!text) {
-    const [existRows] = await db.query(
-      `SELECT r.repost_post_id FROM reposts r
-       JOIN posts p ON p.id = r.repost_post_id
-       WHERE r.user_id=? AND r.original_post_id=? AND (p.text IS NULL OR p.text='')
-       LIMIT 1`,
-      [userId, originalPostId]
-    );
-    if (existRows.length) return existRows[0].repost_post_id;
+  if (!userId || isNaN(userId) || userId <= 0) {
+    throw new Error('Invalid user ID');
+  }
+  if (!originalPostId || isNaN(originalPostId) || originalPostId <= 0) {
+    throw new Error('Invalid original post ID');
+  }
+  
+  const [originalPost] = await db.query('SELECT id FROM posts WHERE id = ?', [originalPostId]);
+  if (!originalPost.length) {
+    throw new Error('Original post not found');
+  }
+
+  const [existRows] = await db.query(
+    `SELECT r.repost_post_id FROM reposts r
+     JOIN posts p ON p.id = r.repost_post_id
+     WHERE r.user_id=? AND r.original_post_id=? AND (p.text IS NULL OR p.text='')
+     LIMIT 1`,
+    [userId, originalPostId]
+  );
+  
+  if (existRows.length) {
+    return existRows[0].repost_post_id;
   }
 
   const [result] = await db.query(
@@ -508,25 +899,68 @@ async function createRepost(userId, text, originalPostId) {
     'INSERT IGNORE INTO reposts (user_id, original_post_id, repost_post_id) VALUES (?,?,?)',
     [userId, originalPostId, repostPostId]
   );
-  if (text) await savePostTopics(repostPostId, text);
+  if (text) {
+    await savePostTopics(repostPostId, text);
+    
+    // ── Handle mentions in repost text ──
+    const mentionedUsernames = extractMentions(text);
+    if (mentionedUsernames.length) {
+      const userIdMap = await getMentionedUserIds(mentionedUsernames);
+      const mentionedUserIds = [];
+      
+      for (const [username, id] of userIdMap) {
+        if (id !== userId) {
+          mentionedUserIds.push(id);
+        }
+      }
+
+      if (mentionedUserIds.length) {
+        await createMentions(repostPostId, userId, mentionedUserIds, 'post');
+      }
+    }
+  }
   return repostPostId;
 }
 
 async function deleteRepost(userId, originalPostId) {
-  const [rows] = await db.query(
-    `SELECT r.repost_post_id FROM reposts r
-     JOIN posts p ON p.id = r.repost_post_id
-     WHERE r.user_id=? AND r.original_post_id=? AND (p.text IS NULL OR p.text='')
-     LIMIT 1`,
-    [userId, originalPostId]
-  );
-  if (!rows.length) return;
-  const repostPostId = rows[0].repost_post_id;
-  await db.query('DELETE FROM reposts WHERE repost_post_id=?', [repostPostId]);
-  await db.query('DELETE FROM posts   WHERE id=?',             [repostPostId]);
+  if (!userId || isNaN(userId) || userId <= 0 || !originalPostId || isNaN(originalPostId) || originalPostId <= 0) {
+    throw new Error('Invalid user ID or post ID');
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [rows] = await connection.query(
+      `SELECT r.repost_post_id FROM reposts r
+       JOIN posts p ON p.id = r.repost_post_id
+       WHERE r.user_id=? AND r.original_post_id=? AND (p.text IS NULL OR p.text='')
+       LIMIT 1`,
+      [userId, originalPostId]
+    );
+    
+    if (!rows.length) {
+      await connection.rollback();
+      return;
+    }
+    
+    const repostPostId = rows[0].repost_post_id;
+    await connection.query('DELETE FROM reposts WHERE repost_post_id=?', [repostPostId]);
+    await connection.query('DELETE FROM posts WHERE id=?', [repostPostId]);
+    
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 async function getOriginalPostEmbed(originalPostId) {
+  if (!originalPostId || isNaN(originalPostId) || originalPostId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
             u.picture AS authorPicture, u.verified AS authorVerified,
@@ -540,6 +974,8 @@ async function getOriginalPostEmbed(originalPostId) {
 
 // ── Trending posts ─────────────────────────────────────────
 async function getTrendingPosts(limit = 20) {
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  
   const [rawPosts] = await db.query(
     `SELECT
        p.id,
@@ -576,27 +1012,43 @@ async function getTrendingPosts(limit = 20) {
 
 // ── Search posts ───────────────────────────────────────────
 async function searchPosts(query, { limit = 20, offset = 0 } = {}) {
+  if (!query || typeof query !== 'string') {
+    throw new Error('Search query is required');
+  }
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  offset = Math.max(0, parseInt(offset) || 0);
+  
   const escaped = query.replace(/[%_\\]/g, '\\$&');
   const like = `%${escaped}%`;
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
             u.picture AS authorPicture, u.verified AS authorVerified,
-            p.text, p.image, p.video, p.is_repost AS isRepost, p.created_at AS createdAt,
+            p.text, p.image, p.video, p.is_repost AS isRepost, 
+            p.original_post_id AS originalPostId,
+            p.group_id AS groupId,
+            p.created_at AS createdAt,
             p.is_live, p.live_session_id, p.youtube_id,
             (SELECT COUNT(*) FROM likes    WHERE post_id=p.id)           AS likeCount,
             (SELECT COUNT(*) FROM comments WHERE post_id=p.id)           AS commentCount,
-            (SELECT COUNT(*) FROM reposts  WHERE original_post_id=p.id)  AS repostCount
-     FROM posts p JOIN users u ON u.id=p.user_id
+            (SELECT COUNT(*) FROM reposts  WHERE original_post_id=p.id)  AS repostCount,
+            (SELECT COUNT(*) FROM post_views WHERE post_id=p.id)         AS viewCount,
+            (SELECT COUNT(*) FROM video_views WHERE post_id=p.id)        AS videoViewCount
+     FROM posts p 
+     JOIN users u ON u.id = p.user_id
      WHERE p.text LIKE ? OR u.name LIKE ?
      ORDER BY likeCount DESC, p.created_at DESC
      LIMIT ? OFFSET ?`,
     [like, like, limit, offset]
   );
-  return rows;
+  
+  return hydratePosts(rows);
 }
 
-// ── Video posts (dedicated endpoint) ──────────────────────
+// ── Video posts ────────────────────────────────────────────
 async function getVideos({ page = 1, limit = 20 } = {}) {
+  page = Math.max(1, parseInt(page) || 1);
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  
   const offset = (page - 1) * limit;
   const [rawPosts] = await db.query(
     `SELECT
@@ -631,6 +1083,12 @@ async function getVideos({ page = 1, limit = 20 } = {}) {
 
 // ── View counts ────────────────────────────────────────────
 async function recordView(postId, viewerId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  if (!viewerId) {
+    throw new Error('Viewer ID is required');
+  }
   await db.query(
     `INSERT INTO post_views (post_id, viewer_key) VALUES (?, ?)`,
     [postId, String(viewerId)]
@@ -638,6 +1096,9 @@ async function recordView(postId, viewerId) {
 }
 
 async function getViewCount(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM post_views WHERE post_id = ?',
     [postId]
@@ -645,7 +1106,7 @@ async function getViewCount(postId) {
   return Number(total);
 }
 
-// ── Video views (watch-threshold based) ────────────────────
+// ── Video views ────────────────────────────────────────────
 function meetsViewThreshold(watchedSeconds, duration) {
   if (!duration || duration <= 0) return watchedSeconds >= 3;
   const threshold = Math.min(3, duration * 0.5);
@@ -653,12 +1114,23 @@ function meetsViewThreshold(watchedSeconds, duration) {
 }
 
 async function recordVideoView(postId, viewerId, watchedSeconds, duration) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  if (!viewerId) {
+    throw new Error('Viewer ID is required');
+  }
+  if (watchedSeconds === undefined || watchedSeconds === null || isNaN(watchedSeconds)) {
+    throw new Error('Watched seconds is required');
+  }
+
   if (!meetsViewThreshold(watchedSeconds, duration)) {
     const views = await getVideoViewCount(postId);
     return { counted: false, views };
   }
 
-  const dateOnly = new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const dateOnly = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 
   const [result] = await db.query(
     `INSERT IGNORE INTO video_views (post_id, viewer_key, date_only)
@@ -667,10 +1139,13 @@ async function recordVideoView(postId, viewerId, watchedSeconds, duration) {
   );
 
   const views = await getVideoViewCount(postId);
-  return { counted: result.affectedRows > 0, views };
+  return { counted: result && result.affectedRows > 0, views };
 }
 
 async function getVideoViewCount(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM video_views WHERE post_id = ?',
     [postId]
@@ -678,7 +1153,7 @@ async function getVideoViewCount(postId) {
   return Number(total);
 }
 
-// ── Topic stopwords ─────────────────────────────────────────
+// ── Topic extraction ──────────────────────────────────────
 const TOPIC_STOPWORDS = new Set([
   'the','and','for','are','but','not','you','all','can','her','was','one',
   'our','out','day','get','has','him','his','how','its','let','may','new',
@@ -803,6 +1278,7 @@ async function saveCommentTopics(postId, text) {
 }
 
 async function getTopics(limit = 20) {
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
   const [rows] = await db.query(
     `SELECT topic, COUNT(*) AS post_count
      FROM post_topics
@@ -816,6 +1292,12 @@ async function getTopics(limit = 20) {
 }
 
 async function getPostsByTopic(topic, page = 1, limit = 20) {
+  if (!topic || typeof topic !== 'string') {
+    throw new Error('Topic is required');
+  }
+  page = Math.max(1, parseInt(page) || 1);
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  
   const OFFSET = (page - 1) * limit;
   const [rawPosts] = await db.query(
     `SELECT
@@ -884,4 +1366,11 @@ module.exports = {
   getVideoViewCount,
   getCommentCount,
   getRepostCount,
+  // ── Mention exports ──
+  extractMentions,
+  getMentionedUserIds,
+  createMentions,
+  getMentions,
+  markMentionsAsRead,
+  getUnreadMentionCount,
 };

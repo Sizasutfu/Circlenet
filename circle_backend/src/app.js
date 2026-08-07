@@ -55,16 +55,53 @@ try { authRoutes = require('./routes/authRoutes'); } catch (_) {
 // ── App ───────────────────────────────────────────────────
 const app = express();
 
+// ─── CORS ──────────────────────────────────────────────────────
 app.use(cors);
 
-// ── Conditional body parsers ─────────────────────────────
+// ─── ✅ FIX: ALWAYS PARSE JSON FOR ALL METHODS ───────────────
+// This MUST be the first middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// ─── ✅ FIX: RAW BODY CAPTURE FOR DELETE REQUESTS ────────────
+// This middleware captures raw body and ensures req.body is populated for DELETE
 app.use((req, res, next) => {
-  const contentType = req.headers['content-type'] || '';
-  if (contentType.startsWith('application/json')) {
-    return express.json({ limit: '10mb' })(req, res, next);
+  // Only process DELETE requests with JSON content type
+  if (req.method === 'DELETE' && req.headers['content-type']?.includes('application/json')) {
+    let data = '';
+    req.on('data', chunk => data += chunk);
+    req.on('end', () => {
+      if (data) {
+        try {
+          // Store raw body
+          req.rawBody = data;
+          // Parse and set body if not already set
+          if (!req.body || Object.keys(req.body).length === 0) {
+            req.body = JSON.parse(data);
+            console.log('✅ DELETE body manually parsed:', req.body);
+          }
+        } catch (e) {
+          console.error('❌ Failed to parse DELETE body:', e.message);
+        }
+      }
+      next();
+    });
+    req.on('error', (err) => {
+      console.error('❌ DELETE body error:', err);
+      next();
+    });
+  } else {
+    next();
   }
-  if (contentType.startsWith('application/x-www-form-urlencoded')) {
-    return express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
+});
+
+// ─── LOGGER: Log all DELETE requests ──────────────────────────
+app.use((req, res, next) => {
+  if (req.method === 'DELETE') {
+    console.log(`🔵 DELETE ${req.url}`);
+    console.log('📝 Content-Type:', req.headers['content-type']);
+    console.log('📝 Body:', req.body);
+    console.log('📝 Raw Body:', req.rawBody);
   }
   next();
 });
@@ -137,6 +174,7 @@ app.use('/api/whisper',         whisperRoutes);
 app.use('/api/comments',        commentRoutes);
 app.use('/api/ads',             adRoutes);
 app.use('/api/videos',    videoRoutes);
+
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 

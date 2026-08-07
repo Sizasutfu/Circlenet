@@ -5,7 +5,7 @@ const UserModel = {
 
   async findByEmail(email) {
     const [rows] = await db.query(
-      "SELECT id, name, email, password, email_verified, role FROM users WHERE email = ?",
+      "SELECT id, name, email, password, email_verified, role, deleted_at FROM users WHERE email = ? AND deleted_at IS NULL",
       [email]
     );
     return rows[0] || null;
@@ -19,22 +19,53 @@ const UserModel = {
          date_of_birth  AS dateOfBirth,
          gender,
          verified,
-         role,                  -- ✅ added role
-         created_at     AS createdAt
-       FROM users WHERE id = ?`,
+         role,
+         created_at     AS createdAt,
+         deleted_at     AS deletedAt
+       FROM users WHERE id = ? AND deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] || null;
+  },
+
+  // ─── Find deleted user by email (for restoration) ──────────────────────
+
+  async findDeletedByEmail(email) {
+    const [rows] = await db.query(
+      "SELECT id, name, email, username, deleted_at FROM users WHERE email = ? AND deleted_at IS NOT NULL",
+      [email]
+    );
+    return rows[0] || null;
+  },
+
+  async findDeletedById(id) {
+    const [rows] = await db.query(
+      `SELECT
+         id, name, email, username, bio, picture, cover_image AS coverImage,
+         phone, location, school, occupation, website,
+         date_of_birth  AS dateOfBirth,
+         gender,
+         verified,
+         role,
+         created_at     AS createdAt,
+         deleted_at     AS deletedAt
+       FROM users WHERE id = ? AND deleted_at IS NOT NULL`,
       [id]
     );
     return rows[0] || null;
   },
 
   async emailExists(email) {
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [rows] = await db.query(
+      "SELECT id FROM users WHERE email = ? AND deleted_at IS NULL",
+      [email]
+    );
     return rows.length > 0;
   },
 
   async emailTakenByOther(email, excludeId) {
     const [rows] = await db.query(
-      "SELECT id FROM users WHERE email = ? AND id != ?",
+      "SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL",
       [email, excludeId]
     );
     return rows.length > 0;
@@ -69,7 +100,7 @@ const UserModel = {
            phone = ?, location = ?, school = ?,
            occupation = ?, website = ?,
            date_of_birth = ?, gender = ?
-       WHERE id = ?`,
+       WHERE id = ? AND deleted_at IS NULL`,
       [name, email, bio, phone, location, school, occupation, website, dateOfBirth, gender, id]
     );
   },
@@ -91,57 +122,113 @@ const UserModel = {
            phone = ?, location = ?, school = ?,
            occupation = ?, website = ?,
            date_of_birth = ?, gender = ?
-       WHERE id = ?`,
+       WHERE id = ? AND deleted_at IS NULL`,
       [name, email, hashedPassword, bio, phone, location, school, occupation, website, dateOfBirth, gender, id]
     );
   },
 
   async updatePicture(id, picture) {
-    await db.query("UPDATE users SET picture = ? WHERE id = ?", [picture, id]);
+    await db.query("UPDATE users SET picture = ? WHERE id = ? AND deleted_at IS NULL", [picture, id]);
   },
 
   async updateCoverImage(id, coverImage) {
-    await db.query("UPDATE users SET cover_image = ? WHERE id = ?", [coverImage, id]);
+    await db.query("UPDATE users SET cover_image = ? WHERE id = ? AND deleted_at IS NULL", [coverImage, id]);
   },
 
   async usernameExists(username, excludeId = null) {
     if (excludeId) {
       const [rows] = await db.query(
-        "SELECT id FROM users WHERE username = ? AND id != ?",
+        "SELECT id FROM users WHERE username = ? AND id != ? AND deleted_at IS NULL",
         [username, excludeId]
       );
       return rows.length > 0;
     }
     const [rows] = await db.query(
-      "SELECT id FROM users WHERE username = ?",
+      "SELECT id FROM users WHERE username = ? AND deleted_at IS NULL",
       [username]
     );
     return rows.length > 0;
   },
 
   async updateUsername(id, username) {
-    await db.query("UPDATE users SET username = ? WHERE id = ?", [username, id]);
+    await db.query("UPDATE users SET username = ? WHERE id = ? AND deleted_at IS NULL", [username, id]);
+  },
+
+  // ─── Soft Delete User ──────────────────────────────────────────────────────
+
+  async softDeleteUser(userId) {
+    // Set deleted_at to now, user will be permanently deleted after 30 days
+    await db.query(
+      "UPDATE users SET deleted_at = NOW() WHERE id = ?",
+      [userId]
+    );
+  },
+
+  // ─── Restore User ──────────────────────────────────────────────────────────
+
+  async restoreUser(userId) {
+    await db.query(
+      "UPDATE users SET deleted_at = NULL WHERE id = ?",
+      [userId]
+    );
+  },
+
+  // ─── Permanently Delete User (hard delete) ──────────────────────────────
+
+  async permanentlyDeleteUser(userId) {
+    // This is called by the cleanup job after 30 days
+    // All related data will be cascade deleted via foreign keys
+    await db.query(
+      "DELETE FROM users WHERE id = ? AND deleted_at IS NOT NULL",
+      [userId]
+    );
+  },
+
+  // ─── Get users marked for deletion older than 30 days ────────────────────
+
+  async getUsersToPermanentlyDelete() {
+    const [rows] = await db.query(
+      `SELECT id, email, username, deleted_at 
+       FROM users 
+       WHERE deleted_at IS NOT NULL 
+         AND deleted_at < DATE_SUB(NOW(), INTERVAL 30 DAY)`,
+      []
+    );
+    return rows;
+  },
+
+  // ─── Get user's deletion status ──────────────────────────────────────────
+
+  async getDeletionStatus(userId) {
+    const [rows] = await db.query(
+      `SELECT 
+         deleted_at AS deletedAt,
+         DATEDIFF(DATE_ADD(deleted_at, INTERVAL 30 DAY), NOW()) AS daysRemaining
+       FROM users 
+       WHERE id = ? AND deleted_at IS NOT NULL`,
+      [userId]
+    );
+    return rows[0] || null;
   },
 
   // ─── Verification badge ──────────────────────────────────────────────────
 
   async updateVerification(id, verified) {
-    await db.query("UPDATE users SET verified = ? WHERE id = ?", [verified, id]);
+    await db.query("UPDATE users SET verified = ? WHERE id = ? AND deleted_at IS NULL", [verified, id]);
   },
 
-  // ─── E2E encryption public key (used for encrypted DMs) ───────────────────
+  // ─── E2E encryption public key ───────────────────────────────────────────
 
   async savePublicKey(id, publicKey) {
-    await db.query("UPDATE users SET public_key = ? WHERE id = ?", [publicKey, id]);
+    await db.query("UPDATE users SET public_key = ? WHERE id = ? AND deleted_at IS NULL", [publicKey, id]);
   },
 
   async getPublicKey(id) {
-    const [rows] = await db.query("SELECT public_key FROM users WHERE id = ?", [id]);
+    const [rows] = await db.query("SELECT public_key FROM users WHERE id = ? AND deleted_at IS NULL", [id]);
     return rows[0]?.public_key || null;
   },
 
   // ─── Profile (public view) ─────────────────────────────────────────────────
-  // NOTE: phone and dateOfBirth are intentionally excluded — private fields.
 
   async getProfile(targetId, viewerId = null) {
     const [rows] = await db.query(
@@ -149,8 +236,8 @@ const UserModel = {
          id, name, username, bio, picture, cover_image AS coverImage,
          location, school, occupation, website, gender,
          verified,
-         role                  -- ✅ added role
-       FROM users WHERE id = ?`,
+         role
+       FROM users WHERE id = ? AND deleted_at IS NULL`,
       [targetId]
     );
     if (!rows.length) return null;
@@ -185,10 +272,11 @@ const UserModel = {
   async searchUsers(query, excludeId, limit = 10) {
     const like = `%${query}%`;
     const [rows] = await db.query(
-      `SELECT id, name, email, picture, role  -- ✅ added role
+      `SELECT id, name, email, picture, role
        FROM users
        WHERE (name LIKE ? OR email LIKE ?)
          AND id != ?
+         AND deleted_at IS NULL
        ORDER BY name ASC
        LIMIT ?`,
       [like, like, excludeId, limit]
@@ -200,14 +288,14 @@ const UserModel = {
 
   async saveResetToken(userId, token, expires) {
     await db.query(
-      "UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?",
+      "UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ? AND deleted_at IS NULL",
       [token, expires, userId]
     );
   },
 
   async findByValidResetToken(token) {
     const [rows] = await db.query(
-      "SELECT id FROM users WHERE reset_token = ? AND reset_token_expires > NOW()",
+      "SELECT id FROM users WHERE reset_token = ? AND reset_token_expires > NOW() AND deleted_at IS NULL",
       [token]
     );
     return rows[0] || null;
@@ -215,14 +303,146 @@ const UserModel = {
 
   async updatePasswordAndClearToken(userId, hashedPassword) {
     await db.query(
-      "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
+      "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ? AND deleted_at IS NULL",
       [hashedPassword, userId]
     );
+  },
+
+  // ─── Mentions ──────────────────────────────────────────────────────────────
+
+  async extractMentionedUsernames(content) {
+    const mentionRegex = /@([a-zA-Z0-9_\.-]+)/g;
+    const matches = content.matchAll(mentionRegex);
+    const usernames = [];
+    for (const match of matches) {
+      usernames.push(match[1]);
+    }
+    return [...new Set(usernames)];
+  },
+
+  async getUsersByUsernames(usernames) {
+    if (!usernames || usernames.length === 0) return [];
+    const placeholders = usernames.map(() => '?').join(',');
+    const [rows] = await db.query(
+      `SELECT id, name, username, picture FROM users WHERE username IN (${placeholders}) AND deleted_at IS NULL`,
+      usernames
+    );
+    return rows;
+  },
+
+  async createMentions(postId, mentionedUserIds, mentionedByUserId, mentionType = 'post') {
+    if (!mentionedUserIds || mentionedUserIds.length === 0) return;
+    
+    const values = mentionedUserIds.map(userId => 
+      [postId, userId, mentionedByUserId, mentionType]
+    );
+    
+    await db.query(
+      `INSERT INTO mentions (post_id, mentioned_user_id, mentioned_by_user_id, mention_type, created_at)
+       VALUES ?`,
+      [values]
+    );
+  },
+
+  async getMentionsForUser(userId, limit = 20, offset = 0) {
+    const [rows] = await db.query(
+      `SELECT 
+         m.id,
+         m.post_id,
+         m.mentioned_by_user_id,
+         m.mention_type,
+         m.created_at,
+         m.is_read,
+         p.content as post_content,
+         p.created_at as post_created_at,
+         u.name as mentioned_by_name,
+         u.username as mentioned_by_username,
+         u.picture as mentioned_by_picture
+       FROM mentions m
+       LEFT JOIN posts p ON m.post_id = p.id
+       LEFT JOIN users u ON m.mentioned_by_user_id = u.id
+       WHERE m.mentioned_user_id = ? AND u.deleted_at IS NULL
+       ORDER BY m.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [userId, limit, offset]
+    );
+    return rows;
+  },
+
+  async getMentionsForPost(postId) {
+    const [rows] = await db.query(
+      `SELECT 
+         u.id,
+         u.name,
+         u.username,
+         u.picture
+       FROM mentions m
+       JOIN users u ON m.mentioned_user_id = u.id
+       WHERE m.post_id = ? AND u.deleted_at IS NULL`,
+      [postId]
+    );
+    return rows;
+  },
+
+  async markMentionsAsRead(userId, mentionIds) {
+    if (!mentionIds || mentionIds.length === 0) return;
+    const placeholders = mentionIds.map(() => '?').join(',');
+    await db.query(
+      `UPDATE mentions SET is_read = 1 
+       WHERE mentioned_user_id = ? AND id IN (${placeholders})`,
+      [userId, ...mentionIds]
+    );
+  },
+
+  async markAllMentionsAsRead(userId) {
+    await db.query(
+      `UPDATE mentions SET is_read = 1 
+       WHERE mentioned_user_id = ? AND is_read = 0`,
+      [userId]
+    );
+  },
+
+  async getUnreadMentionCount(userId) {
+    const [rows] = await db.query(
+      `SELECT COUNT(*) as count FROM mentions 
+       WHERE mentioned_user_id = ? AND is_read = 0`,
+      [userId]
+    );
+    return rows[0].count;
+  },
+
+  async deleteMentionsForPost(postId) {
+    await db.query(
+      "DELETE FROM mentions WHERE post_id = ?",
+      [postId]
+    );
+  },
+
+  // ─── Mention Suggestions ──────────────────────────────────────────────────
+
+  async getMentionSuggestions(query, excludeId, limit = 10) {
+    const like = `%${query}%`;
+    const [rows] = await db.query(
+      `SELECT id, name, username, picture
+       FROM users
+       WHERE (username LIKE ? OR name LIKE ?)
+         AND id != ?
+         AND deleted_at IS NULL
+       ORDER BY 
+         CASE 
+           WHEN username LIKE ? THEN 0
+           WHEN name LIKE ? THEN 1
+           ELSE 2
+         END,
+         username ASC
+       LIMIT ?`,
+      [`${query}%`, `${query}%`, excludeId, `${query}%`, `${query}%`, limit]
+    );
+    return rows;
   },
 };
 
 // ─── New members (joined in last 7 days) ──────────────────────────────────────
-// Excludes the viewer and users they already follow.
 
 async function getNewMembers(viewerId, limit = 10) {
   let query, params;
@@ -234,10 +454,11 @@ async function getNewMembers(viewerId, limit = 10) {
         u.name,
         u.picture,
         u.created_at AS createdAt,
-        u.role        -- ✅ added role
+        u.role
       FROM users u
       WHERE u.created_at >= NOW() - INTERVAL 7 DAY
         AND u.id != ?
+        AND u.deleted_at IS NULL
         AND u.id NOT IN (
           SELECT following_id FROM follows WHERE follower_id = ?
         )
@@ -252,9 +473,10 @@ async function getNewMembers(viewerId, limit = 10) {
         u.name,
         u.picture,
         u.created_at AS createdAt,
-        u.role        -- ✅ added role
+        u.role
       FROM users u
       WHERE u.created_at >= NOW() - INTERVAL 7 DAY
+        AND u.deleted_at IS NULL
       ORDER BY u.created_at DESC
       LIMIT ?
     `;
@@ -275,10 +497,10 @@ async function getByUsername(username) {
        location, school, occupation, website, gender, phone,
        date_of_birth AS dateOfBirth,
        verified,
-       role,                  -- ✅ added role
+       role,
        created_at  AS joined
      FROM users
-     WHERE username = ?`,
+     WHERE username = ? AND deleted_at IS NULL`,
     [username]
   );
   return rows.length ? rows[0] : null;
@@ -290,7 +512,7 @@ async function saveVerificationCode(userId, code, expires) {
   await db.query(
     `UPDATE users
      SET verify_code = ?, verify_code_expires = ?
-     WHERE id = ?`,
+     WHERE id = ? AND deleted_at IS NULL`,
     [code, expires, userId]
   );
 }
@@ -301,6 +523,7 @@ async function findByValidVerificationCode(email, code) {
      WHERE email = ?
        AND verify_code = ?
        AND verify_code_expires > NOW()
+       AND deleted_at IS NULL
      LIMIT 1`,
     [email, code]
   );
@@ -313,7 +536,7 @@ async function markEmailVerified(userId) {
      SET email_verified = 1,
          verify_code = NULL,
          verify_code_expires = NULL
-     WHERE id = ?`,
+     WHERE id = ? AND deleted_at IS NULL`,
     [userId]
   );
 }

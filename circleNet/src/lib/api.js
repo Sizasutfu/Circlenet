@@ -20,12 +20,18 @@ export async function apiClient(endpoint, options = {}) {
   // ── Extract admin flag ──
   const { admin = false, ...restOptions } = options;
 
-  if (!(restOptions.body instanceof FormData)) {
+  // ── Set Content-Type header ──
+  // Only set for methods that have a body (POST, PUT, PATCH, DELETE)
+  const method = (restOptions.method || 'GET').toUpperCase();
+  const hasBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  
+  if (hasBody && !(restOptions.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
 
+  // ── Auth headers ──
   if (typeof window !== 'undefined') {
-    // ── Use admin token if flagged, otherwise regular token ──
+    // Use admin token if flagged, otherwise regular token
     const tokenKey = admin ? 'circle_admin_token' : 'circle_token';
     const token = localStorage.getItem(tokenKey);
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -55,9 +61,15 @@ export async function apiClient(endpoint, options = {}) {
     }
   }
 
+  // ── Build fetch options ──
   const fetchOptions = { ...restOptions, headers };
-  if (!(restOptions.body instanceof FormData) && restOptions.body) {
+  
+  // ── Handle body for methods that support it ──
+  if (hasBody && restOptions.body && !(restOptions.body instanceof FormData)) {
     fetchOptions.body = JSON.stringify(restOptions.body);
+  } else if (hasBody && restOptions.body instanceof FormData) {
+    // FormData will be sent as-is
+    fetchOptions.body = restOptions.body;
   }
 
   const res = await fetch(url, fetchOptions);

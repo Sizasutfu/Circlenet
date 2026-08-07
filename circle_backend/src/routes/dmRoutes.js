@@ -7,9 +7,15 @@ const express   = require('express');
 const router    = express.Router();
 const { requireAuth } = require("../middleware/auth");
 const dmController  = require('../controllers/dmController');
+const upload = require('../middleware/upload');
 
 // Every DM route is protected — user must be logged in
 router.use(requireAuth);
+
+// ── Media upload ──────────────────────────────────────────────
+// POST /api/dm/upload → upload a file (image, video, audio)
+// Uses the existing upload middleware with Cloudinary support
+router.post('/upload', upload.single('media'), dmController.uploadMedia);
 
 // ── Presence & heartbeat ──────────────────────────────────────
 // POST /api/dm/heartbeat                                      → touch last_seen_at (call every 30 s)
@@ -41,9 +47,13 @@ router.get  ('/conversations/:conversationId/messages',     dmController.getMess
 router.post ('/conversations/:conversationId/messages',     dmController.sendMessage);
 router.patch('/conversations/:conversationId/read',         dmController.markRead);
 
+// ── Read status ──────────────────────────────────────────────
 // POST /api/dm/read-status  body: { ids: [...] }  → { readIds: [...] }
 router.post('/read-status', dmController.getReadStatus);
 
+// ── Message management ──────────────────────────────────────
+// PATCH /api/dm/conversations/:conversationId/messages/:messageId → edit a message
+// DELETE /api/dm/conversations/:conversationId/messages/:messageId → delete a message
 router.patch('/conversations/:conversationId/messages/:messageId', dmController.editMessage);
 router.delete('/conversations/:conversationId/messages/:messageId', dmController.deleteMessage);
 

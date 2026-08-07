@@ -15,22 +15,51 @@ const { compressUploads } = require('../middleware/compress');
 const followController    = require('../controllers/followController');
 const UserModel           = require('../models/userModel');
 const { toggleVerification } = require('../controllers/userController');
+const postController      = require('../controllers/postController');
 
-// Public routes — no auth required
+// ════════════════════════════════════════════════════════════════
+//  PUBLIC ROUTES — No authentication required
+// ════════════════════════════════════════════════════════════════
+
+// ─── Authentication ──────────────────────────────────────────────
 router.post('/register',        userController.register);
 router.post('/login',           userController.login);
-router.get( '/:id/profile',     userController.getProfile);
 
-// Search users — must be before /:id to avoid route conflict
-// GET /api/users?search=alice&limit=8
-router.get('/', requireAuth, userController.searchUsers);
+// ─── Password Reset ──────────────────────────────────────────────
+router.post("/reset-password",         requestPasswordReset);
+router.post("/reset-password/confirm", confirmResetPassword);
 
-// New members — joined in last 7 days
-// GET /api/users/new-members?limit=10
+// ─── Email Verification ──────────────────────────────────────────
+router.post("/email/send-verification", sendVerification);
+router.post("/email/verify",            verifyEmail);
+
+// ─── Restore Deleted Account ─────────────────────────────────────
+router.post('/restore', userController.restoreAccount);
+
+// ─── Get User by Username ────────────────────────────────────────
+router.get('/by-username/:username', userController.getUserByUsername);
+
+// ─── Get User Profile ────────────────────────────────────────────
+router.get('/:id/profile', userController.getProfile);
+
+// ─── New Members ──────────────────────────────────────────────────
 router.get('/new-members', userController.getNewMembers);
 
-// Follow lists — aliases so frontend can call /:id/following and /:id/followers
-// (canonical routes in followRoutes use /following/:userId shape)
+// ════════════════════════════════════════════════════════════════
+//  PROTECTED ROUTES — Authentication required
+// ════════════════════════════════════════════════════════════════
+
+// ─── Search Users ─────────────────────────────────────────────────
+router.get('/', requireAuth, userController.searchUsers);
+
+// ─── Account Deletion Status ─────────────────────────────────────
+router.get('/:id/deletion-status', requireAuth, userController.getDeletionStatus);
+
+// ─── Delete Account ──────────────────────────────────────────────
+// DELETE /api/users/:id — Soft delete user account (30-day grace period)
+router.delete('/:id', requireAuth, userController.deleteAccount);
+
+// ─── Follow Lists ─────────────────────────────────────────────────
 router.get('/:id/following', (req, res, next) => {
   req.params.userId = req.params.id;
   followController.getFollowing(req, res, next);
@@ -40,8 +69,7 @@ router.get('/:id/followers', (req, res, next) => {
   followController.getFollowers(req, res, next);
 });
 
-// E2E encryption public key — used for encrypted DMs
-// GET /api/users/:id/publickey  → { publicKey: "<b64 spki>" }
+// ─── E2E Encryption Public Key ───────────────────────────────────
 router.get('/:id/publickey', async (req, res) => {
   const userId = parseInt(req.params.id);
   try {
@@ -53,7 +81,6 @@ router.get('/:id/publickey', async (req, res) => {
   }
 });
 
-// PUT /api/users/:id/publickey  { publicKey: "<b64 spki>" }
 router.put('/:id/publickey', requireAuth, async (req, res) => {
   const userId = parseInt(req.params.id);
   if (req.actorId !== userId)
@@ -72,20 +99,32 @@ router.put('/:id/publickey', requireAuth, async (req, res) => {
   }
 });
 
-// Protected routes — must send X-User-Id header
+// ─── Profile Updates ──────────────────────────────────────────────
 router.put('/:id/picture', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updatePicture);
 router.put('/:id/cover', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updateCoverImage);
-router.put('/:id',         requireAuth, userController.updateProfile);
+router.put('/:id', requireAuth, userController.updateProfile);
 router.put('/:id/username', requireAuth, userController.updateUsername);
-// ── Get user by username (public) ──
-// GET /api/users/by-username/:username
-router.get('/by-username/:username', userController.getUserByUsername);
-router.post("/reset-password",         requestPasswordReset);
-router.post("/reset-password/confirm", confirmResetPassword);
 
-router.post("/email/send-verification", sendVerification);
-router.post("/email/verify",            verifyEmail);
-
+// ─── Admin Routes ──────────────────────────────────────────────────
 router.put('/users/:id/verify', requireAuth, requireAdmin, toggleVerification);
+
+// ════════════════════════════════════════════════════════════════
+//  MENTION ROUTES
+// ════════════════════════════════════════════════════════════════
+
+router.get('/mentions', requireAuth, postController.getMentions);
+router.get('/mentions/unread/count', requireAuth, postController.getUnreadMentionCount);
+router.put('/mentions/read', requireAuth, postController.markMentionsAsRead);
+
+// ════════════════════════════════════════════════════════════════
+//  NOTIFICATION ROUTES
+// ════════════════════════════════════════════════════════════════
+
+const notificationRoutes = require('./notificationRoutes');
+router.use('/notifications', notificationRoutes);
+
+// ─── REMOVED the interfering middleware ──────────────────────────
+// The problematic middleware was:
+// router.use('/:id', (req, res, next) => { ... });
 
 module.exports = router;

@@ -7,8 +7,84 @@ import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { resolveMediaUrl } from '@/lib/url';
-import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; // ✅ shared component
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import { extractMentions } from '@/lib/formatText'; // ✅ Import mention extractor
 
+// ── Mention Autocomplete Component ──
+function MentionAutocomplete({ searchTerm, onSelect }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!searchTerm || searchTerm.length < 1) {
+      setSuggestions([]);
+      return;
+    }
+
+    const fetchSuggestions = async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('circle_token') || 
+                     JSON.parse(localStorage.getItem('circle_user') || '{}')?.token;
+        const userId = JSON.parse(localStorage.getItem('circle_user') || '{}')?.id;
+        
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api/users?search=${encodeURIComponent(searchTerm)}&limit=5`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-User-Id': String(userId),
+            }
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestions(data.data?.users || []);
+        }
+      } catch (err) {
+        console.error('Mention search error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const debounce = setTimeout(fetchSuggestions, 200);
+    return () => clearTimeout(debounce);
+  }, [searchTerm]);
+
+  if (!suggestions.length || loading) return null;
+
+  return (
+    <div className="absolute z-50 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl overflow-hidden min-w-[200px] max-h-60 overflow-y-auto" style={{ bottom: '100%', left: 0, marginBottom: '4px' }}>
+      {suggestions.map((user) => (
+        <button
+          key={user.id}
+          onClick={() => onSelect(user.username)}
+          className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--color-surface)] transition"
+        >
+          {user.picture ? (
+            <img 
+              src={resolveMediaUrl(user.picture)} 
+              alt={user.name} 
+              className="w-6 h-6 rounded-full object-cover"
+            />
+          ) : (
+            <AvatarPlaceholder size="w-6 h-6" />
+          )}
+          <div>
+            <p className="text-sm font-medium text-[var(--color-txt)]">{user.name}</p>
+            <p className="text-xs text-[var(--color-txt2)]">@{user.username}</p>
+          </div>
+          {user.verified && (
+            <svg className="w-4 h-4 text-[var(--color-accent)] ml-auto" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function ComposeModal() {
   const { isOpen, closeCompose, initialText, groupId } = useCompose();
@@ -16,7 +92,7 @@ export default function ComposeModal() {
   const router = useRouter();
 
   // ── Common state ──
-  const [mode, setMode] = useState('post'); // 'post' | 'article'
+  const [mode, setMode] = useState('post');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
@@ -26,6 +102,10 @@ export default function ComposeModal() {
   const [postText, setPostText] = useState(initialText || '');
   const [postImage, setPostImage] = useState(null);
   const [postImagePreview, setPostImagePreview] = useState(null);
+
+  // ── Mention state ──
+  const [mentionSearch, setMentionSearch] = useState('');
+  const [showMentions, setShowMentions] = useState(false);
 
   // ── Article state ──
   const [articleTitle, setArticleTitle] = useState('');
@@ -40,14 +120,11 @@ export default function ComposeModal() {
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
-      // Reset common
       setError(null);
       setIsSubmitting(false);
-      // Reset post
       setPostText(initialText || '');
       setPostImage(null);
       setPostImagePreview(null);
-      // Reset article
       setArticleTitle('');
       setArticleExcerpt('');
       setArticleContent('');
@@ -56,11 +133,58 @@ export default function ComposeModal() {
       setArticlePublished(false);
       setArticleCover(null);
       setArticleCoverPreview(null);
-      // Default mode: if groupId is present, we're posting in a group, so stay on 'post'
+      setShowMentions(false);
+      setMentionSearch('');
       setMode(groupId ? 'post' : 'post');
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
   }, [isOpen, initialText, groupId]);
+
+  // ── Mention detection ──
+  const handleTextChange = (e) => {
+    const newText = e.target.value;
+    const cursor = e.target.selectionStart;
+    setPostText(newText);
+
+    const textBeforeCursor = newText.slice(0, cursor);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtIndex !== -1 && lastAtIndex < cursor) {
+      const searchTerm = textBeforeCursor.slice(lastAtIndex + 1);
+      if (!searchTerm.includes(' ') && searchTerm.length > 0) {
+        setMentionSearch(searchTerm);
+        setShowMentions(true);
+        return;
+      }
+    }
+    
+    setShowMentions(false);
+    setMentionSearch('');
+  };
+
+  const handleMentionSelect = (username) => {
+    const cursor = textareaRef.current?.selectionStart || postText.length;
+    const textBeforeCursor = postText.slice(0, cursor);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtIndex !== -1) {
+      const before = postText.slice(0, lastAtIndex);
+      const after = postText.slice(cursor);
+      const newText = `${before}@${username} ${after}`;
+      setPostText(newText);
+      
+      setTimeout(() => {
+        if (textareaRef.current) {
+          const newCursor = before.length + username.length + 2;
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(newCursor, newCursor);
+        }
+      }, 10);
+    }
+    
+    setShowMentions(false);
+    setMentionSearch('');
+  };
 
   // ── Tag handlers ──
   const addTag = () => {
@@ -133,6 +257,13 @@ export default function ComposeModal() {
         setError('Please write something or add an image.');
         return;
       }
+
+      // ── Extract mentions for debugging ──
+      const mentions = extractMentions(postText);
+      if (mentions.length) {
+        console.log('📝 Mentions detected:', mentions);
+      }
+
       setIsSubmitting(true);
       setError(null);
 
@@ -239,7 +370,7 @@ export default function ComposeModal() {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* User avatar (common) */}
+          {/* User avatar */}
           <div className="flex items-center gap-3">
             {user?.picture ? (
               <img
@@ -259,14 +390,25 @@ export default function ComposeModal() {
 
           {mode === 'post' && (
             <>
-              <textarea
-                ref={textareaRef}
-                value={postText}
-                onChange={(e) => setPostText(e.target.value)}
-                placeholder="What's on your mind?"
-                className="w-full bg-transparent border-none outline-none resize-none text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] text-sm min-h-[100px]"
-                rows={4}
-              />
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  value={postText}
+                  onChange={handleTextChange}
+                  placeholder="What's on your mind? Use @username to mention someone"
+                  className="w-full bg-transparent border-none outline-none resize-none text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] text-sm min-h-[100px]"
+                  rows={4}
+                />
+                {showMentions && (
+                  <MentionAutocomplete
+                    searchTerm={mentionSearch}
+                    onSelect={handleMentionSelect}
+                  />
+                )}
+              </div>
+              <div className="text-xs text-[var(--color-txt3)] -mt-2">
+                💡 Type @ to mention someone
+              </div>
               {postImagePreview && (
                 <div className="relative inline-block">
                   <img src={postImagePreview} alt="Preview" className="max-h-48 rounded-lg border border-[var(--color-border)]" />

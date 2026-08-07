@@ -13,7 +13,6 @@ export function DmProvider({ children }) {
   const { user } = useAuth();
   const { registerHandler, joinConversation, leaveConversation, sendTyping } = useWs();
 
-  // ── State ──
   const [inbox, setInbox] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
   const [activeOther, setActiveOther] = useState(null);
@@ -24,7 +23,7 @@ export function DmProvider({ children }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [typing, setTyping] = useState(false);
   const [otherOnline, setOtherOnline] = useState(false);
-  const [otherLastActive, setOtherLastActive] = useState(null); // 👈 new
+  const [otherLastActive, setOtherLastActive] = useState(null);
 
   const userRef = useRef(user);
   const activeConvIdRef = useRef(activeConvId);
@@ -38,7 +37,6 @@ export function DmProvider({ children }) {
   useEffect(() => { latestIdRef.current = latestId; }, [latestId]);
   useEffect(() => { inboxRef.current = inbox; }, [inbox]);
 
-  // ── Load inbox ──
   const loadInbox = useCallback(async () => {
     if (!userRef.current) return;
     try {
@@ -48,7 +46,6 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, []);
 
-  // ── Poll new messages ──
   const pollNewMessages = useCallback(async () => {
     const convId = activeConvIdRef.current;
     const lastId = latestIdRef.current;
@@ -89,7 +86,6 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, [loadInbox]);
 
-  // ── Heartbeat ──
   const sendHeartbeat = useCallback(async () => {
     if (!userRef.current) return;
     try {
@@ -97,18 +93,16 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, []);
 
-  // ── Fetch presence ──
   const fetchPresence = useCallback(async () => {
     const convId = activeConvIdRef.current;
     if (!convId) return;
     try {
       const res = await apiClient(`/api/dm/conversations/${convId}/presence`);
       setOtherOnline(res.data?.online || false);
-      setOtherLastActive(res.data?.last_seen_at || null); // 👈 new
+      setOtherLastActive(res.data?.last_seen_at || null);
     } catch (_) {}
   }, []);
 
-  // ── Open conversation ──
   const openConversation = useCallback(async (convId) => {
     if (!userRef.current) return;
     const conv = inboxRef.current.find((c) => c.id === convId);
@@ -126,7 +120,7 @@ export function DmProvider({ children }) {
     setLatestId(null);
     setTyping(false);
     setOtherOnline(false);
-    setOtherLastActive(null); // 👈 reset
+    setOtherLastActive(null);
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -165,16 +159,13 @@ export function DmProvider({ children }) {
     fetchPresence();
   }, [joinConversation, leaveConversation, fetchPresence]);
 
-  // ── Start a new conversation ──
   const startConversation = useCallback(async (userId) => {
     if (!userRef.current) return;
-    // Check if conversation already exists
     const existing = inboxRef.current.find((c) => c.other_id === userId);
     if (existing) {
       openConversation(existing.id);
       return;
     }
-    // Create new conversation
     try {
       const res = await apiClient('/api/dm/conversations', {
         method: 'POST',
@@ -183,7 +174,6 @@ export function DmProvider({ children }) {
       const data = res.data || res;
       if (data.conversationId) {
         await loadInbox();
-        // After load, find the new conversation
         const newConv = inboxRef.current.find((c) => c.other_id === userId);
         if (newConv) {
           openConversation(newConv.id);
@@ -194,7 +184,6 @@ export function DmProvider({ children }) {
     }
   }, [openConversation, loadInbox]);
 
-  // ── Close conversation ──
   const closeConversation = useCallback(() => {
     if (activeConvIdRef.current) {
       leaveConversation(activeConvIdRef.current);
@@ -207,7 +196,7 @@ export function DmProvider({ children }) {
     setHasMore(false);
     setTyping(false);
     setOtherOnline(false);
-    setOtherLastActive(null); // 👈 reset
+    setOtherLastActive(null);
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -218,7 +207,6 @@ export function DmProvider({ children }) {
     }
   }, [leaveConversation]);
 
-  // ── Load more messages ──
   const loadMoreMessages = useCallback(async () => {
     if (!activeConvIdRef.current || !hasMore || loadingMore || !cursor) return;
     setLoadingMore(true);
@@ -256,10 +244,11 @@ export function DmProvider({ children }) {
     setLoadingMore(false);
   }, [hasMore, loadingMore, cursor]);
 
-  // ── Send message ──
   const sendMessage = useCallback(
-    async (text) => {
-      if (!userRef.current || !activeConvIdRef.current || !text.trim()) return;
+    async (text, media = null) => {
+      if (!userRef.current || !activeConvIdRef.current) return;
+      if (!text?.trim() && !media) return;
+      
       const conv = inboxRef.current.find((c) => c.id === activeConvIdRef.current);
       if (!conv) return;
 
@@ -273,21 +262,30 @@ export function DmProvider({ children }) {
       const tempMsg = {
         id: tempId,
         sender_id: userRef.current.id,
-        body: text,
+        body: text || '',
         created_at: new Date().toISOString(),
-        _plain: text,
+        _plain: text || '',
+        media_type: media?.type || null,
+        media_url: media?.url || null,
+        media_thumbnail: media?.thumbnail || null,
+        media_name: media?.name || null,
+        media_size: media?.size || null,
       };
       setMessages((prev) => [...prev, tempMsg]);
+
       try {
-        const wireBody = await E2E.encrypt(conv.other_id, text, apiClient);
+        const wireBody = text ? await E2E.encrypt(conv.other_id, text, apiClient) : '';
         const res = await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages`, {
           method: 'POST',
-          body: { body: wireBody },
+          body: { 
+            body: wireBody,
+            media: media || null 
+          },
         });
         const saved = res.data || res;
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
         if (saved && saved.id) {
-          saved._plain = text;
+          saved._plain = text || '';
           setMessages((prev) => {
             if (prev.find((m) => m.id === saved.id)) return prev;
             return [...prev, saved];
@@ -315,7 +313,6 @@ export function DmProvider({ children }) {
     [sendTyping]
   );
 
-  // ── EDIT MESSAGE ──
   const editMessage = useCallback(
     async (messageId, newText) => {
       if (!userRef.current || !activeConvIdRef.current || !newText.trim()) return;
@@ -333,7 +330,7 @@ export function DmProvider({ children }) {
       try {
         const wireBody = await E2E.encrypt(conv.other_id, newText, apiClient);
         await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages/${messageId}`, {
-          method: 'PATCH',
+          method: 'PUT',
           body: { body: wireBody },
         });
         loadInbox();
@@ -348,7 +345,6 @@ export function DmProvider({ children }) {
     [loadInbox, openConversation]
   );
 
-  // ── DELETE MESSAGE ──
   const deleteMessage = useCallback(
     async (messageId) => {
       if (!userRef.current || !activeConvIdRef.current) return;
@@ -410,6 +406,8 @@ export function DmProvider({ children }) {
             last_message: message.body,
             last_sender_id: message.sender_id,
             last_message_at: message.created_at,
+            last_media_type: message.media_type,
+            last_media_url: message.media_url,
             unread_count:
               message.sender_id !== userRef.current?.id &&
               convId !== activeConvIdRef.current
@@ -569,7 +567,6 @@ export function DmProvider({ children }) {
     };
   }, [user, loadInbox, sendHeartbeat, pollNewMessages]);
 
-  // ── Context value ──
   const value = {
     inbox,
     activeConvId,
@@ -579,7 +576,7 @@ export function DmProvider({ children }) {
     loadingMore,
     typing,
     otherOnline,
-    otherLastActive,  // 👈 exposed
+    otherLastActive,
     loadInbox,
     openConversation,
     closeConversation,

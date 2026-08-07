@@ -1,13 +1,10 @@
-// ============================================================
-//  controllers/dmController.js
-//  Handles all Direct Message HTTP requests.
-//  Real-time delivery is handled by wsServer.js — HTTP routes
-//  remain as a fallback and for initial page-load fetches.
-// ============================================================
+// controllers/dmController.js
+// Handles all Direct Message HTTP requests with media support using Cloudinary
 
 const dmModel    = require('../models/dmModel');
 const { sendOk, sendError } = require('../middleware/response');
 const { notifyConversation, notifyUser, isOnline } = require('../../wsServer');
+const { uploadImage } = require('../middleware/upload');
 
 // ─── GET /api/dm/inbox ───────────────────────────────────────
 async function getInbox(req, res) {
@@ -77,8 +74,6 @@ async function getMessages(req, res) {
 }
 
 // ─── GET /api/dm/conversations/:conversationId/messages/new ──
-// Kept as a fallback for clients that can't use WebSocket
-// (e.g. a background tab or a failed WS connection).
 async function getNewMessages(req, res) {
   try {
     const userId         = req.actorId;
@@ -103,17 +98,17 @@ async function getNewMessages(req, res) {
 }
 
 // ─── POST /api/dm/conversations/:conversationId/messages ─────
-// Saves the message, then pushes it to both participants via WS.
 async function sendMessage(req, res) {
   try {
     const userId         = req.actorId;
     const conversationId = Number(req.params.conversationId);
     const body           = (req.body.body || '').trim();
+    const media          = req.body.media || null;
 
-    if (!body) {
-      return sendError(res, 400, 'Message body cannot be empty.');
+    if (!body && !media) {
+      return sendError(res, 400, 'Message cannot be empty.');
     }
-    if (body.length > 2000) {
+    if (body && body.length > 2000) {
       return sendError(res, 400, 'Message is too long (max 2000 characters).');
     }
 
@@ -122,20 +117,14 @@ async function sendMessage(req, res) {
       return sendError(res, 403, 'Access denied.');
     }
 
-    const message = await dmModel.sendMessage(conversationId, userId, body);
+    const message = await dmModel.sendMessage(conversationId, userId, body, media);
 
-    // ── Real-time delivery ───────────────────────────────────
-    // Get the other participant to push the message to them.
     const recipientId = await dmModel.getOtherParticipant(conversationId, userId);
     if (recipientId) {
       notifyConversation(conversationId, userId, recipientId, message);
-
-      // Only send a push notification if the recipient is NOT online via WS.
-      // If they're online they already got the message above — no need to ping twice.
+      
       if (!isOnline(recipientId)) {
-        // Your existing PushModel logic can go here if you want app-level push
-        // when the recipient has the app closed entirely.
-        // e.g. await PushModel.sendPushToUser(recipientId, 'new_dm', ...)
+        // Push notification logic here
       }
     }
 
@@ -146,55 +135,61 @@ async function sendMessage(req, res) {
   }
 }
 
-async function editMessage(req, res) {
+// ─── POST /api/dm/upload ──────────────────────────────────────
+async function uploadMedia(req, res) {
   try {
-    const userId    = req.actorId;
-    const messageId = Number(req.params.messageId);
-    const newBody   = (req.body.body || '').trim();
+    const userId = req.actorId;
+    const file = req.file;
 
-    if (!newBody) return sendError(res, 400, 'Body cannot be empty.');
-    if (newBody.length > 2000) return sendError(res, 400, 'Message too long.');
-
-    const updated = await dmModel.editMessage(messageId, userId, newBody);
-
-    // Notify both participants via WS
-    const recipientId = await dmModel.getOtherParticipant(updated.conversation_id, userId);
-    if (recipientId) {
-      notifyUser(recipientId, 'dm_edited', { messageId, conversationId: updated.conversation_id, body: newBody });
-      notifyUser(userId,      'dm_edited', { messageId, conversationId: updated.conversation_id, body: newBody });
+    if (!file) {
+      return sendError(res, 400, 'No file uploaded.');
     }
 
-    return sendOk(res, 200, 'Message edited.', updated);
-  } catch (err) {
-    console.error('[DM] editMessage error:', err);
-    return sendError(res, 400, err.message || 'Failed to edit message.');
-  }
-}
+    // File is already validated by multer middleware
+    // File is in memory buffer from multer memoryStorage
 
-async function deleteMessage(req, res) {
-  try {
-    const userId    = req.actorId;
-    const messageId = Number(req.params.messageId);
+    // Determine media type
+    let mediaType = 'file';
+    if (file.mimetype.startsWith('image/')) mediaType = 'image';
+    else if (file.mimetype.startsWith('video/')) mediaType = 'video';
+    else if (file.mimetype.startsWith('audio/')) mediaType = 'audio';
 
-    const result = await dmModel.deleteMessage(messageId, userId);
+    // Upload to Cloudinary or local storage using your existing uploadImage function
+    let fileUrl;
+    let thumbnail = null;
 
-    // Notify both participants via WS
-    const recipientId = await dmModel.getOtherParticipant(result.conversationId, userId);
-    if (recipientId) {
-      notifyUser(recipientId, 'dm_deleted', { messageId, conversationId: result.conversationId });
-      notifyUser(userId,      'dm_deleted', { messageId, conversationId: result.conversationId });
+    try {
+      // Use your existing uploadImage function
+      fileUrl = await uploadImage(file.buffer, file.originalname);
+      
+      // Generate thumbnail for images (Cloudinary handles this)
+      if (mediaType === 'image' && fileUrl.includes('cloudinary')) {
+        // Cloudinary thumbnail - add transformation
+        thumbnail = fileUrl.replace('/upload/', '/upload/c_thumb,w_200,h_200/');
+      } else if (mediaType === 'image') {
+        // Local thumbnail - you'd need to generate one
+        // For now, use the same URL
+        thumbnail = fileUrl;
+      }
+    } catch (err) {
+      console.error('[DM] Upload to storage failed:', err);
+      return sendError(res, 500, 'Failed to upload file to storage.');
     }
 
-    return sendOk(res, 200, 'Message deleted.');
+    return sendOk(res, 200, 'File uploaded successfully.', {
+      url: fileUrl,
+      thumbnail: thumbnail,
+      type: mediaType,
+      name: file.originalname,
+      size: file.size
+    });
   } catch (err) {
-    console.error('[DM] deleteMessage error:', err);
-    return sendError(res, 400, err.message || 'Failed to delete message.');
+    console.error('[DM] uploadMedia error:', err);
+    return sendError(res, 500, 'Failed to upload file.');
   }
 }
 
 // ─── POST /api/dm/heartbeat ──────────────────────────────────
-// Still available for clients on HTTP fallback mode.
-// WebSocket-connected clients should send a `ping` frame instead.
 async function heartbeat(req, res) {
   try {
     await dmModel.touchPresence(req.actorId);
@@ -206,9 +201,6 @@ async function heartbeat(req, res) {
 }
 
 // ─── GET /api/dm/conversations/:conversationId/presence ──────
-// Returns { online, last_seen_at } for the OTHER participant.
-// `online` is now derived from the live WS registry first,
-// falling back to the DB timestamp if they're not on WS.
 async function getPresence(req, res) {
   try {
     const userId         = req.actorId;
@@ -219,7 +211,6 @@ async function getPresence(req, res) {
 
     const presence = await dmModel.getPresence(conversationId, userId);
 
-    // Override `online` with the live WS state if available
     const otherId = await dmModel.getOtherParticipant(conversationId, userId);
     if (otherId) {
       presence.online = isOnline(otherId);
@@ -233,7 +224,6 @@ async function getPresence(req, res) {
 }
 
 // ─── PATCH /api/dm/conversations/:conversationId/read ────────
-// Marks messages as read AND notifies the sender via WS.
 async function markRead(req, res) {
   try {
     const userId         = req.actorId;
@@ -246,7 +236,6 @@ async function markRead(req, res) {
 
     await dmModel.markConversationRead(conversationId, userId);
 
-    // ── Notify the sender that their messages were read ──────
     const senderId = await dmModel.getOtherParticipant(conversationId, userId);
     if (senderId) {
       notifyUser(senderId, 'dm_read', {
@@ -276,6 +265,66 @@ async function getReadStatus(req, res) {
   }
 }
 
+// ─── PUT /api/dm/conversations/:conversationId/messages/:messageId ──
+async function editMessage(req, res) {
+  try {
+    const userId    = req.actorId;
+    const messageId = Number(req.params.messageId);
+    const newBody   = (req.body.body || '').trim();
+
+    if (!newBody) return sendError(res, 400, 'Body cannot be empty.');
+    if (newBody.length > 2000) return sendError(res, 400, 'Message too long.');
+
+    const updated = await dmModel.editMessage(messageId, userId, newBody);
+
+    const recipientId = await dmModel.getOtherParticipant(updated.conversation_id, userId);
+    if (recipientId) {
+      notifyUser(recipientId, 'dm_edited', { 
+        messageId, 
+        conversationId: updated.conversation_id, 
+        body: newBody 
+      });
+      notifyUser(userId, 'dm_edited', { 
+        messageId, 
+        conversationId: updated.conversation_id, 
+        body: newBody 
+      });
+    }
+
+    return sendOk(res, 200, 'Message edited.', updated);
+  } catch (err) {
+    console.error('[DM] editMessage error:', err);
+    return sendError(res, 400, err.message || 'Failed to edit message.');
+  }
+}
+
+// ─── DELETE /api/dm/conversations/:conversationId/messages/:messageId ──
+async function deleteMessage(req, res) {
+  try {
+    const userId    = req.actorId;
+    const messageId = Number(req.params.messageId);
+
+    const result = await dmModel.deleteMessage(messageId, userId);
+
+    const recipientId = await dmModel.getOtherParticipant(result.conversationId, userId);
+    if (recipientId) {
+      notifyUser(recipientId, 'dm_deleted', { 
+        messageId, 
+        conversationId: result.conversationId 
+      });
+      notifyUser(userId, 'dm_deleted', { 
+        messageId, 
+        conversationId: result.conversationId 
+      });
+    }
+
+    return sendOk(res, 200, 'Message deleted.');
+  } catch (err) {
+    console.error('[DM] deleteMessage error:', err);
+    return sendError(res, 400, err.message || 'Failed to delete message.');
+  }
+}
+
 module.exports = {
   getInbox,
   getUnreadCount,
@@ -288,5 +337,6 @@ module.exports = {
   getPresence,
   getReadStatus,
   editMessage,
-  deleteMessage
+  deleteMessage,
+  uploadMedia
 };

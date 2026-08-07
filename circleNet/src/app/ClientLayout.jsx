@@ -74,6 +74,7 @@ export default function ClientLayout({ children }) {
   const shouldHide = direction === 'down' && !isAtTop;
 
   const isLanding = pathname === '/';
+  const isAdminRoute = pathname?.startsWith('/admin');
 
   // Route exclusions
   const hideFooterRoutes = [
@@ -85,9 +86,38 @@ export default function ClientLayout({ children }) {
     '/reset-password',
     '/whisper/inbox',
     '/drafts',
+    '/feed'
   ];
-  const hideStripRoutes = [...hideFooterRoutes];
-  const hideMobileNavRoutes = [...hideFooterRoutes];
+  
+  const hideStripRoutes = [
+    '/messages',
+    '/live',
+    '/compose',
+    '/login',
+    '/register',
+    '/reset-password',
+    '/whisper/inbox',
+    '/drafts',
+    '/explore',
+    '/groups',
+    '/articles',
+    '/settings',
+    '/profile',
+    '/search',
+    '/post/id'
+  ];
+  
+  const hideMobileNavRoutes = [
+    '/messages',
+    '/live',
+    '/compose',
+    '/login',
+    '/register',
+    '/reset-password',
+    '/whisper/inbox',
+    '/drafts',
+  ];
+  
   const hideSidebarRoutes = [
     '/messages',
     '/live',
@@ -98,16 +128,15 @@ export default function ClientLayout({ children }) {
     '/whisper/inbox',
     '/profile',
     '/settings',
-    
   ];
 
-  // ── Header hiding for specific routes ──
-  const shouldHideHeader = isLanding || pathname.startsWith('/messages');
-
-  const shouldHideFooter = hideFooterRoutes.includes(pathname);
-  const shouldHideStrip = isLanding || hideStripRoutes.includes(pathname);
-  const shouldHideMobileNav = isLanding || hideMobileNavRoutes.includes(pathname);
-  const shouldHideSidebar = isLanding || hideSidebarRoutes.includes(pathname);
+  // ── Admin routes - hide everything except the admin content ──
+  const hideFooter = isAdminRoute || hideFooterRoutes.includes(pathname);
+  const hideStrip = isAdminRoute || isLanding || hideStripRoutes.includes(pathname);
+  const hideMobileNav = isAdminRoute || isLanding || hideMobileNavRoutes.includes(pathname);
+  const hideSidebar = isAdminRoute || isLanding || hideSidebarRoutes.includes(pathname);
+  const hideRightSidebar = isAdminRoute || isLanding;
+  const shouldHideHeader = isAdminRoute || isLanding || pathname.startsWith('/messages');
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -134,11 +163,15 @@ export default function ClientLayout({ children }) {
                             <FeedProvider>
                               <LightboxWrapper>
                                 <div className="flex min-h-screen">
-                                  {!isLanding && <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />}
+                                  {/* ── Sidebar ── */}
+                                  {!isLanding && !hideSidebar && (
+                                    <SideBar isOpen={sidebarOpen} onClose={closeSidebar} />
+                                  )}
+                                  
                                   <div
                                     className={`flex-1 flex flex-col min-h-screen w-full ${
-                                      !isLanding && !shouldHideSidebar ? 'md:ml-[280px]' : ''
-                                    }`}
+                                      !isLanding && !hideSidebar ? 'md:ml-[280px]' : ''
+                                    } ${isAdminRoute ? 'md:ml-0' : ''}`}
                                   >
                                     {/* ── Fixed Header with scroll-hide ── */}
                                     {!isLanding && !shouldHideHeader && (
@@ -155,29 +188,34 @@ export default function ClientLayout({ children }) {
                                       </>
                                     )}
 
-                                    <div className="flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center w-full">
+                                    <div className={`flex-1 flex px-2 sm:px-6 py-4 gap-6 justify-center w-full ${isAdminRoute ? 'max-w-full' : ''}`}>
                                       <main
                                         className={`flex-1 max-w-2xl min-w-0 w-full ${
                                           isLanding
                                             ? 'p-0'
-                                            : shouldHideFooter
+                                            : hideFooter
                                             ? 'pb-4'
                                             : 'pb-20 md:pb-4'
-                                        }`}
+                                        } ${isAdminRoute ? 'max-w-full' : ''}`}
                                       >
-                                        {!shouldHideStrip && <LiveFeedStrip />}
+                                        {!isLanding && !hideStrip && <LiveFeedStrip />}
                                         {children}
                                       </main>
-                                      {!isLanding && !shouldHideSidebar && (
+                                      
+                                      {/* ── RightSidebar ── */}
+                                      {!isLanding && !hideRightSidebar && (
                                         <div className="hidden lg:block w-[320px] flex-shrink-0">
                                           <RightSidebar />
                                         </div>
                                       )}
                                     </div>
-                                    {!isLanding && !shouldHideFooter && <Footer />}
+                                    
+                                    {/* ── Footer ── */}
+                                    {!isLanding && !hideFooter && <Footer />}
                                   </div>
                                 </div>
 
+                                {/* ── Floating Components ── */}
                                 {!isLanding && (
                                   <>
                                     <IncomingCallModal />
@@ -185,7 +223,7 @@ export default function ClientLayout({ children }) {
                                     <LiveSetupModal />
                                     <LiveOverlay />
                                     <LiveToast />
-                                    {!shouldHideMobileNav && (
+                                    {!hideMobileNav && (
                                       <>
                                         <MobileNavbar
                                           className={`transition-transform duration-300 ease-in-out ${

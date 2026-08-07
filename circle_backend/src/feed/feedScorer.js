@@ -8,19 +8,8 @@
 //  Score anatomy (all values ≥ 0):
 //
 //    finalScore = (baseScore - negativePenalty + newness + recency)
-//                 × affinityMultiplier
-//                 × topicMultiplier
+//                 × combinedMultiplier (capped at 4.0x)
 //                 × seenMultiplier
-//                 × similarityMultiplier   (user attributes)
-//                 × collaborativeMultiplier
-//                 × contentTypeMultiplier
-//                 × dmAffinityMultiplier   (DM conversations)
-//                 × mediaBoost             (video/image/text)
-//                 × lengthBoost            (content length)
-//                 × mutualFollowBoost      (mutual follows)
-//                 × groupAffinityBoost     (group membership)
-//                 × sessionBoost           (session activity)
-//                 × velocityBoost          (engagement velocity)
 //                 × jitter
 //
 //  Each factor is independently logged in scoreDebug.
@@ -72,6 +61,7 @@ function generateReasons(post, {
   mutualFollows = new Set(),
   userGroups = new Set(),
   sessionPosts = [],
+  mentionedPostIds = new Set(),
 } = {}) {
   const reasons = [];
 
@@ -196,6 +186,16 @@ function generateReasons(post, {
     reasons.push('We thought you might like something different');
   }
 
+  // 16. Mention
+  if (mentionedPostIds.has(post.id)) {
+    reasons.push('You were mentioned in this post');
+  }
+
+  // 17. Repost from followed user ⬅️ NEW
+  if (post.isRepost && followingIds.has(post.userId)) {
+    reasons.push(`@${post.authorUsername || 'User'} reposted this`);
+  }
+
   // Deduplicate and limit to 5
   const unique = [...new Set(reasons)];
   return unique.slice(0, 5);
@@ -217,6 +217,7 @@ function computeScore(post, {
   mutualFollows = new Set(),
   userGroups = new Set(),
   sessionPosts = [],
+  mentionedPostIds = new Set(),
 } = {}) {
 
   // ── 1. Base engagement ──────────────────────────────────
@@ -225,13 +226,15 @@ function computeScore(post, {
   const repostCount  = post.reposts?.length  ?? 0;
   const viewCount    = post.views            ?? 0;
   const dwellSeconds = post.dwellSeconds     ?? 0;
+  const mentionCount = post.mentions?.length ?? 0;
 
   const baseEngagement =
     logScale(likeCount)    * C.WEIGHT_LIKE    +
     logScale(commentCount) * C.WEIGHT_COMMENT +
     logScale(repostCount)  * C.WEIGHT_REPOST  +
     logScale(viewCount)    * C.WEIGHT_VIEW    +
-    logScale(dwellSeconds) * C.WEIGHT_DWELL;
+    logScale(dwellSeconds) * C.WEIGHT_DWELL   +
+    logScale(mentionCount) * C.WEIGHT_MENTION;
 
   // ── 2. Negative signals ──────────────────────────────────
   const negSignals = negativeMap[post.id] || {};
@@ -365,28 +368,48 @@ function computeScore(post, {
     velocityBoost = Math.min(C.VELOCITY_BOOST_MAX, 1 + velocity * 0.1);
   }
 
-  // ── 18. Jitter ────────────────────────────────────────────
+  // ── 18. Mention boost ─────────────────────────────────────
+  let mentionBoost = 1.0;
+  if (mentionedPostIds.has(post.id)) {
+    const isReply = post.mentionType === 'reply';
+    mentionBoost = isReply ? C.MENTION_REPLY_BOOST : C.MENTION_BOOST_MULTIPLIER;
+  }
+
+  // ── 19. Repost from followed user boost ⬅️ NEW ────────────
+  let repostBoost = 1.0;
+  if (post.isRepost && followingIds.has(post.userId)) {
+    // Repost is from a user you follow - give it a boost
+    const originalAuthorId = post.originalPost?.userId || post.originalPostId;
+    if (originalAuthorId) {
+      // If you follow both the reposter AND the original author, extra boost
+      if (followingIds.has(originalAuthorId)) {
+        repostBoost = C.REPOST_FOLLOW_BOTH_BOOST || 1.4;
+      } else {
+        repostBoost = C.REPOST_FROM_FOLLOWED_BOOST || 1.2;
+      }
+    } else {
+      repostBoost = C.REPOST_FROM_FOLLOWED_BOOST || 1.2;
+    }
+  }
+
+  // ── 20. Jitter ────────────────────────────────────────────
   const jitter = 0.95 + Math.random() * 0.10;
 
-  // ── 19. Final score ──────────────────────────────────────
-  const preMultiplied = baseScore + newnessBoost + recencyScore;
-  const finalScore    = preMultiplied
-    * affinityMultiplier
-    * topicMultiplier
-    * seenMultiplier
-    * similarityMultiplier
-    * collaborativeMultiplier
-    * contentTypeMultiplier
-    * dmAffinityMultiplier
-    * mediaBoost
-    * lengthBoost
-    * mutualFollowBoost
-    * groupAffinityBoost
-    * sessionBoost
-    * velocityBoost
-    * jitter;
+  // ── 21. Combined Multiplier (capped) ─────────────────────
+  const combinedMultiplier = clamp(
+    affinityMultiplier * topicMultiplier * similarityMultiplier * collaborativeMultiplier *
+    contentTypeMultiplier * dmAffinityMultiplier * mediaBoost * lengthBoost *
+    mutualFollowBoost * groupAffinityBoost * sessionBoost * velocityBoost *
+    mentionBoost * repostBoost,
+    1.0,
+    C.GLOBAL_MULTIPLIER_CAP
+  );
 
-  // ── 20. Debug payload ──────────────────────────────────
+  // ── 22. Final score ──────────────────────────────────────
+  const preMultiplied = baseScore + newnessBoost + recencyScore;
+  const finalScore = preMultiplied * combinedMultiplier * seenMultiplier * jitter;
+
+  // ── 23. Debug payload ──────────────────────────────────
   if (C.DEBUG_SCORES) {
     post._scoreDebug = {
       finalScore:          +finalScore.toFixed(3),
@@ -412,10 +435,16 @@ function computeScore(post, {
       groupAffinityBoost:  +groupAffinityBoost.toFixed(3),
       sessionBoost:        +sessionBoost.toFixed(3),
       velocityBoost:       +velocityBoost.toFixed(3),
+      mentionBoost:        +mentionBoost.toFixed(3),
+      repostBoost:         +repostBoost.toFixed(3),
+      combinedMultiplier:  +combinedMultiplier.toFixed(3),
+      isMentioned:         mentionedPostIds.has(post.id),
+      isRepostFromFollowed: post.isRepost && followingIds.has(post.userId),
       jitter:              +jitter.toFixed(3),
       signals: {
         likes: likeCount, comments: commentCount,
         reposts: repostCount, views: viewCount, dwellSeconds,
+        mentionCount: mentionCount,
         skips: negSignals.skips || 0, shortViews: negSignals.shortViews || 0,
         isFollowing, postTopics, topicRaw: +topicRaw.toFixed(3),
         wordCount,

@@ -6,6 +6,7 @@
 
 const bcrypt     = require('bcrypt');
 const AdminModel = require('../models/adminModel');
+const NotificationModel = require('../models/notificationModel'); // ⬅️ ADD THIS
 const { sendOk, sendError } = require('../middleware/response');
 
 // ── AUTH ───────────────────────────────────────────────────
@@ -64,13 +65,25 @@ async function getStats(req, res) {
 // GET /api/admin/charts
 async function getCharts(req, res) {
   try {
-    const [userGrowth, postsPerDay] = await Promise.all([
+    const [userGrowth, postsPerDay, mentionsPerDay] = await Promise.all([
       AdminModel.getUserGrowth(),
       AdminModel.getPostsPerDay(),
+      AdminModel.getMentionsPerDay(),
     ]);
-    return sendOk(res, 200, 'Chart data fetched.', { userGrowth, postsPerDay });
+    return sendOk(res, 200, 'Chart data fetched.', { userGrowth, postsPerDay, mentionsPerDay });
   } catch (err) {
     console.error('getCharts error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+// GET /api/admin/mentions
+async function getMentionStats(req, res) {
+  try {
+    const stats = await AdminModel.getMentionStats();
+    return sendOk(res, 200, 'Mention stats fetched.', stats);
+  } catch (err) {
+    console.error('getMentionStats error:', err);
     return sendError(res, 500, 'Server error.');
   }
 }
@@ -147,7 +160,7 @@ async function deleteUser(req, res) {
   }
 }
 
-// ─── NEW: Toggle verification badge ────────────────────────
+// ─── Toggle verification badge ─────────────────────────────
 // PUT /api/admin/users/:id/verify
 async function toggleVerification(req, res) {
   const userId = parseInt(req.params.id);
@@ -158,7 +171,12 @@ async function toggleVerification(req, res) {
   }
 
   try {
+    // Update the user's verification status
     await AdminModel.toggleVerification(userId, verified);
+    
+    // ── SEND NOTIFICATION TO USER ── ⬅️ NEW
+    await NotificationModel.createVerificationNotification(userId, verified);
+    
     return sendOk(res, 200, `User ${verified ? 'verified' : 'unverified'}.`);
   } catch (err) {
     console.error('toggleVerification error:', err);
@@ -250,7 +268,6 @@ async function ignoreReport(req, res) {
 // ── SETTINGS ──────────────────────────────────────────────
 
 // PUT /api/admin/settings/password
-// req.adminId is set by requireAdmin middleware — no need to re-fetch by email
 async function updatePassword(req, res) {
   const { currentPassword, newPassword } = req.body;
 
@@ -262,7 +279,6 @@ async function updatePassword(req, res) {
   try {
     const { db } = require('../config/db');
 
-    // Fetch the full admin row (need the hashed password to compare)
     const [[admin]] = await db.query(
       "SELECT * FROM users WHERE id=? AND role='admin'",
       [req.adminId]
@@ -284,9 +300,9 @@ async function updatePassword(req, res) {
 
 module.exports = {
   login, logout,
-  getStats, getCharts,
+  getStats, getCharts, getMentionStats,
   getUsers, suspendUser, unsuspendUser, updateUserRole, deleteUser,
-  toggleVerification,  // ✅ export new controller
+  toggleVerification,
   getPosts, deletePost,
   getReports, createReport, resolveReport, ignoreReport,
   updatePassword,

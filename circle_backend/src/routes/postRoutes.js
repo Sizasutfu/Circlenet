@@ -37,7 +37,10 @@ router.get('/:id/comments-on-posts', requireAuth, postController.getCommentsOnUs
 // View counts
 router.post('/:id/view', postController.recordView);
 router.post('/:id/skip', requireAuth, postController.recordSkip);
-router.put('/:id', requireAuth, postController.updatePost);
+router.put('/:id', requireAuth, upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'video', maxCount: 1 },
+]), compressUploads, postController.updatePost);
 router.post('/:id/video-view', requireAuth, postController.recordVideoView);
 
 module.exports = router;

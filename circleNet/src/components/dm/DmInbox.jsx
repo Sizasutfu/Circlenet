@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation'; // ✅ import router
+import { useRouter } from 'next/navigation';
 import { useDm } from '@/contexts/DmContext';
 import { useAuth } from '@/lib/auth';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
@@ -11,7 +11,7 @@ import VerificationBadge from '@/components/ui/VerificationBadge';
 export default function DmInbox() {
   const { user } = useAuth();
   const { inbox, activeConvId, openConversation } = useDm();
-  const router = useRouter(); // ✅ router for back navigation
+  const router = useRouter();
   const [filter, setFilter] = useState('');
 
   const filtered = inbox.filter(
@@ -25,7 +25,7 @@ export default function DmInbox() {
 
   return (
     <div className="flex flex-col h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--color-surface)]">
-      {/* ─── Header with back button ─── */}
+      {/* ─── Header with back button, title, and New Message button ─── */}
       <div className="flex-shrink-0 flex items-center gap-2 p-3 sm:p-4 pb-3 border-b border-[var(--color-border)]">
         <button
           onClick={() => router.back()}
@@ -39,10 +39,21 @@ export default function DmInbox() {
         <h2 className="font-head text-lg font-extrabold text-[var(--color-txt)] flex-1">
           Messages
         </h2>
+        
+        {/* ─── New Message Button in Header ─── */}
+        <button
+          onClick={openNewModal}
+          className="flex-shrink-0 py-1.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer flex items-center gap-1.5"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New
+        </button>
       </div>
 
       {/* ─── Search bar ─── */}
-      <div className="flex-shrink-0 px-3 sm:px-4 pb-3">
+      <div className="flex-shrink-0 px-3 sm:px-4 pb-3 pt-3">
         <div className="relative">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-txt3)] pointer-events-none"
@@ -166,13 +177,7 @@ export default function DmInbox() {
         )}
       </div>
 
-      {/* ─── New Message button ─── */}
-      <button
-        onClick={openNewModal}
-        className="flex-shrink-0 mx-3 sm:mx-4 mb-3 sm:mb-4 py-2.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer w-[calc(100%-1.5rem)] sm:w-[calc(100%-2rem)]"
-      >
-        + New Message
-      </button>
+      {/* ─── Removed bottom New Message button ─── */}
     </div>
   );
 }

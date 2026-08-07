@@ -15,7 +15,9 @@ const PUSH_COPY = {
   mention:     (actor, snippet) => ({ title: 'You were mentioned 📣',   body: snippet ? `${actor} mentioned you: "${snippet}"` : `${actor} mentioned you in a post` }),
   new_post:    (actor, snippet) => ({ title: 'New post ✨',             body: snippet ? `${actor} posted: "${snippet}"` : `${actor} published a new post` }),
   profile_pic: (actor)          => ({ title: 'Profile updated 📸',      body: `${actor} updated their profile photo` }),
-  live:        (actor)          => ({ title: 'Live now 🔴',                body: `${actor} just started a live stream` }),
+  live:        (actor)          => ({ title: 'Live now 🔴',             body: `${actor} just started a live stream` }),
+  verified:    (actor)          => ({ title: '✅ Verified!',             body: `Your account has been verified! You now have a verification badge.` }),
+  unverified:  (actor)          => ({ title: 'Verification Removed ❌',  body: `Your verification badge has been removed.` }),
 };
 
 // Maps notification `type` values to push_subscriptions pref columns
@@ -28,6 +30,8 @@ const TYPE_TO_PREF = {
   new_post:    'new_post',
   profile_pic: 'profile_pic',
   live:        'live',
+  verified:    null, // Always send verification notifications
+  unverified:  null, // Always send verification notifications
 };
 
 // ── Create a notification (deduplicates automatically) ─────
@@ -46,37 +50,46 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
 
     // INSERT and capture the new row's id for the push payload
     const [result] = await db.query(
-      `INSERT INTO notifications (recipient_id, actor_id, type, post_id, session_id)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO notifications (recipient_id, actor_id, type, post_id, session_id, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
       [recipientId, actorId, type, postId, sessionId]
     );
     const notifId = result.insertId;
 
-   //console.log(`Notification created: recipient=${recipientId} actor=${actorId} type=${type} postId=${postId} notifId=${notifId}`);
-
     // ── Fire push notification (non-blocking) ───────────────
     const prefType = TYPE_TO_PREF[type];
     const copyFn   = PUSH_COPY[type];
-    if (prefType && copyFn) {
-      db.query(
-        // Fetch actor name + post snippet in one query
-        `SELECT u.name AS actorName, LEFT(p.text, 60) AS snippet
-         FROM users u
-         LEFT JOIN posts p ON p.id = ?
-         WHERE u.id = ?`,
-        [postId, actorId]
-      )
-        .then(([[row]]) => {
-          if (!row) return;
-          const { title, body } = copyFn(row.actorName, row.snippet || null);
-          return sendPushToUser(recipientId, prefType, title, body, './', {
-            postId,           // ← which post (null for follow/profile_pic/live)
-            sessionId,        // ← live session id (null for all other types)
-            actorId,          // ← who triggered it
-            notifId,          // ← DB row id so client can mark as read
-          });
-        })
-        .catch(err => console.error('push dispatch error:', err.message));
+    if (copyFn) {
+      // For verification notifications, we don't need actor name
+      if (type === 'verified' || type === 'unverified') {
+        const { title, body } = copyFn(null);
+        return sendPushToUser(recipientId, null, title, body, './', {
+          notifId,
+          type,
+        }).catch(err => console.error('push dispatch error:', err.message));
+      }
+
+      if (prefType && copyFn) {
+        db.query(
+          // Fetch actor name + post snippet in one query
+          `SELECT u.name AS actorName, LEFT(p.text, 60) AS snippet
+           FROM users u
+           LEFT JOIN posts p ON p.id = ?
+           WHERE u.id = ?`,
+          [postId, actorId]
+        )
+          .then(([[row]]) => {
+            if (!row) return;
+            const { title, body } = copyFn(row.actorName, row.snippet || null);
+            return sendPushToUser(recipientId, prefType, title, body, './', {
+              postId,
+              sessionId,
+              actorId,
+              notifId,
+            });
+          })
+          .catch(err => console.error('push dispatch error:', err.message));
+      }
     }
   } catch (err) {
     // Log but never crash the calling request over a notification failure
@@ -88,8 +101,8 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
 async function createSystemNotification(recipientId, type, message) {
   try {
     await db.query(
-      `INSERT INTO notifications (recipient_id, actor_id, type, message)
-       VALUES (?, NULL, ?, ?)`,
+      `INSERT INTO notifications (recipient_id, actor_id, type, message, created_at)
+       VALUES (?, NULL, ?, ?, NOW())`,
       [recipientId, type, message]
     );
 
@@ -97,15 +110,27 @@ async function createSystemNotification(recipientId, type, message) {
     const pushCopy = {
       report_resolved: { title: 'Report Update ✅', body: message },
       report_ignored:  { title: 'Report Update ℹ️',  body: message },
+      verified:        { title: '✅ Verified!',      body: message },
+      unverified:      { title: 'Verification Removed ❌', body: message },
     };
     const copy = pushCopy[type];
     if (copy) {
-      sendPushToUser(recipientId, null, copy.title, copy.body, './', {})
+      sendPushToUser(recipientId, null, copy.title, copy.body, './', { type })
         .catch(err => console.error('push dispatch error:', err.message));
     }
   } catch (err) {
     console.error('createSystemNotification error:', err.message);
   }
+}
+
+// ── Create verification notification ────────────────────────
+async function createVerificationNotification(userId, verified) {
+  const type = verified ? 'verified' : 'unverified';
+  const message = verified 
+    ? '🎉 Congratulations! Your account has been verified. You now have a verification badge!'
+    : 'Your verification badge has been removed. If you think this was a mistake, please contact support.';
+  
+  return createSystemNotification(userId, type, message);
 }
 
 // ── Fetch paginated notifications for a user ──────────────
@@ -118,12 +143,14 @@ async function getNotifications(userId, limit = 10, offset = 0) {
        n.created_at   AS createdAt,
        n.post_id      AS postId,
        n.session_id   AS sessionId,
+       n.message      AS customMessage,
        a.id           AS actorId,
        a.name         AS actorName,
+       a.username     AS actorUsername,
        a.picture      AS actorPicture,
        LEFT(p.text, 80) AS postSnippet
      FROM notifications n
-     JOIN  users a ON a.id = n.actor_id
+     LEFT JOIN users a ON a.id = n.actor_id
      LEFT JOIN posts p ON p.id = n.post_id
      WHERE n.recipient_id = ?
      ORDER BY n.created_at DESC
@@ -158,6 +185,7 @@ async function markOneRead(notifId) {
 module.exports = {
   createNotification,
   createSystemNotification,
+  createVerificationNotification,
   getNotifications,
   getUnreadCount,
   markAllRead,

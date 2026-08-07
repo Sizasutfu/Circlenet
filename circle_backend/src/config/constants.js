@@ -15,6 +15,8 @@
 //    • NEW: DM affinity boosts posts from users you message.
 //    • NEW: Media quality, content length, mutual follows,
 //      group affinity, and session activity signals.
+//    • NEW: Mention signals — posts where the viewer is mentioned
+//      get a significant boost.
 // ============================================================
 
 module.exports = {
@@ -26,6 +28,7 @@ module.exports = {
   WEIGHT_REPOST:  6.0,   // strong endorsement
   WEIGHT_VIEW:    0.3,   // high volume — keep small
   WEIGHT_DWELL:   5.0,   // seconds of reading time (if tracked)
+  WEIGHT_MENTION: 12.0,  // mentions = personal relevance (HIGHEST)
 
   // ── Negative signal weights ──────────────────────────────
   // Subtracted from base score before multipliers are applied.
@@ -144,7 +147,37 @@ module.exports = {
   VELOCITY_BOOST_MAX:       1.50,   // maximum velocity boost
   VELOCITY_LIKES_PER_HOUR:  10,     // scale factor for likes/hour
 
+  // ── Mention Boost ────────────────────────────────────────
+  // Posts where the viewer is mentioned get a significant boost.
+  MENTION_BOOST_MULTIPLIER:  3.00,  // 3x boost for mentioned posts
+  MENTION_REPLY_BOOST:       2.50,  // 2.5x boost for mentions in replies
+
+  // ── Repost Boost ────────────────────────────────────────────
+  // Posts that are reposted by users you follow get a boost
+  REPOST_FROM_FOLLOWED_BOOST:  1.2,   // 20% boost for reposts from followed users
+  REPOST_FOLLOW_BOTH_BOOST:    1.4,   // 40% boost if you follow both reposter and original author
+
+  // ── Niche-based recommendations ──────────────────────────
+// NEW: Boost posts based on user's detected niches
+NICHE_BOOST_WEIGHT: 0.5,          // Max boost = 50% of niche score
+NICHE_MULTIPLIER_MAX: 1.5,        // Cap niche multiplier
+NICHE_MIN_SCORE: 0.1,             // Minimum niche score to consider
+NICHE_MAX_RECOMMENDATIONS: 5,     // Max niches to track per user
+
+
+// ── Similar Creator Recommendations ──────────────────────
+// NEW: Boost posts from creators who create similar content
+SIMILAR_CREATOR_BOOST: 1.2,    // 20% boost for similar creators
+MAX_SIMILAR_CREATORS: 3,       // Max similar creators to recommend
+
   // ── Score debug flag ─────────────────────────────────────
   // Set to true to attach _scoreDebug to each post object.
   DEBUG_SCORES:  false,
+
+  // ════════════════════════════════════════════════════════════
+  //  NEW: GLOBAL MULTIPLIER CAP (Issue 1 fix)
+  // ════════════════════════════════════════════════════════════
+  // Prevents score explosion from 15+ multipliers compounding.
+  // Any combined multiplier exceeding this cap is clamped.
+  GLOBAL_MULTIPLIER_CAP: 4.0,
 };

@@ -1,20 +1,21 @@
 // src/contexts/SearchContext.jsx
 'use client';
 
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '@/lib/api';
 
 const SearchContext = createContext();
 
 export function SearchProvider({ children }) {
   const [query, setQuery] = useState('');
-  const [type, setType] = useState('posts');
+  const [type, setType] = useState('all');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
   const [history, setHistory] = useState([]);
   const abortControllerRef = useRef(null);
+  const [initialized, setInitialized] = useState(false);
 
   // ── Search ──
   const search = useCallback(
@@ -36,89 +37,70 @@ export function SearchProvider({ children }) {
       const url = `/api/search?q=${encodeURIComponent(q)}&type=${searchType}&page=${pageNum}&limit=20`;
 
       try {
-        const res = await apiClient(url, { signal: controller.signal });
+        const response = await apiClient(url, { signal: controller.signal });
 
-        // ── DEBUG: log the raw response ──
-        console.log('🔍 Raw search response:', res);
-
-        // ── Robust data extraction ──
         let data = [];
-        const typeMap = { posts: 'posts', people: 'people', groups: 'groups' };
-        const key = typeMap[searchType] || 'results';
+        let hasMoreData = false;
 
-        // Try multiple possible response shapes:
-        if (Array.isArray(res)) {
-          data = res;
-        } else if (res.data && Array.isArray(res.data)) {
-          data = res.data;
-        } else if (res.results && Array.isArray(res.results)) {
-          data = res.results;
-        } else if (res.data && res.data.results && Array.isArray(res.data.results)) {
-          data = res.data.results;
-        } else if (res.data && res.data[key] && Array.isArray(res.data[key])) {
-          data = res.data[key];
-        } else if (res[key] && Array.isArray(res[key])) {
-          data = res[key];
-        } else if (res.data && res.data.data && Array.isArray(res.data.data)) {
-          data = res.data.data;
-        } else if (res.items && Array.isArray(res.items)) {
-          data = res.items;
-        } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
-          data = res.data.items;
-        } else {
-          // Last resort: try to find any array in the response
-          for (const [k, v] of Object.entries(res)) {
-            if (Array.isArray(v)) {
-              data = v;
-              break;
-            }
-            if (res.data && Array.isArray(res.data[k])) {
-              data = res.data[k];
-              break;
-            }
+        if (response && typeof response === 'object') {
+          if (response.data && Array.isArray(response.data)) {
+            data = response.data;
+          } else if (Array.isArray(response)) {
+            data = response;
+          }
+          
+          if (response.meta && typeof response.meta.hasMore !== 'undefined') {
+            hasMoreData = response.meta.hasMore;
+          } else if (response.hasMore !== undefined) {
+            hasMoreData = response.hasMore;
+          } else {
+            hasMoreData = data.length === 20;
           }
         }
 
-        // If data is still empty, try to use res.data if it's an object with numeric keys
-        if (!data.length && res.data && typeof res.data === 'object') {
-          const values = Object.values(res.data);
-          if (values.length && values.every(v => typeof v === 'object')) {
-            data = values;
+        const processedData = data.map(item => {
+          if (item._type) return item;
+          
+          if (item.text !== undefined && item.userId !== undefined) {
+            return { ...item, _type: 'post' };
           }
-        }
+          if (item.topic !== undefined || item.displayName !== undefined) {
+            return { ...item, _type: 'group' };
+          }
+          if (item.email !== undefined || item.username !== undefined) {
+            return { ...item, _type: 'user' };
+          }
+          return { ...item, _type: 'post' };
+        });
 
-        console.log('📦 Extracted data:', data);
-
-        const hasMoreData = res.meta?.hasMore || data.length === 20;
-
-        setResults((prev) => (append ? [...prev, ...data] : data));
+        setResults((prev) => (append ? [...prev, ...processedData] : processedData));
         setHasMore(hasMoreData);
         setPage(pageNum + 1);
         setQuery(q);
         setType(searchType);
 
-        // Save to history
-        if (q.length >= 2) {
-          setHistory((prev) => {
-            const filtered = prev.filter((h) => h.query !== q || h.tab !== searchType);
-            return [
-              { query: q, tab: searchType, searched_at: new Date().toISOString() },
-              ...filtered,
-            ].slice(0, 20);
-          });
+        // ── Save to history ──
+        if (q.length >= 2 && !append) {
           try {
-            await apiClient('/api/search/history', {
+            const historyResponse = await apiClient('/api/search/history', {
               method: 'POST',
               body: JSON.stringify({ query: q, tab: searchType }),
             });
-          } catch (_) {}
+            // Update history with the response
+            if (historyResponse && historyResponse.data) {
+              setHistory(historyResponse.data);
+            }
+          } catch (err) {
+            console.warn('Failed to save search history:', err.message);
+          }
         }
       } catch (err) {
         if (err.name === 'AbortError') {
           return;
         }
-        console.error('❌ Search error:', err);
+        console.error('Search error:', err);
         setResults([]);
+        setHasMore(false);
       } finally {
         setLoading(false);
       }
@@ -139,26 +121,64 @@ export function SearchProvider({ children }) {
     setPage(1);
   }, []);
 
+  // ── Load history ──
   const loadHistory = useCallback(async () => {
     try {
-      const res = await apiClient('/api/search/history');
-      setHistory(res.data || []);
-    } catch (_) {}
+      const response = await apiClient('/api/search/history');
+      
+      let historyData = [];
+      if (response && typeof response === 'object') {
+        if (response.data && Array.isArray(response.data)) {
+          historyData = response.data;
+        } else if (Array.isArray(response)) {
+          historyData = response;
+        }
+      }
+      
+      setHistory(historyData);
+    } catch (err) {
+      console.warn('Failed to load search history:', err.message);
+      setHistory([]);
+    }
   }, []);
 
+  // ── Delete history entry ──
   const deleteHistoryEntry = useCallback(async (id, q, tab) => {
     try {
-      if (id) await apiClient(`/api/search/history/${id}`, { method: 'DELETE' });
+      const response = await apiClient(`/api/search/history/${id}`, { method: 'DELETE' });
+      
+      // Update history with the response
+      if (response && response.data) {
+        setHistory(response.data);
+      } else {
+        // Fallback: filter locally
+        setHistory((prev) => prev.filter((h) => !(h.query === q && h.tab === tab)));
+      }
+    } catch (err) {
+      console.warn('Failed to delete history entry:', err.message);
+      // Still remove from local state
       setHistory((prev) => prev.filter((h) => !(h.query === q && h.tab === tab)));
-    } catch (_) {}
+    }
   }, []);
 
+  // ── Clear all history ──
   const clearHistory = useCallback(async () => {
     try {
       await apiClient('/api/search/history', { method: 'DELETE' });
       setHistory([]);
-    } catch (_) {}
+    } catch (err) {
+      console.warn('Failed to clear search history:', err.message);
+      setHistory([]);
+    }
   }, []);
+
+  // ── Load history on mount ──
+  useEffect(() => {
+    if (!initialized) {
+      loadHistory();
+      setInitialized(true);
+    }
+  }, [loadHistory, initialized]);
 
   const value = {
     query,

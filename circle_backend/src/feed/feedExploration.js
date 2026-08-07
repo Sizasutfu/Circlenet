@@ -19,7 +19,7 @@ const { hydratePosts }                = require('../models/postModel');
 const { EXPLORE_EVERY_N, EXPLORE_MAX_AGE_HOURS } = require('../config/constants');
 
 /**
- * Fetch candidate exploration posts.
+ * Fetch candidate exploration posts (OPTIMIZED with trend_score).
  * Excludes posts from people the viewer already follows,
  * and posts already in the personalised batch.
  *
@@ -55,18 +55,13 @@ async function fetchExplorationPosts(viewerUserId, followingIds, excludePostIds,
 
   conditions.push(`p.created_at >= NOW() - INTERVAL ? HOUR`);
   params.push(EXPLORE_MAX_AGE_HOURS);
-
-  // Only fetch posts that have some engagement (trending)
-  conditions.push(`(
-    (SELECT COUNT(*) FROM likes WHERE post_id = p.id) > 0
-    OR (SELECT COUNT(*) FROM comments WHERE post_id = p.id) > 0
-  )`);
+  conditions.push(`p.trend_score > 0`);
 
   const whereClause = conditions.length
     ? `WHERE ${conditions.join(' AND ')}`
     : '';
 
-  // ── Query with author attributes ───────────────────────────
+  // ── Query with trend_score (no subqueries) ────────────────
   const [rawPosts] = await db.query(
     `SELECT
        p.id,
@@ -82,28 +77,28 @@ async function fetchExplorationPosts(viewerUserId, followingIds, excludePostIds,
        p.original_post_id AS originalPostId,
        p.group_id         AS groupId,
        p.created_at       AS createdAt,
-       (
-         (SELECT COUNT(*) FROM likes    WHERE post_id = p.id) * 2 +
-         (SELECT COUNT(*) FROM comments WHERE post_id = p.id) * 4 +
-         (SELECT COUNT(*) FROM reposts  WHERE original_post_id = p.id) * 3
-       ) AS _trendScore
+       p.trend_score      AS _trendScore
      FROM posts p
      JOIN users u ON u.id = p.user_id
      ${whereClause}
-     ORDER BY _trendScore DESC, RAND()
+     ORDER BY p.trend_score DESC
      LIMIT ?`,
     [...params, needed * 3] // over-fetch for buffer
   );
 
   if (!rawPosts.length) return [];
 
+  // ── Shuffle in JS instead of RAND() in SQL ────────────────
+  const shuffled = rawPosts.sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, needed);
+
   // ── Hydrate with engagement data ──────────────────────────
-  const hydrated = await hydratePosts(rawPosts, {
+  const hydrated = await hydratePosts(selected, {
     followingIds: followingIds,
     includeFullComments: false,
   });
 
-  return hydrated.slice(0, needed);
+  return hydrated;
 }
 
 /**

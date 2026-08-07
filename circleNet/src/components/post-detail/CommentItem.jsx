@@ -3,19 +3,36 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { resolveMediaUrl } from '@/lib/url';
 import ReplyInput from './ReplyInput';
-import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder'; 
+import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
+import { formatPostText } from '@/lib/formatText';
+
 function getUser(comment) {
+  // Try multiple possible data structures
   if (comment.user) {
     return {
-      name: comment.user.name || 'Unknown',
-      username: comment.user.username || 'unknown',
-      picture: comment.user.picture || null,
+      name: comment.user.name || comment.user.displayName || 'Unknown',
+      username: comment.user.username || comment.user.handle || 'unknown',
+      picture: comment.user.picture || comment.user.avatar || null,
+      verified: comment.user.verified || false,
     };
   }
+  
+  // Check for author fields (from API)
+  if (comment.author || comment.authorName) {
+    return {
+      name: comment.author || comment.authorName || 'Unknown',
+      username: comment.authorUsername || comment.username || 'unknown',
+      picture: comment.authorPicture || comment.authorAvatar || null,
+      verified: comment.authorVerified || false,
+    };
+  }
+  
+  // Check for direct fields on comment
   return {
-    name: comment.author || 'Unknown',
-    username: comment.authorUsername || 'unknown',
-    picture: comment.authorPicture || null,
+    name: comment.name || comment.author || 'Unknown',
+    username: comment.username || comment.authorUsername || 'unknown',
+    picture: comment.picture || comment.authorPicture || null,
+    verified: comment.verified || false,
   };
 }
 
@@ -25,8 +42,9 @@ export default function CommentItem({ comment, allComments, postId, onCommentAdd
   const replies = allComments.filter(c => c.parentId === comment.id);
   const hasReplies = replies.length > 0;
 
-  const { name, username, picture } = getUser(comment);
+  const { name, username, picture, verified } = getUser(comment);
   const avatarUrl = resolveMediaUrl(picture);
+  const formattedText = formatPostText(comment.text);
 
   const toggleReplies = () => setExpanded(!expanded);
   const toggleReply = () => setReplying(!replying);
@@ -51,12 +69,21 @@ export default function CommentItem({ comment, allComments, postId, onCommentAdd
           <Link href={`/comment/${comment.id}`} className="block hover:bg-[var(--color-surface)] rounded-md transition p-1 -m-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-sm text-[var(--color-txt)]">{name}</span>
+              {verified && (
+                <svg className="w-4 h-4 text-[var(--color-accent)]" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              )}
               <span className="text-xs text-[var(--color-txt3)]">@{username}</span>
               <span className="text-xs text-[var(--color-txt3)]">
                 · {new Date(comment.createdAt).toLocaleString()}
               </span>
             </div>
-            <p className="text-sm text-[var(--color-txt)] mt-0.5 break-words">{comment.text}</p>
+            {/* ─── Formatted text with mentions ─── */}
+            <p 
+              className="text-sm text-[var(--color-txt)] mt-0.5 break-words"
+              dangerouslySetInnerHTML={{ __html: formattedText }}
+            />
           </Link>
 
           {/* Actions – now inside content, wraps on small screens */}

@@ -122,7 +122,6 @@ export default function ClientLayout({ children }) {
     '/messages',
     '/live',
     '/compose',
-    '/login',
     '/register',
     '/reset-password',
     '/whisper/inbox',

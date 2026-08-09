@@ -25,13 +25,20 @@ async function getTrendingGroups(req, res) {
 
   try {
     const result = await GroupModel.getTrendingGroups({ limit, offset, userId });
-    // Additional override: for each group, if userId present, double-check membership
+    
+    // Double-check membership for each group if user is authenticated
     if (userId && result.groups) {
       for (const group of result.groups) {
-        const member = await GroupModel.isMember(userId, group.id);
-        group.isMember = member;
+        try {
+          const member = await GroupModel.isMember(userId, group.id);
+          group.isMember = !!member;
+        } catch (err) {
+          console.error(`Failed to check membership for group ${group.id}:`, err);
+          group.isMember = false;
+        }
       }
     }
+    
     return sendOk(res, 200, 'Groups fetched.', { ...result, page, limit });
   } catch (err) {
     console.error('getTrendingGroups error:', err);
@@ -47,6 +54,7 @@ async function getMyGroups(req, res) {
 
   try {
     const groups = await GroupModel.getUserGroups(userId);
+    console.log(`[getMyGroups] User ${userId} has ${groups.length} groups`);
     return sendOk(res, 200, 'Your groups fetched.', groups);
   } catch (err) {
     console.error('getMyGroups error:', err);
@@ -65,10 +73,16 @@ async function getGroup(req, res) {
     let group = await GroupModel.getGroupById(groupId, userId);
     if (!group) return sendError(res, 404, 'Group not found.');
 
-    // ── Explicit membership check to override any false values ──
+    // Explicit membership check
     if (userId) {
-      const member = await GroupModel.isMember(userId, groupId);
-      group.isMember = member;
+      try {
+        const member = await GroupModel.isMember(userId, groupId);
+        group.isMember = !!member;
+        console.log(`[getGroup] User ${userId} is ${group.isMember ? '' : 'not '}a member of group ${groupId}`);
+      } catch (err) {
+        console.error(`Failed to check membership for group ${groupId}:`, err);
+        group.isMember = false;
+      }
     } else {
       group.isMember = false;
     }
@@ -91,10 +105,15 @@ async function getGroupByTopic(req, res) {
     let group = await GroupModel.getGroupByTopic(topic, userId);
     if (!group) return sendError(res, 404, 'Group not found for that topic.');
 
-    // ── Explicit membership check ──
+    // Explicit membership check
     if (userId) {
-      const member = await GroupModel.isMember(userId, group.id);
-      group.isMember = member;
+      try {
+        const member = await GroupModel.isMember(userId, group.id);
+        group.isMember = !!member;
+      } catch (err) {
+        console.error(`Failed to check membership for group ${group.id}:`, err);
+        group.isMember = false;
+      }
     } else {
       group.isMember = false;
     }
@@ -117,12 +136,40 @@ async function joinGroup(req, res) {
 
   try {
     // Verify the group exists
-    const group = await GroupModel.getGroupById(groupId, userId);
+    const group = await GroupModel.getGroupById(groupId);
     if (!group) return sendError(res, 404, 'Group not found.');
 
+    console.log(`[joinGroup] User ${userId} attempting to join group ${groupId} (${group.topic})`);
+
+    // Check if already a member
+    const isAlreadyMember = await GroupModel.isMember(userId, groupId);
+    if (isAlreadyMember) {
+      console.log(`[joinGroup] User ${userId} is already a member of group ${groupId}`);
+      return sendOk(res, 200, `Already a member of ${group.displayName}.`, { 
+        groupId, 
+        isMember: true,
+        memberCount: group.memberCount
+      });
+    }
+
+    // Join the group
     const joined = await GroupModel.joinGroup(userId, groupId);
-    const msg    = joined ? `Joined ${group.displayName}.` : `Already a member of ${group.displayName}.`;
-    return sendOk(res, 200, msg, { groupId, isMember: true });
+    
+    if (!joined) {
+      console.error(`[joinGroup] Failed to join group ${groupId} for user ${userId}`);
+      return sendError(res, 500, 'Failed to join group.');
+    }
+
+    // Get updated group data
+    const updatedGroup = await GroupModel.getGroupById(groupId, userId);
+    console.log(`[joinGroup] User ${userId} successfully joined group ${groupId}, new member count: ${updatedGroup?.memberCount || group.memberCount + 1}`);
+
+    return sendOk(res, 200, `Joined ${group.displayName}.`, { 
+      groupId, 
+      isMember: true,
+      memberCount: updatedGroup?.memberCount || group.memberCount + 1,
+      group: updatedGroup
+    });
   } catch (err) {
     console.error('joinGroup error:', err);
     return sendError(res, 500, 'Server error.');
@@ -139,11 +186,41 @@ async function leaveGroup(req, res) {
   if (!groupId || isNaN(groupId)) return sendError(res, 400, 'Invalid group ID.');
 
   try {
+    // Verify the group exists
     const group = await GroupModel.getGroupById(groupId);
     if (!group) return sendError(res, 404, 'Group not found.');
 
-    await GroupModel.leaveGroup(userId, groupId);
-    return sendOk(res, 200, `Left ${group.displayName}.`, { groupId, isMember: false });
+    console.log(`[leaveGroup] User ${userId} attempting to leave group ${groupId} (${group.topic})`);
+
+    // Check if actually a member
+    const isMember = await GroupModel.isMember(userId, groupId);
+    if (!isMember) {
+      console.log(`[leaveGroup] User ${userId} is not a member of group ${groupId}`);
+      return sendOk(res, 200, `Not a member of ${group.displayName}.`, { 
+        groupId, 
+        isMember: false,
+        memberCount: group.memberCount
+      });
+    }
+
+    // Leave the group
+    const left = await GroupModel.leaveGroup(userId, groupId);
+    
+    if (!left) {
+      console.error(`[leaveGroup] Failed to leave group ${groupId} for user ${userId}`);
+      return sendError(res, 500, 'Failed to leave group.');
+    }
+
+    // Get updated group data
+    const updatedGroup = await GroupModel.getGroupById(groupId, userId);
+    console.log(`[leaveGroup] User ${userId} successfully left group ${groupId}, new member count: ${updatedGroup?.memberCount || Math.max(0, group.memberCount - 1)}`);
+
+    return sendOk(res, 200, `Left ${group.displayName}.`, { 
+      groupId, 
+      isMember: false,
+      memberCount: updatedGroup?.memberCount || Math.max(0, group.memberCount - 1),
+      group: updatedGroup
+    });
   } catch (err) {
     console.error('leaveGroup error:', err);
     return sendError(res, 500, 'Server error.');
@@ -177,5 +254,4 @@ module.exports = {
   joinGroup,
   leaveGroup,
   getGroupFeed,
- 
 };

@@ -4,7 +4,7 @@
 import { useGroups } from '@/contexts/GroupsContext';
 import { useAuth } from '@/lib/auth';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 function fmtNum(n) {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
@@ -30,13 +30,31 @@ function groupGradient(topic) {
 
 export default function GroupCard({ group }) {
   const { user } = useAuth();
-  const { joinGroup, leaveGroup } = useGroups();
+  const { joinGroup, leaveGroup, myGroups, refreshKey } = useGroups();
 
   const [isJoining, setIsJoining] = useState(false);
+  const [isMember, setIsMember] = useState(false);
+  const [memberCount, setMemberCount] = useState(0);
 
-  // ✅ Read directly from the group prop (single source of truth)
-  const isMember = group.isMember || false;
-  const memberCount = group.memberCount || 0;
+  // Update local state when group prop or myGroups changes
+  useEffect(() => {
+    if (group) {
+      // Check if user is a member from myGroups
+      const isUserMember = myGroups.some(g => g.id === group.id);
+      const finalIsMember = isUserMember || group.isMember || false;
+      
+      // Debug logging
+      console.log(`[GroupCard] Group ${group.id} (${group.topic}):`, {
+        fromMyGroups: isUserMember,
+        fromGroupProp: group.isMember,
+        finalIsMember: finalIsMember,
+        myGroupsCount: myGroups.length
+      });
+      
+      setIsMember(finalIsMember);
+      setMemberCount(group.memberCount || 0);
+    }
+  }, [group, myGroups, refreshKey]);
 
   const handleJoin = async (e) => {
     e.preventDefault();
@@ -45,19 +63,30 @@ export default function GroupCard({ group }) {
     if (!user || isJoining) return;
 
     setIsJoining(true);
+    const wasMember = isMember;
 
     try {
       if (isMember) {
+        console.log(`[GroupCard] Leaving group ${group.id}`);
         await leaveGroup(group.id);
+        setIsMember(false);
+        setMemberCount(prev => Math.max(0, prev - 1));
       } else {
+        console.log(`[GroupCard] Joining group ${group.id}`);
         await joinGroup(group.id);
+        setIsMember(true);
+        setMemberCount(prev => prev + 1);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Error toggling membership:', err);
+      setIsMember(wasMember);
+      setMemberCount(group.memberCount || 0);
     } finally {
       setIsJoining(false);
     }
   };
+
+  if (!group) return null;
 
   const grad = groupGradient(group.topic);
 

@@ -41,6 +41,9 @@ export default function GroupDetailClient({ params }) {
     joinGroup,
     leaveGroup,
     postToGroup,
+    myGroups,
+    refreshKey,
+    loadMyGroups,
   } = useGroups();
 
   const [activeTab, setActiveTab] = useState('feed');
@@ -56,6 +59,7 @@ export default function GroupDetailClient({ params }) {
   const loadMoreRef = useRef(null);
   const [groupId, setGroupId] = useState(null);
   const initialFetchDone = useRef(false);
+  const [isMember, setIsMember] = useState(false);
 
   // ── Resolve groupId from params ──
   useEffect(() => {
@@ -72,7 +76,7 @@ export default function GroupDetailClient({ params }) {
     resolveParams();
   }, [params]);
 
-  // ── Load group data (only once) ──
+  // ── Load group data ──
   useEffect(() => {
     if (!groupId) return;
     if (initialFetchDone.current) return;
@@ -82,7 +86,15 @@ export default function GroupDetailClient({ params }) {
       setLoading(true);
       setError(null);
       try {
+        // First load my groups to get membership status
+        if (user) {
+          await loadMyGroups();
+        }
+        
+        // Then load group detail
         await loadGroupDetail(groupId);
+        
+        // Finally load the feed
         await loadGroupFeed(groupId, true);
       } catch (err) {
         console.error('Failed to load group:', err);
@@ -92,7 +104,26 @@ export default function GroupDetailClient({ params }) {
       }
     };
     fetchData();
-  }, [groupId]);
+  }, [groupId, user]);
+
+  // ── Update isMember when currentGroup or myGroups changes ──
+  useEffect(() => {
+    if (currentGroup && currentGroup.id) {
+      // Check membership from myGroups
+      const isUserMember = myGroups.some(g => g.id === currentGroup.id);
+      // Also check from currentGroup
+      const finalIsMember = isUserMember || currentGroup.isMember || false;
+      
+      console.log('[GroupDetailClient] Membership status:', {
+        groupId: currentGroup.id,
+        fromMyGroups: isUserMember,
+        fromCurrentGroup: currentGroup.isMember,
+        finalIsMember: finalIsMember
+      });
+      
+      setIsMember(finalIsMember);
+    }
+  }, [currentGroup, myGroups, refreshKey]);
 
   // ── Infinite scroll observer ──
   useEffect(() => {
@@ -135,7 +166,6 @@ export default function GroupDetailClient({ params }) {
   }
 
   const grad = groupGradient(currentGroup.topic);
-  const isMember = currentGroup.isMember || false;
   const coverHtml = currentGroup.coverImage ? (
     <img src={currentGroup.coverImage} alt="" className="w-full h-full object-cover" />
   ) : (
@@ -156,11 +186,16 @@ export default function GroupDetailClient({ params }) {
     try {
       if (isMember) {
         await leaveGroup(groupId);
+        setIsMember(false);
       } else {
         await joinGroup(groupId);
+        setIsMember(true);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Error toggling membership:', err);
+      // Revert on error
+      const isUserMember = myGroups.some(g => g.id === groupId);
+      setIsMember(isUserMember || currentGroup.isMember || false);
     } finally {
       setIsJoining(false);
     }
@@ -179,7 +214,7 @@ export default function GroupDetailClient({ params }) {
       setComposerImagePreview(null);
       setComposerVideoPreview(null);
     } catch (err) {
-      console.error(err);
+      console.error('Error posting:', err);
     } finally {
       setSubmitting(false);
     }
@@ -246,7 +281,11 @@ export default function GroupDetailClient({ params }) {
             <button
               onClick={handleJoinToggle}
               disabled={isJoining}
-              className={`px-5 py-2 rounded-full text-sm font-bold transition ${isMember ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)]'}`}
+              className={`px-5 py-2 rounded-full text-sm font-bold transition ${
+                isMember 
+                  ? 'bg-white/20 text-white hover:bg-white/30' 
+                  : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)]'
+              }`}
             >
               {isJoining ? '…' : (isMember ? '✓ Joined' : 'Join')}
             </button>
@@ -260,7 +299,11 @@ export default function GroupDetailClient({ params }) {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`pb-2 text-sm font-medium transition relative ${activeTab === tab ? 'text-[var(--color-accent)]' : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)]'}`}
+            className={`pb-2 text-sm font-medium transition relative ${
+              activeTab === tab 
+                ? 'text-[var(--color-accent)]' 
+                : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)]'
+            }`}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
             {activeTab === tab && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-[var(--color-accent)] rounded-full" />}
@@ -299,7 +342,10 @@ export default function GroupDetailClient({ params }) {
                           onClick={removeMedia}
                           className="absolute -top-2 -right-2 bg-[var(--color-rose)] text-white rounded-full p-1 hover:bg-[var(--color-rose)]/80 transition"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
                         </button>
                       </div>
                     )}

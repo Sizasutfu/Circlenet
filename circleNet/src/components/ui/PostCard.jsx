@@ -17,6 +17,7 @@ import ShareButton from './ShareButton';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
 import { resolveMediaUrl } from '@/lib/url';
+import { usePostInteractions } from '@/hooks/usePostInteractions';
 
 let currentlyPlayingVideo = null;
 
@@ -55,6 +56,13 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
+// ── Helper to ensure likes/reposts is always an array ──
+function ensureArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'number') return [];
+  return [];
+}
+
 const cardClasses =
   'px-4 py-3 border-b border-[var(--color-border)] hover:shadow-[var(--color-shadow)] transition-shadow duration-200';
 
@@ -78,6 +86,7 @@ export default function PostCard({
   const { watchSession } = useLive();
   const { openLightbox } = useLightbox();
 
+  // ── Safely extract data with fallbacks ──
   const {
     id,
     text,
@@ -101,6 +110,11 @@ export default function PostCard({
     reasons = [],
   } = post;
 
+  // 🔥 FIX: Ensure likes and reposts are always arrays
+  const safeLikes = ensureArray(likes);
+  const safeReposts = ensureArray(reposts);
+  const safeComments = Array.isArray(comments) ? comments : [];
+
   const groupInfo = groupId ? groupMap.get(groupId) : null;
   const groupTopic = groupInfo?.displayName || groupInfo?.topic || null;
 
@@ -109,16 +123,17 @@ export default function PostCard({
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
   const isVerified = post.user?.verified || post.authorVerified || false;
 
-  const initialLiked =
-    currentUser && likes.length > 0 ? likes.some((id) => id === currentUser.id) : false;
-  
-  const initialReposted =
-    currentUser && reposts.length > 0 ? reposts.some((id) => id === currentUser.id) : false;
+  // Use WebSocket hook for real-time updates
+  const { 
+    likeState, 
+    repostState, 
+    toggleLike, 
+    toggleRepost,
+    initialize,
+    refresh,
+    isConnected 
+  } = usePostInteractions(id);
 
-  const [isLiked, setIsLiked] = useState(initialLiked);
-  const [likeCount, setLikeCount] = useState(likes.length || 0);
-  const [isReposted, setIsReposted] = useState(initialReposted);
-  const [repostCountState, setRepostCountState] = useState(reposts.length || 0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
@@ -140,6 +155,38 @@ export default function PostCard({
   const [videoViewsState, setVideoViewsState] = useState(videoViews || 0);
 
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
+
+  // ── Initialize with initial data ──
+  useEffect(() => {
+    // 🔥 FIX: Use safe arrays
+    const initialLikes = {
+      count: safeLikes.length || 0,
+      liked: currentUser ? safeLikes.some(id => id === currentUser.id) : false,
+      userIds: safeLikes,
+    };
+    
+    const initialReposts = {
+      count: safeReposts.length || 0,
+      reposted: currentUser ? safeReposts.some(id => id === currentUser.id) : false,
+      userIds: safeReposts,
+    };
+    
+    const commentCountValue = typeof commentCount === 'number' ? commentCount : safeComments.length;
+    
+    initialize(initialLikes, initialReposts, commentCountValue);
+  }, [id, currentUser, initialize, safeLikes, safeReposts, safeComments, commentCount]);
+
+  // ── Refresh when post data changes (after refresh/rerender) ──
+  useEffect(() => {
+    if (!post) return;
+    
+    // 🔥 FIX: Use safe arrays
+    refresh({
+      likes: safeLikes,
+      reposts: safeReposts,
+      commentCount: typeof commentCount === 'number' ? commentCount : safeComments.length,
+    });
+  }, [post, safeLikes, safeReposts, safeComments, commentCount, refresh]);
 
   // ── Check if current user is mentioned in this post ──
   const isUserMentioned = useMemo(() => {
@@ -307,15 +354,15 @@ export default function PostCard({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLike = () => {
-    setIsLiked(!isLiked);
-    setLikeCount((prev) => (isLiked ? prev - 1 : prev + 1));
+  // Updated like handler with WebSocket
+  const handleLike = async () => {
+    await toggleLike();
     if (onLike) onLike(id);
   };
 
-  const handleRepost = () => {
-    setIsReposted(!isReposted);
-    setRepostCountState((prev) => (isReposted ? prev - 1 : prev + 1));
+  // Updated repost handler with WebSocket
+  const handleRepost = async () => {
+    await toggleRepost();
     if (onRepost) onRepost(id);
   };
 
@@ -692,7 +739,7 @@ export default function PostCard({
   const renderOriginalPost = () => {
     if (!originalPost) return null;
     const origAuthor = originalPost.author || 'Unknown';
-    const origUsername = originalPost.username || '';
+    const origUsername = originalPost.authorUsername || '';
     const origAvatar = originalPost.authorPicture || '';
     const origText = originalPost.text || '';
     const origImage = originalPost.image || '';
@@ -812,10 +859,80 @@ export default function PostCard({
     return cardClasses;
   };
 
-  // ── Repost layout ──
+  // ── Check if this is a plain repost (no additional text) ──
+  const isPlainRepost = isRepost && (!text || text.trim() === '');
+
+  // ── If plain repost, show original post with banner ──
+  if (isPlainRepost && originalPost) {
+    return (
+      <div className={getCardStyle()}>
+        {/* Repost banner */}
+        <div className="flex items-center gap-2 text-xs text-[var(--color-txt3)] mb-1 ml-11">
+          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <polyline points="17 1 21 5 17 9" />
+            <path d="M3 11V9a4 4 0 014-4h14" />
+            <polyline points="7 23 3 19 7 15" />
+            <path d="M21 13v2a4 4 0 01-4 4H3" />
+          </svg>
+          <span className="truncate">
+            {profileUrl ? (
+              <Link 
+                href={profileUrl} 
+                className="font-medium text-[var(--color-txt)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {displayName}
+              </Link>
+            ) : (
+              <span className="font-medium text-[var(--color-txt)]">{displayName}</span>
+            )}
+            {' reposted'}
+          </span>
+          <span className="text-[var(--color-txt3)] flex-shrink-0">· {relativeTime}</span>
+        </div>
+        
+        {/* Original post */}
+        <PostCard
+          post={originalPost}
+          groupMap={groupMap}
+          onLike={onLike}
+          onComment={onComment}
+          onRepost={onRepost}
+          onShare={onShare}
+          onQuote={onQuote}
+          isMentioned={isMentioned}
+        />
+      </div>
+    );
+  }
+
+  // ── Quote repost (has text) ──
   if (isRepost && originalPost) {
     return (
       <div className={getCardStyle()}>
+        {/* Quote repost banner */}
+        <div className="flex items-center gap-2 text-xs text-[var(--color-txt3)] mb-1 ml-11">
+          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
+          </svg>
+          <span className="truncate">
+            {profileUrl ? (
+              <Link 
+                href={profileUrl} 
+                className="font-medium text-[var(--color-txt)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {displayName}
+              </Link>
+            ) : (
+              <span className="font-medium text-[var(--color-txt)]">{displayName}</span>
+            )}
+            {' quoted'}
+          </span>
+          <span className="text-[var(--color-txt3)] flex-shrink-0">· {relativeTime}</span>
+        </div>
+        
+        {/* Quote content */}
         <div className="flex items-start gap-3">
           {profileUrl ? (
             <Link href={profileUrl} className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -844,7 +961,6 @@ export default function PostCard({
                     {isVerified && <VerificationBadge size="w-4 h-4" />}
                   </span>
                 )}
-                {renderRepostedIndicator()}
                 {renderMentionBadge()}
                 {renderFollowButton()}
                 {username &&
@@ -967,29 +1083,47 @@ export default function PostCard({
               </div>
             </div>
 
+            {/* Quote text */}
             {text && (
               <div className="mt-1 text-[var(--color-txt)] text-sm leading-relaxed whitespace-pre-wrap break-words">
                 <span dangerouslySetInnerHTML={{ __html: formatPostText(text) }} />
               </div>
             )}
 
-            {renderOriginalPost()}
+            {/* Original post embedded */}
+            <div className="mt-2 border border-[var(--color-border)] rounded-lg overflow-hidden">
+              <PostCard
+                post={originalPost}
+                groupMap={groupMap}
+                onLike={onLike}
+                onComment={onComment}
+                onRepost={onRepost}
+                onShare={onShare}
+                onQuote={onQuote}
+                isMentioned={isMentioned}
+              />
+            </div>
 
+            {/* Engagement on original post */}
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-              <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
+              <LikeButton 
+                count={originalPost.likes?.length || 0} 
+                active={originalPost.likes?.some(id => id === currentUser?.id) || false} 
+                onToggle={() => onLike && onLike(originalPost.id)} 
+              />
               <CommentButton
-                count={commentCount ?? comments.length}
-                onClick={() => onComment && onComment(id)}
+                count={originalPost.commentCount || 0}
+                onClick={() => onComment && onComment(originalPost.id)}
               />
               <RepostButton
-                count={repostCountState}
-                active={isReposted}
-                onClick={handleRepost}
+                count={originalPost.reposts?.length || 0}
+                active={originalPost.reposts?.some(id => id === currentUser?.id) || false}
+                onClick={() => onRepost && onRepost(originalPost.id)}
               />
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (onQuote) onQuote(id);
+                  if (onQuote) onQuote(originalPost.id);
                 }}
                 className="flex items-center gap-1 transition hover:text-[var(--color-accent)] text-[var(--color-txt2)]"
                 title="Quote this post"
@@ -998,7 +1132,7 @@ export default function PostCard({
                   <path d="M10 11H6a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L8 18.5M20 11h-4a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v4c0 2.5-1 4-2.5 5.5L18 18.5" />
                 </svg>
               </button>
-              <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
+              <ShareButton count={originalPost.shares || 0} onClick={() => onShare && onShare(originalPost.id)} />
             </div>
           </div>
         </div>
@@ -1180,16 +1314,23 @@ export default function PostCard({
               <span className="text-sm font-semibold text-[var(--color-rose)]">Tap to watch live</span>
             </div>
 
+            {/* Engagement buttons with WebSocket */}
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-              <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
+              <LikeButton 
+                count={likeState.count} 
+                active={likeState.liked} 
+                onToggle={handleLike}
+                postId={id}
+              />
               <CommentButton
-                count={commentCount ?? comments.length}
+                count={commentCount ?? safeComments.length}
                 onClick={() => onComment && onComment(id)}
               />
               <RepostButton
-                count={repostCountState}
-                active={isReposted}
+                count={repostState.count}
+                active={repostState.reposted}
                 onClick={handleRepost}
+                postId={id}
               />
               <button
                 onClick={(e) => {
@@ -1204,6 +1345,11 @@ export default function PostCard({
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
+              {!isConnected && (
+                <span className="text-[10px] text-[var(--color-txt3)] animate-pulse" title="Reconnecting...">
+                  ●
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -1389,16 +1535,23 @@ export default function PostCard({
             {renderLinkPreview()}
           </div>
 
+          {/* Engagement buttons with WebSocket */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-            <LikeButton count={likeCount} active={isLiked} onToggle={handleLike} />
+            <LikeButton 
+              count={likeState.count} 
+              active={likeState.liked} 
+              onToggle={handleLike}
+              postId={id}
+            />
             <CommentButton
-              count={commentCount ?? comments.length}
+              count={commentCount ?? safeComments.length}
               onClick={() => onComment && onComment(id)}
             />
             <RepostButton
-              count={repostCountState}
-              active={isReposted}
+              count={repostState.count}
+              active={repostState.reposted}
               onClick={handleRepost}
+              postId={id}
             />
             <button
               onClick={(e) => {
@@ -1413,6 +1566,11 @@ export default function PostCard({
               </svg>
             </button>
             <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
+            {!isConnected && (
+              <span className="text-[10px] text-[var(--color-txt3)] animate-pulse" title="Reconnecting...">
+                ●
+              </span>
+            )}
           </div>
         </div>
       </div>

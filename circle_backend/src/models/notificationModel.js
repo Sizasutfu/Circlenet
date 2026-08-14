@@ -1,5 +1,5 @@
 // ============================================================
-//  models/NotificationModel.js
+//  models/notificationModel.js
 //  All database queries related to notifications.
 // ============================================================
 
@@ -39,14 +39,53 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
   if (recipientId === actorId) return; // never notify yourself
 
   try {
-    const [dup] = await db.query(
-      `SELECT id FROM notifications
-       WHERE recipient_id=? AND actor_id=? AND type=?
-         AND (post_id=? OR (post_id IS NULL AND ? IS NULL))
-         AND (session_id=? OR (session_id IS NULL AND ? IS NULL))`,
-      [recipientId, actorId, type, postId, postId, sessionId, sessionId]
-    );
-    if (dup.length > 0) return; // already exists
+    // 🔥 FIX: Better duplicate detection for different notification types
+    let duplicateCheckQuery;
+    let params;
+    
+    if (type === 'live' && sessionId) {
+      // For live notifications, check by session_id within the last 24 hours
+      duplicateCheckQuery = `
+        SELECT id FROM notifications
+        WHERE recipient_id = ? AND actor_id = ? AND type = ?
+          AND session_id = ?
+          AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      `;
+      params = [recipientId, actorId, type, sessionId];
+    } else if (type === 'follow') {
+      // For follow notifications, check within the last 24 hours
+      duplicateCheckQuery = `
+        SELECT id FROM notifications
+        WHERE recipient_id = ? AND actor_id = ? AND type = ?
+          AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      `;
+      params = [recipientId, actorId, type];
+    } else if (type === 'mention' || type === 'like' || type === 'comment' || type === 'repost') {
+      // For post-related notifications, check by post_id within the last 24 hours
+      duplicateCheckQuery = `
+        SELECT id FROM notifications
+        WHERE recipient_id = ? AND actor_id = ? AND type = ?
+          AND post_id = ?
+          AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      `;
+      params = [recipientId, actorId, type, postId];
+    } else {
+      // Generic check for other types
+      duplicateCheckQuery = `
+        SELECT id FROM notifications
+        WHERE recipient_id = ? AND actor_id = ? AND type = ?
+          AND (post_id = ? OR (post_id IS NULL AND ? IS NULL))
+          AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))
+          AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      `;
+      params = [recipientId, actorId, type, postId, postId, sessionId, sessionId];
+    }
+
+    const [dup] = await db.query(duplicateCheckQuery, params);
+    if (dup.length > 0) {
+      console.log(`[Notification] Skipping duplicate ${type} for user ${recipientId} (already sent recently)`);
+      return; // already exists
+    }
 
     // INSERT and capture the new row's id for the push payload
     const [result] = await db.query(
@@ -63,10 +102,11 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
       // For verification notifications, we don't need actor name
       if (type === 'verified' || type === 'unverified') {
         const { title, body } = copyFn(null);
-        return sendPushToUser(recipientId, null, title, body, './', {
+        sendPushToUser(recipientId, null, title, body, './', {
           notifId,
           type,
         }).catch(err => console.error('push dispatch error:', err.message));
+        return;
       }
 
       if (prefType && copyFn) {
@@ -81,7 +121,7 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
           .then(([[row]]) => {
             if (!row) return;
             const { title, body } = copyFn(row.actorName, row.snippet || null);
-            return sendPushToUser(recipientId, prefType, title, body, './', {
+            sendPushToUser(recipientId, prefType, title, body, './', {
               postId,
               sessionId,
               actorId,
@@ -100,6 +140,20 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
 // ── Create a system notification (no actor — used for admin actions) ──
 async function createSystemNotification(recipientId, type, message) {
   try {
+    // Check for duplicate system notifications within the last hour
+    const [dup] = await db.query(
+      `SELECT id FROM notifications
+       WHERE recipient_id = ? AND type = ? AND message = ?
+         AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)
+       LIMIT 1`,
+      [recipientId, type, message]
+    );
+    
+    if (dup.length > 0) {
+      console.log(`[Notification] Skipping duplicate system ${type} for user ${recipientId}`);
+      return;
+    }
+
     await db.query(
       `INSERT INTO notifications (recipient_id, actor_id, type, message, created_at)
        VALUES (?, NULL, ?, ?, NOW())`,

@@ -60,10 +60,8 @@ function MediaPreview({ url, type, name, size }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  // Check if it's a Cloudinary URL
   const isCloudinary = url?.includes('cloudinary.com');
   
-  // Get file extension
   const getFileExtension = (url) => {
     if (!url) return '';
     const parts = url.split('.');
@@ -135,7 +133,6 @@ function MediaPreview({ url, type, name, size }) {
     );
   }
   
-  // File
   const fileSize = size ? `${Math.round(size / 1024)}KB` : '';
   return (
     <a
@@ -173,6 +170,8 @@ export default function DmChat() {
     otherLastActive,
     editMessage,
     deleteMessage,
+    e2eEnabled,
+    e2eInitialized,
   } = useDm();
 
   const { startCall, callState, endCall } = useDmCall();
@@ -365,8 +364,14 @@ export default function DmChat() {
             </svg>
             Video call
           </button>
-          <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)] rounded-full px-2 py-0.5 cursor-default">
-            🔒 End-to-end encrypted
+          <span 
+            className={`hidden items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5 cursor-default ${
+              e2eEnabled && e2eInitialized
+                ? 'text-[var(--color-green)] bg-[var(--color-green-bg)] border border-[var(--color-green)]'
+                : 'text-[var(--color-txt3)] bg-[var(--color-bg)] border border-[var(--color-border)]'
+            }`}
+          >
+            {e2eEnabled && e2eInitialized ? '🔒 End-to-end encrypted' : '🔓 Not encrypted'}
           </span>
         </div>
       </div>
@@ -400,7 +405,7 @@ export default function DmChat() {
           }
 
           const displayText = msg._plain !== undefined ? msg._plain : msg.body;
-          const isE2E = msg.body && msg.body.startsWith('e2e:');
+          const isE2E = msg.is_encrypted || (msg.body && msg.body.startsWith('e2e:'));
           const isTmp = String(msg.id).startsWith('tmp_');
           const editedLabel = msg.edited_at ? (
             <span className="text-[10px] text-[var(--color-txt3)] ml-1">edited</span>
@@ -515,7 +520,6 @@ export default function DmChat() {
                         <div dangerouslySetInnerHTML={{ __html: escHtml(displayText).replace(/\n/g, '<br>') }} />
                       )}
                       
-                      {/* Media display */}
                       {msg.media_type && msg.media_url && (
                         <div className={`${displayText ? 'mt-2' : ''}`}>
                           <MediaPreview 
@@ -545,7 +549,6 @@ export default function DmChat() {
 
       {/* ── Compose ── */}
       <div className="flex items-end gap-2.5 px-4 py-3 border-t border-[var(--color-border)] flex-shrink-0 bg-[var(--color-surface)]">
-        {/* Media preview if any */}
         {mediaToSend && (
           <div className="relative flex-shrink-0">
             {mediaToSend.type === 'image' && (
@@ -569,7 +572,7 @@ export default function DmChat() {
                 </svg>
               </div>
             )}
-            {!mediaToSend.type || mediaToSend.type === 'file' && (
+            {(!mediaToSend.type || mediaToSend.type === 'file') && (
               <div className="w-12 h-12 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center">
                 <svg className="w-6 h-6 text-[var(--color-txt3)]" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />

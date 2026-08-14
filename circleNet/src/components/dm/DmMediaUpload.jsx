@@ -13,16 +13,18 @@ export default function DmMediaUpload({ onMediaSelected, disabled }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size (10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      alert('File too large (max 10MB)');
+    // Validate file size (200MB)
+    if (file.size > 200 * 1024 * 1024) {
+      alert('File too large (max 200MB)');
       return;
     }
 
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 
-                          'video/mp4', 'video/webm', 'video/quicktime',
-                          'audio/mpeg', 'audio/wav', 'audio/ogg'];
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+      'video/mp4', 'video/webm', 'video/quicktime',
+      'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3'
+    ];
     if (!allowedTypes.includes(file.type)) {
       alert('File type not supported. Please upload an image, video, or audio file.');
       return;
@@ -38,7 +40,6 @@ export default function DmMediaUpload({ onMediaSelected, disabled }) {
       const response = await apiClient('/api/dm/upload', {
         method: 'POST',
         body: formData,
-        // Don't set Content-Type header - let browser set it with boundary
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -51,6 +52,7 @@ export default function DmMediaUpload({ onMediaSelected, disabled }) {
         throw new Error('Upload failed');
       }
 
+      // Pass the full media object from the server
       onMediaSelected(response.data);
     } catch (err) {
       console.error('Upload error:', err);
@@ -78,7 +80,7 @@ export default function DmMediaUpload({ onMediaSelected, disabled }) {
         className={`flex items-center justify-center w-11 h-11 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-accent-bg)] transition ${
           disabled || isUploading ? 'opacity-50 cursor-not-allowed' : ''
         }`}
-        title="Attach image, video, or audio"
+        title="Attach image, video, or audio (max 200MB)"
       >
         {isUploading ? (
           <div className="relative w-5 h-5">

@@ -7,6 +7,7 @@ const { cors }           = require('./middleware/cors');
 const { sendError }      = require('./middleware/response');
 const { seoMiddleware }  = require('./middleware/seo');
 const articlesProxy       = require('./middleware/articlesProxy');
+const cron               = require('node-cron'); // Add this line
 
 const isProd   = process.env.NODE_ENV === 'production';
 const FRONTEND = path.join(__dirname, '../../circle_frontend/frontend');

@@ -7,8 +7,8 @@ const { db } = require('../config/db');
 const cron   = require('node-cron');
 
 // ── Thresholds (tune here) ─────────────────────────────────
-const MIN_POSTS_TO_CREATE = 30; // posts in 7 days → auto-create group
-const CRON_SCHEDULE       = '0 * * * *'; // every hour on the hour
+const MIN_POSTS_TO_CREATE = 30;
+const CRON_SCHEDULE       = '0 * * * *';
 
 // ── Pause control for production ──────────────────────────
 const isGroupCreationPaused = () => {
@@ -18,12 +18,10 @@ const isGroupCreationPaused = () => {
 // ── Auto-creation cron ────────────────────────────────────
 async function runGroupCreationCron() {
   if (isGroupCreationPaused()) {
-    console.log('[GroupModel] Group creation is paused in production – skipping run.');
     return [];
   }
 
   try {
-    // 1. Find qualifying topics not yet in the `groups` table
     const [rows] = await db.query(
       `SELECT v.topic, v.post_count_7d
        FROM v_topic_post_counts_7d v
@@ -50,11 +48,9 @@ async function runGroupCreationCron() {
 
       if (result.affectedRows > 0) {
         created.push(topic);
-        console.log(`[GroupModel] Auto-created group for topic: #${topic} (${row.post_count_7d} posts / 7d)`);
       }
     }
 
-    // 2. Also refresh post_count on existing groups
     await db.query(
       `UPDATE \`groups\` g
        JOIN v_topic_post_counts_7d v ON v.topic = g.topic
@@ -70,27 +66,20 @@ async function runGroupCreationCron() {
 
 function startGroupCron() {
   if (isGroupCreationPaused()) {
-    console.log('[GroupCron] Group creation is paused in production – cron not started.');
     return;
   }
 
   cron.schedule(CRON_SCHEDULE, async () => {
     try {
-      const created = await runGroupCreationCron();
-      if (created.length) {
-        console.log(`[GroupCron] Created ${created.length} new group(s):`, created);
-      }
+      await runGroupCreationCron();
     } catch (err) {
       console.error('[GroupCron] Error during group creation check:', err);
     }
   });
 
-  // Also run once immediately on startup
   runGroupCreationCron().catch(err => {
     console.error('[GroupCron] Startup run failed:', err);
   });
-
-  console.log('[GroupCron] Scheduled —', CRON_SCHEDULE);
 }
 
 // ── Fetch a paginated list of groups (Explore) ────────────
@@ -243,7 +232,6 @@ async function joinGroup(userId, groupId) {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    // Check if already a member
     const [existing] = await connection.query(
       `SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1`,
       [groupId, userId]
@@ -252,10 +240,9 @@ async function joinGroup(userId, groupId) {
     if (existing.length > 0) {
       await connection.commit();
       connection.release();
-      return false; // Already a member
+      return false;
     }
 
-    // Insert the membership
     const [result] = await connection.query(
       `INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`,
       [groupId, userId]
@@ -267,7 +254,6 @@ async function joinGroup(userId, groupId) {
       return false;
     }
 
-    // Increment member count
     const [updateResult] = await connection.query(
       `UPDATE \`groups\` SET member_count = member_count + 1 WHERE id = ?`,
       [groupId]
@@ -281,8 +267,6 @@ async function joinGroup(userId, groupId) {
 
     await connection.commit();
     connection.release();
-    
-    console.log(`[joinGroup] User ${userId} joined group ${groupId}`);
     return true;
   } catch (err) {
     if (connection) {
@@ -302,7 +286,6 @@ async function leaveGroup(userId, groupId) {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    // Check if actually a member
     const [existing] = await connection.query(
       `SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1`,
       [groupId, userId]
@@ -311,10 +294,9 @@ async function leaveGroup(userId, groupId) {
     if (existing.length === 0) {
       await connection.commit();
       connection.release();
-      return false; // Not a member
+      return false;
     }
 
-    // Delete the membership
     const [result] = await connection.query(
       `DELETE FROM group_members WHERE group_id = ? AND user_id = ?`,
       [groupId, userId]
@@ -326,7 +308,6 @@ async function leaveGroup(userId, groupId) {
       return false;
     }
 
-    // Decrement member count (but not below 0)
     const [updateResult] = await connection.query(
       `UPDATE \`groups\` SET member_count = GREATEST(0, member_count - 1) WHERE id = ?`,
       [groupId]
@@ -340,8 +321,6 @@ async function leaveGroup(userId, groupId) {
 
     await connection.commit();
     connection.release();
-    
-    console.log(`[leaveGroup] User ${userId} left group ${groupId}`);
     return true;
   } catch (err) {
     if (connection) {
@@ -467,22 +446,19 @@ async function getGroupFeed(groupId, { page = 1, limit = 20, userId = null } = {
 function normalise(row) {
   return {
     ...row,
-    isMember: !!row.isMember, // convert 0/1 → boolean
+    isMember: !!row.isMember,
   };
 }
 
 module.exports = {
-  // cron
   startGroupCron,
   runGroupCreationCron,
-  // queries
   getTrendingGroups,
   getGroupByTopic,
   getGroupById,
   getUserGroups,
   getGroupFeed,
   searchGroups,
-  // membership
   joinGroup,
   leaveGroup,
   isMember,

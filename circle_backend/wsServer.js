@@ -223,6 +223,52 @@ function handleClientMessage(ws, userId, msg) {
       notify(to, payload);
       break;
     }
+    // ─── Post interaction handlers ───
+    case 'like_update': {
+      const { postId, count, userIds } = msg;
+      if (!postId) break;
+      // Broadcast to all connected clients
+      broadcastToAll({
+        type: 'like_update',
+        postId,
+        count,
+        userIds,
+      });
+      break;
+    }
+    case 'repost_update': {
+      const { postId, count, userIds } = msg;
+      if (!postId) break;
+      broadcastToAll({
+        type: 'repost_update',
+        postId,
+        count,
+        userIds,
+      });
+      break;
+    }
+    case 'comment_update': {
+      const { postId, count } = msg;
+      if (!postId) break;
+      broadcastToAll({
+        type: 'comment_update',
+        postId,
+        count,
+      });
+      break;
+    }
+    case 'post_counts': {
+      const { postId, likes, comments, reposts } = msg;
+      if (!postId) break;
+      broadcastToAll({
+        type: 'post_counts',
+        postId,
+        likes,
+        comments,
+        reposts,
+      });
+      break;
+    }
     default:
       break;
   }

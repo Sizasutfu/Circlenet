@@ -66,6 +66,30 @@ async function getRepostCount(postId) {
   return total;
 }
 
+// ── Get all users who liked a post ─────────────────────────────
+async function getLikers(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  const [rows] = await db.query(
+    'SELECT user_id FROM likes WHERE post_id = ?',
+    [postId]
+  );
+  return rows;
+}
+
+// ── Get all users who reposted a post ──────────────────────────
+async function getReposters(postId) {
+  if (!postId || isNaN(postId) || postId <= 0) {
+    throw new Error('Invalid post ID');
+  }
+  const [rows] = await db.query(
+    'SELECT user_id FROM reposts WHERE original_post_id = ?',
+    [postId]
+  );
+  return rows;
+}
+
 // ── Extract @username mentions from text ──────────────────────
 function extractMentions(text) {
   if (!text || typeof text !== 'string') return [];
@@ -1374,6 +1398,8 @@ module.exports = {
   getVideoViewCount,
   getCommentCount,
   getRepostCount,
+  getLikers,
+  getReposters,
   // ── Mention exports ──
   extractMentions,
   getMentionedUserIds,

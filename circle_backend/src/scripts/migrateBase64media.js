@@ -36,7 +36,7 @@ const ffmpegP = require('ffmpeg-static');
 
 ffmpeg.setFfmpegPath(ffmpegP);
 
-const { db } = require('../src/config/db');
+const { db } = require('../config/db');
 
 // ── Where compressed files land ───────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');

@@ -17,7 +17,6 @@ import { resolveMediaUrl } from '@/lib/url';
 import Link from 'next/link';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 
-
 function timeAgo(dateString) {
   const now = Date.now();
   const then = new Date(dateString).getTime();
@@ -173,6 +172,7 @@ export default function FeedClient({ initialPosts = null }) {
     toggleLike,
     initPosts,
     initialized,
+    updatePostInteractions,
   } = useFeed();
 
   const { groupsList, myGroups } = useGroups();
@@ -211,17 +211,48 @@ export default function FeedClient({ initialPosts = null }) {
     }
   }, [user]);
 
-  // ── WS: update counts ──
+  // ── WS: Update counts (likes, comments, reposts) ──
   useEffect(() => {
-    const unregister = registerHandler('post_counts', (msg) => {
+    const unregisterCounts = registerHandler('post_counts', (msg) => {
       updatePostCounts(msg.postId, {
         likes: msg.likes,
         comments: msg.comments,
         reposts: msg.reposts,
       });
     });
-    return () => unregister();
-  }, [registerHandler, updatePostCounts]);
+
+    // ── WS: Like update with user list ──
+    const unregisterLike = registerHandler('like_update', (msg) => {
+      updatePostInteractions(msg.postId, {
+        likes: msg.count,
+        liked: msg.userIds?.includes(user?.id) || false,
+        userIds: msg.userIds || [],
+      });
+    });
+
+    // ── WS: Repost update with user list ──
+    const unregisterRepost = registerHandler('repost_update', (msg) => {
+      updatePostInteractions(msg.postId, {
+        reposts: msg.count,
+        reposted: msg.userIds?.includes(user?.id) || false,
+        repostUserIds: msg.userIds || [],
+      });
+    });
+
+    // ── WS: Comment update ──
+    const unregisterComment = registerHandler('comment_update', (msg) => {
+      updatePostCounts(msg.postId, {
+        comments: msg.count,
+      });
+    });
+
+    return () => {
+      if (unregisterCounts) unregisterCounts();
+      if (unregisterLike) unregisterLike();
+      if (unregisterRepost) unregisterRepost();
+      if (unregisterComment) unregisterComment();
+    };
+  }, [registerHandler, updatePostCounts, updatePostInteractions, user?.id]);
 
   // ── Init / fetch ──
   useEffect(() => {
@@ -301,10 +332,18 @@ export default function FeedClient({ initialPosts = null }) {
   // ── Interaction handlers ──
   const handleLike = async (postId) => {
     if (!user) { showToast('Log in to like.', 'error'); return; }
+    
+    // Optimistic update via FeedContext
     toggleLike(postId);
+    
     try {
-      await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
+      const response = await apiClient(`/api/posts/${postId}/like`, {
+        method: 'POST',
+        body: { liked: true }
+      });
+      // WebSocket will handle the broadcast
     } catch (_) {
+      // Revert on error
       toggleLike(postId);
       showToast('Failed to like.', 'error');
     }
@@ -318,7 +357,11 @@ export default function FeedClient({ initialPosts = null }) {
   const handleRepost = async (postId) => {
     if (!user) { showToast('Log in to repost.', 'error'); return; }
     try {
-      await apiClient(`/api/posts/${postId}/repost`, { method: 'POST' });
+      const response = await apiClient(`/api/posts/${postId}/repost`, {
+        method: 'POST',
+        body: { reposted: true }
+      });
+      // WebSocket will handle the broadcast
       showToast('Reposted! 🔁', 'success');
     } catch (_) {
       showToast('Failed to repost.', 'error');

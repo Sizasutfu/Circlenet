@@ -15,8 +15,6 @@ const GroupModel            = require('../models/groupModel');
 const { sendOk, sendError } = require('../middleware/response');
 
 // ── GET /api/groups?page=<n>&limit=<n> ──────────────────
-// Trending groups for the Explore section.
-// Authenticated users get an isMember flag on each group.
 async function getTrendingGroups(req, res) {
   const userId = req.actorId ?? null;
   const page   = Math.max(1, parseInt(req.query.page) || 1);
@@ -26,14 +24,12 @@ async function getTrendingGroups(req, res) {
   try {
     const result = await GroupModel.getTrendingGroups({ limit, offset, userId });
     
-    // Double-check membership for each group if user is authenticated
     if (userId && result.groups) {
       for (const group of result.groups) {
         try {
           const member = await GroupModel.isMember(userId, group.id);
           group.isMember = !!member;
         } catch (err) {
-          console.error(`Failed to check membership for group ${group.id}:`, err);
           group.isMember = false;
         }
       }
@@ -47,14 +43,12 @@ async function getTrendingGroups(req, res) {
 }
 
 // ── GET /api/groups/mine ─────────────────────────────────
-// Returns all groups the authenticated user has joined.
 async function getMyGroups(req, res) {
   const userId = req.actorId;
   if (!userId) return sendError(res, 401, 'Authentication required.');
 
   try {
     const groups = await GroupModel.getUserGroups(userId);
-    console.log(`[getMyGroups] User ${userId} has ${groups.length} groups`);
     return sendOk(res, 200, 'Your groups fetched.', groups);
   } catch (err) {
     console.error('getMyGroups error:', err);
@@ -63,7 +57,6 @@ async function getMyGroups(req, res) {
 }
 
 // ── GET /api/groups/:groupId ─────────────────────────────
-// Single group details by numeric ID.
 async function getGroup(req, res) {
   const userId  = req.actorId ?? null;
   const groupId = parseInt(req.params.groupId);
@@ -73,14 +66,11 @@ async function getGroup(req, res) {
     let group = await GroupModel.getGroupById(groupId, userId);
     if (!group) return sendError(res, 404, 'Group not found.');
 
-    // Explicit membership check
     if (userId) {
       try {
         const member = await GroupModel.isMember(userId, groupId);
         group.isMember = !!member;
-        console.log(`[getGroup] User ${userId} is ${group.isMember ? '' : 'not '}a member of group ${groupId}`);
       } catch (err) {
-        console.error(`Failed to check membership for group ${groupId}:`, err);
         group.isMember = false;
       }
     } else {
@@ -95,7 +85,6 @@ async function getGroup(req, res) {
 }
 
 // ── GET /api/groups/topic/:topic ─────────────────────────
-// Single group details by topic slug (e.g. "football").
 async function getGroupByTopic(req, res) {
   const userId = req.actorId ?? null;
   const topic  = req.params.topic?.toLowerCase().trim();
@@ -105,13 +94,11 @@ async function getGroupByTopic(req, res) {
     let group = await GroupModel.getGroupByTopic(topic, userId);
     if (!group) return sendError(res, 404, 'Group not found for that topic.');
 
-    // Explicit membership check
     if (userId) {
       try {
         const member = await GroupModel.isMember(userId, group.id);
         group.isMember = !!member;
       } catch (err) {
-        console.error(`Failed to check membership for group ${group.id}:`, err);
         group.isMember = false;
       }
     } else {
@@ -126,7 +113,6 @@ async function getGroupByTopic(req, res) {
 }
 
 // ── POST /api/groups/:groupId/join ───────────────────────
-// Explicitly join a group. Users are NEVER auto-added.
 async function joinGroup(req, res) {
   const userId  = req.actorId;
   if (!userId) return sendError(res, 401, 'Authentication required.');
@@ -135,16 +121,11 @@ async function joinGroup(req, res) {
   if (!groupId || isNaN(groupId)) return sendError(res, 400, 'Invalid group ID.');
 
   try {
-    // Verify the group exists
     const group = await GroupModel.getGroupById(groupId);
     if (!group) return sendError(res, 404, 'Group not found.');
 
-    console.log(`[joinGroup] User ${userId} attempting to join group ${groupId} (${group.topic})`);
-
-    // Check if already a member
     const isAlreadyMember = await GroupModel.isMember(userId, groupId);
     if (isAlreadyMember) {
-      console.log(`[joinGroup] User ${userId} is already a member of group ${groupId}`);
       return sendOk(res, 200, `Already a member of ${group.displayName}.`, { 
         groupId, 
         isMember: true,
@@ -152,17 +133,13 @@ async function joinGroup(req, res) {
       });
     }
 
-    // Join the group
     const joined = await GroupModel.joinGroup(userId, groupId);
     
     if (!joined) {
-      console.error(`[joinGroup] Failed to join group ${groupId} for user ${userId}`);
       return sendError(res, 500, 'Failed to join group.');
     }
 
-    // Get updated group data
     const updatedGroup = await GroupModel.getGroupById(groupId, userId);
-    console.log(`[joinGroup] User ${userId} successfully joined group ${groupId}, new member count: ${updatedGroup?.memberCount || group.memberCount + 1}`);
 
     return sendOk(res, 200, `Joined ${group.displayName}.`, { 
       groupId, 
@@ -177,7 +154,6 @@ async function joinGroup(req, res) {
 }
 
 // ── DELETE /api/groups/:groupId/join ─────────────────────
-// Leave a group.
 async function leaveGroup(req, res) {
   const userId  = req.actorId;
   if (!userId) return sendError(res, 401, 'Authentication required.');
@@ -186,16 +162,11 @@ async function leaveGroup(req, res) {
   if (!groupId || isNaN(groupId)) return sendError(res, 400, 'Invalid group ID.');
 
   try {
-    // Verify the group exists
     const group = await GroupModel.getGroupById(groupId);
     if (!group) return sendError(res, 404, 'Group not found.');
 
-    console.log(`[leaveGroup] User ${userId} attempting to leave group ${groupId} (${group.topic})`);
-
-    // Check if actually a member
     const isMember = await GroupModel.isMember(userId, groupId);
     if (!isMember) {
-      console.log(`[leaveGroup] User ${userId} is not a member of group ${groupId}`);
       return sendOk(res, 200, `Not a member of ${group.displayName}.`, { 
         groupId, 
         isMember: false,
@@ -203,17 +174,13 @@ async function leaveGroup(req, res) {
       });
     }
 
-    // Leave the group
     const left = await GroupModel.leaveGroup(userId, groupId);
     
     if (!left) {
-      console.error(`[leaveGroup] Failed to leave group ${groupId} for user ${userId}`);
       return sendError(res, 500, 'Failed to leave group.');
     }
 
-    // Get updated group data
     const updatedGroup = await GroupModel.getGroupById(groupId, userId);
-    console.log(`[leaveGroup] User ${userId} successfully left group ${groupId}, new member count: ${updatedGroup?.memberCount || Math.max(0, group.memberCount - 1)}`);
 
     return sendOk(res, 200, `Left ${group.displayName}.`, { 
       groupId, 
@@ -228,7 +195,6 @@ async function leaveGroup(req, res) {
 }
 
 // ── GET /api/groups/:groupId/feed?page=<n>&limit=<n> ────
-// Posts from group members tagged with the group's topic.
 async function getGroupFeed(req, res) {
   const userId  = req.actorId ?? null;
   const groupId = parseInt(req.params.groupId);

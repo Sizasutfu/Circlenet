@@ -96,44 +96,94 @@ export function FeedProvider({ children }) {
     fetchPosts(activeTab, page + 1, true);
   }, [activeTab, hasMore, loadingMore, page, fetchPosts]);
 
-  // ── Update counts via WebSocket ──
+  // ── Update counts via WebSocket (likes, comments, reposts) ──
   const updatePostCounts = useCallback((postId, { likes, comments, reposts }) => {
     setPosts((prev) => {
-      const updated = prev.map((p) => {
+      return prev.map((p) => {
         if (p.id !== postId) return p;
-        const isLiked = p.likes && currentUser && p.likes.some(id => id === currentUser.id);
-        const newLikes = [];
-        if (isLiked) newLikes.push(currentUser.id);
-        const dummyCount = likes - newLikes.length;
-        for (let i = 0; i < dummyCount; i++) newLikes.push(-1);
-        return {
-          ...p,
-          likes: newLikes,
-          commentCount: comments,
-          repostCount: reposts,
-        };
+        const updated = { ...p };
+        
+        if (likes !== undefined) {
+          // Update like count while preserving the likes array
+          updated.likeCount = likes;
+          // If we have a likes array, keep it, otherwise create one
+          if (!updated.likes) {
+            updated.likes = [];
+          }
+        }
+        
+        if (comments !== undefined) {
+          updated.commentCount = comments;
+        }
+        
+        if (reposts !== undefined) {
+          updated.repostCount = reposts;
+          if (!updated.reposts) {
+            updated.reposts = [];
+          }
+        }
+        
+        return updated;
       });
-      return updated;
     });
-  }, [currentUser]);
+  }, []);
 
+  // ── Update post interactions (likes/reposts with user lists) ──
+  const updatePostInteractions = useCallback((postId, data) => {
+    setPosts((prev) => {
+      return prev.map((p) => {
+        if (p.id !== postId) return p;
+        const updated = { ...p };
+        
+        // Update likes
+        if (data.likes !== undefined) {
+          updated.likeCount = data.likes;
+          if (data.userIds !== undefined) {
+            updated.likes = data.userIds;
+          }
+        }
+        
+        // Update reposts
+        if (data.reposts !== undefined) {
+          updated.repostCount = data.reposts;
+          if (data.repostUserIds !== undefined) {
+            updated.reposts = data.repostUserIds;
+          }
+        }
+        
+        return updated;
+      });
+    });
+  }, []);
+
+  // ── Toggle like (optimistic) ──
   const toggleLike = useCallback((postId) => {
     setPosts((prev) =>
       prev.map((p) => {
         if (p.id !== postId) return p;
-        const isLiked = p.likes && currentUser && p.likes.some((id) => id === currentUser.id);
+        const userId = currentUser?.id;
+        if (!userId) return p;
+        
+        const isLiked = p.likes?.some((id) => id === userId) || false;
         const newLikes = isLiked
-          ? p.likes.filter((id) => id !== currentUser.id)
-          : [...(p.likes || []), currentUser.id];
-        return { ...p, likes: newLikes };
+          ? (p.likes || []).filter((id) => id !== userId)
+          : [...(p.likes || []), userId];
+        
+        return { 
+          ...p, 
+          likes: newLikes,
+          likeCount: newLikes.length,
+        };
       })
     );
   }, [currentUser]);
 
+  // ── Add a new post ──
   const addPost = useCallback((newPost) => {
     setPosts((prev) => dedupePosts([newPost, ...prev]));
   }, []);
 
+  // ── Reset feed ──
   const resetFeed = useCallback((tab) => {
     if (tab !== undefined) setActiveTab(tab);
   }, []);
@@ -152,6 +202,7 @@ export function FeedProvider({ children }) {
     loadMore,
     resetFeed,
     updatePostCounts,
+    updatePostInteractions,
     addPost,
     toggleLike,
     initPosts,

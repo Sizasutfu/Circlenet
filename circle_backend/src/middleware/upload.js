@@ -14,7 +14,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ── Local storage fallback ────────────────────────────────────
+// ── Local storage setup ────────────────────────────────────────
 const uploadDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -26,9 +26,14 @@ const ALLOWED_TYPES = [
   'image/png',
   'image/gif',
   'image/webp',
+  'image/svg+xml',
   'video/mp4',
   'video/webm',
   'video/quicktime',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/ogg',
+  'audio/mp3',
 ];
 
 function fileFilter(_req, file, cb) {
@@ -40,9 +45,7 @@ function fileFilter(_req, file, cb) {
 }
 
 // ── Multer instance ────────────────────────────────────────────
-const maxFileSize = process.env.NODE_ENV === 'production' 
-  ? 200 * 1024 * 1024   // 50 MB
-  : 200 * 1024 * 1024; // 200 MB (dev)
+const maxFileSize = 200 * 1024 * 1024; // 200 MB
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -50,95 +53,236 @@ const upload = multer({
   limits: { fileSize: maxFileSize },
 });
 
-// ── Cloudinary streaming helper (for middleware) ──────────────
-function uploadToCloudinary(req, res, next) {
-  const folder = process.env.CLOUDINARY_FOLDER || 'circlenet';
+// ── Determine if Cloudinary is available ──────────────────────
+const isCloudinaryAvailable = () => {
+  return !!(process.env.CLOUDINARY_CLOUD_NAME && 
+            process.env.CLOUDINARY_API_KEY && 
+            process.env.CLOUDINARY_API_SECRET);
+};
 
-  function uploadOne(file) {
-    return new Promise((resolve, reject) => {
-      const resourceType = file.mimetype.startsWith('video/') ? 'video' : 'image';
-      const stream = cloudinary.uploader.upload_stream(
-        { resource_type: resourceType, folder },
-        (error, result) => {
-          if (error) return reject(error);
-          file.cloudinary = result;
-          resolve(file);
+// ── Upload to Cloudinary ──────────────────────────────────────
+function uploadToCloudinary(buffer, options = {}) {
+  return new Promise((resolve, reject) => {
+    const resourceType = options.resource_type || 'auto';
+    const folder = options.folder || process.env.CLOUDINARY_FOLDER || 'circlenet';
+    
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: resourceType,
+        folder: folder,
+        use_filename: true,
+        unique_filename: true,
+        ...options,
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve({
+            url: result.secure_url,
+            thumbnail: result.secure_url.replace('/upload/', '/upload/c_thumb,w_200,h_200/'),
+            public_id: result.public_id,
+            format: result.format,
+            width: result.width,
+            height: result.height,
+            bytes: result.bytes,
+          });
         }
-      );
-      streamifier.createReadStream(file.buffer).pipe(stream);
-    });
-  }
-
-  const uploads = [];
-
-  if (req.file) {
-    uploads.push(uploadOne(req.file));
-  }
-
-  if (req.files) {
-    if (Array.isArray(req.files)) {
-      req.files.forEach(f => uploads.push(uploadOne(f)));
-    } else {
-      Object.values(req.files).forEach(arr =>
-        arr.forEach(f => uploads.push(uploadOne(f)))
-      );
-    }
-  }
-
-  if (!uploads.length) return next();
-
-  Promise.all(uploads)
-    .then(() => next())
-    .catch(next);
+      }
+    );
+    uploadStream.end(buffer);
+  });
 }
 
-// ── Standalone uploadImage function (for programmatic use) ────
-async function uploadImage(buffer, filename) {
-  // If Cloudinary credentials exist, use Cloudinary
-  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-    try {
-      return new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: 'whispers',
-            use_filename: true,
-            unique_filename: true,
-          },
-          (error, result) => {
-            if (error) {
-              console.error('[Cloudinary] Upload error:', error);
-              reject(error);
-            } else {
-              resolve(result.secure_url);
-            }
-          }
-        );
-        uploadStream.end(buffer);
-      });
-    } catch (err) {
-      console.warn('[Cloudinary] Upload failed, falling back to local storage:', err);
-      // Fall through to local storage
-    }
-  }
-
-  // ── Fallback: save locally ──
-  const ext = path.extname(filename) || '.png';
+// ── Save to local storage ─────────────────────────────────────
+async function saveToLocal(buffer, filename, mimetype) {
+  const ext = path.extname(filename) || getExtensionFromMime(mimetype) || '.bin';
   const name = crypto.randomBytes(16).toString('hex') + ext;
   const filepath = path.join(uploadDir, name);
-  try {
-    await promisify(fs.writeFile)(filepath, buffer);
-    return `/uploads/${name}`;
-  } catch (err) {
-    console.error('[Local storage] Write error:', err);
-    throw new Error('Image upload failed');
+  
+  await promisify(fs.writeFile)(filepath, buffer);
+  
+  // Determine if it's an image/video/audio for proper URL
+  let type = 'file';
+  if (mimetype.startsWith('image/')) type = 'image';
+  else if (mimetype.startsWith('video/')) type = 'video';
+  else if (mimetype.startsWith('audio/')) type = 'audio';
+  
+  return {
+    url: `/uploads/${name}`,
+    thumbnail: type === 'image' ? `/uploads/${name}` : null,
+    name: name,
+    type: type,
+    size: buffer.length,
+  };
+}
+
+// ── Helper: Get extension from MIME type ──────────────────────
+function getExtensionFromMime(mimetype) {
+  const map = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+    'audio/mpeg': '.mp3',
+    'audio/wav': '.wav',
+    'audio/ogg': '.ogg',
+  };
+  return map[mimetype] || '.bin';
+}
+
+// ── Main upload function ──────────────────────────────────────
+async function uploadImage(buffer, filename, options = {}) {
+  const mimetype = options.mimetype || 'image/png';
+  const folder = options.folder || process.env.CLOUDINARY_FOLDER || 'circlenet';
+  const isProd = process.env.NODE_ENV === 'production';
+  
+  // ── In production: Always use Cloudinary ──────────────────
+  if (isProd) {
+    if (!isCloudinaryAvailable()) {
+      console.error('[Upload] Cloudinary credentials missing in production!');
+      throw new Error('Cloudinary configuration missing in production');
+    }
+    
+    try {
+      const resourceType = mimetype.startsWith('video/') ? 'video' : 
+                          mimetype.startsWith('audio/') ? 'raw' : 'image';
+      
+      const result = await uploadToCloudinary(buffer, {
+        resource_type: resourceType,
+        folder: folder,
+        ...options,
+      });
+      
+      console.log('[Cloudinary] Upload successful:', result.url);
+      return result.url;
+    } catch (err) {
+      console.error('[Cloudinary] Upload failed in production:', err);
+      throw new Error('Failed to upload to Cloudinary');
+    }
   }
+  
+  // ── In development: Use local storage ──────────────────────
+  console.log('[Local] Uploading to local storage...');
+  const result = await saveToLocal(buffer, filename, mimetype);
+  console.log('[Local] Upload successful:', result.url);
+  return result.url;
+}
+
+// ── Upload with full metadata (for DM media) ──────────────────
+async function uploadMediaWithMetadata(buffer, filename, mimetype, options = {}) {
+  const isProd = process.env.NODE_ENV === 'production';
+  
+  // Determine media type
+  let mediaType = 'file';
+  if (mimetype.startsWith('image/')) mediaType = 'image';
+  else if (mimetype.startsWith('video/')) mediaType = 'video';
+  else if (mimetype.startsWith('audio/')) mediaType = 'audio';
+  
+  // ── In production: Cloudinary ──────────────────────────────
+  if (isProd) {
+    if (!isCloudinaryAvailable()) {
+      console.error('[Upload] Cloudinary credentials missing in production!');
+      throw new Error('Cloudinary configuration missing in production');
+    }
+    
+    try {
+      const resourceType = mediaType === 'video' ? 'video' : 
+                          mediaType === 'audio' ? 'raw' : 'image';
+      
+      const result = await uploadToCloudinary(buffer, {
+        resource_type: resourceType,
+        folder: options.folder || 'circlenet',
+        ...options,
+      });
+      
+      return {
+        url: result.url,
+        thumbnail: mediaType === 'image' ? result.thumbnail : null,
+        type: mediaType,
+        name: filename,
+        size: buffer.length,
+        public_id: result.public_id,
+        format: result.format,
+        width: result.width,
+        height: result.height,
+      };
+    } catch (err) {
+      console.error('[Cloudinary] Upload failed:', err);
+      throw new Error('Failed to upload to Cloudinary');
+    }
+  }
+  
+  // ── In development: Local storage ──────────────────────────
+  const result = await saveToLocal(buffer, filename, mimetype);
+  return {
+    url: result.url,
+    thumbnail: result.thumbnail,
+    type: mediaType,
+    name: filename,
+    size: buffer.length,
+  };
+}
+
+// ── Multer middleware with Cloudinary integration ─────────────
+function uploadToCloudinaryMiddleware(req, res, next) {
+  const isProd = process.env.NODE_ENV === 'production';
+  
+  if (!isProd) {
+    // In development, just pass through
+    return next();
+  }
+  
+  // In production, upload to Cloudinary
+  const uploads = [];
+  
+  if (req.file) {
+    uploads.push(req.file);
+  }
+  
+  if (req.files) {
+    if (Array.isArray(req.files)) {
+      req.files.forEach(f => uploads.push(f));
+    } else {
+      Object.values(req.files).forEach(arr =>
+        arr.forEach(f => uploads.push(f))
+      );
+    }
+  }
+  
+  if (!uploads.length) return next();
+  
+  // Upload each file to Cloudinary
+  Promise.all(uploads.map(async (file) => {
+    try {
+      const resourceType = file.mimetype.startsWith('video/') ? 'video' : 
+                          file.mimetype.startsWith('audio/') ? 'raw' : 'image';
+      
+      const result = await uploadToCloudinary(file.buffer, {
+        resource_type: resourceType,
+        folder: process.env.CLOUDINARY_FOLDER || 'circlenet',
+      });
+      
+      file.cloudinary = result;
+      file.cloudinaryUrl = result.url;
+      return file;
+    } catch (err) {
+      console.error('[Cloudinary] Upload error:', err);
+      throw err;
+    }
+  }))
+  .then(() => next())
+  .catch(next);
 }
 
 // ── Export ──────────────────────────────────────────────────────
 module.exports = upload;
-module.exports.getFileRef = (req) => {
-  if (!req.file) return null;
-  return process.env.NODE_ENV === 'production' ? req.file.cloudinary : req.file;
-};
-module.exports.uploadToCloudinary = uploadToCloudinary;
 module.exports.uploadImage = uploadImage;
+module.exports.uploadMediaWithMetadata = uploadMediaWithMetadata;
+module.exports.uploadToCloudinary = uploadToCloudinary;
+module.exports.uploadToCloudinaryMiddleware = uploadToCloudinaryMiddleware;
+module.exports.isCloudinaryAvailable = isCloudinaryAvailable;

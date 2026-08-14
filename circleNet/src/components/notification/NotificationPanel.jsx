@@ -1,7 +1,7 @@
 // src/components/notification/NotificationPanel.jsx
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAuth } from '@/lib/auth';
@@ -83,13 +83,11 @@ function getNotifText(notification) {
   const copyFn = NOTIF_COPY[type];
   if (!copyFn) return `<strong>${escHtml(actorName || 'Someone')}</strong> interacted with you`;
   
-  // For mention, check if it's from a comment
   if (type === 'mention') {
     const context = notification.mentionType || 'post';
     return copyFn(actorName || 'Someone', context);
   }
   
-  // For verification, no actor name needed
   if (type === 'verified' || type === 'unverified') {
     return copyFn();
   }
@@ -159,14 +157,12 @@ function NotificationItem({ notification, onClick }) {
   const iconSvg = NOTIF_ICONS[type] || '';
   const iconColor = getNotifColor(type);
   
-  // For mention notifications, use a special highlight
   const mentionBadge = isMention ? (
     <span className="ml-1 text-[10px] bg-[var(--color-accent-bg)] text-[var(--color-accent)] px-1.5 py-0.5 rounded-full">
       @
     </span>
   ) : null;
 
-  // For verification, show a special badge
   const verificationBadge = isVerification ? (
     <span className="ml-1 text-[10px] bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded-full">
       {type === 'verified' ? '✓' : '✗'}
@@ -177,7 +173,6 @@ function NotificationItem({ notification, onClick }) {
     <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-[var(--color-accent)] flex-shrink-0" />
   ) : null;
 
-  // Special styling for verification notifications
   const isVerificationUnread = isVerification && !isRead;
   const cardBorder = isVerificationUnread ? 'border-l-4 border-l-green-500' : '';
   const cardBg = isVerificationUnread ? 'bg-green-500/5' : '';
@@ -237,6 +232,20 @@ export default function NotificationPanel() {
   const router = useRouter();
   const listRef = useRef(null);
 
+  // ── Deduplicate notifications by ID ──
+  const uniqueNotifications = useMemo(() => {
+    const seen = new Set();
+    return notifications.filter(notif => {
+      const key = notif.id;
+      if (seen.has(key)) {
+        console.warn(`Duplicate notification ID found: ${key}`);
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }, [notifications]);
+
   useEffect(() => {
     if (isPanelOpen && listRef.current) {
       listRef.current.scrollTop = 0;
@@ -252,24 +261,18 @@ export default function NotificationPanel() {
 
   // ── Handle notification click with navigation ──
   const handleNotificationClick = async (notif) => {
-    // Mark as read
     await markAsRead(notif.id);
-
-    // Close panel
     closePanel();
 
-    // For verification notifications, just close panel (no navigation)
     if (notif.type === 'verified' || notif.type === 'unverified') {
       return;
     }
 
-    // Navigate based on notification data
     if (notif.postId) {
       router.push(`/post/${notif.postId}`);
     } else if (notif.sessionId) {
       router.push(`/live/${notif.sessionId}`);
     } else if (notif.actorId) {
-      // For follow or profile-related notifications, go to the actor's profile
       if (notif.type === 'follow' || notif.type === 'profile_pic') {
         router.push(`/profile/${notif.actorUsername || notif.actorId}`);
       } else {
@@ -285,8 +288,7 @@ export default function NotificationPanel() {
 
   if (!user) return null;
 
-  // Count unread verification notifications
-  const unreadVerifications = notifications.filter(
+  const unreadVerifications = uniqueNotifications.filter(
     n => (n.type === 'verified' || n.type === 'unverified') && !n.isRead
   ).length;
 
@@ -313,13 +315,11 @@ export default function NotificationPanel() {
             <h2 className="text-lg font-head font-extrabold text-[var(--color-txt)]">
               Notifications
             </h2>
-            {/* Mention count badge */}
-            {notifications.filter(n => n.type === 'mention' && !n.isRead).length > 0 && (
+            {uniqueNotifications.filter(n => n.type === 'mention' && !n.isRead).length > 0 && (
               <span className="text-xs bg-[var(--color-accent)] text-white px-2 py-0.5 rounded-full">
-                {notifications.filter(n => n.type === 'mention' && !n.isRead).length} mentions
+                {uniqueNotifications.filter(n => n.type === 'mention' && !n.isRead).length} mentions
               </span>
             )}
-            {/* Verification count badge */}
             {unreadVerifications > 0 && (
               <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">
                 {unreadVerifications} {unreadVerifications === 1 ? 'update' : 'updates'}
@@ -351,12 +351,12 @@ export default function NotificationPanel() {
           onScroll={handleScroll}
           className="h-[calc(100%-70px)] overflow-y-auto"
         >
-          {loading && notifications.length === 0 ? (
+          {loading && uniqueNotifications.length === 0 ? (
             <div className="p-8 text-center text-[var(--color-txt2)]">
               <div className="inline-block h-6 w-6 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
               <p className="mt-4">Loading…</p>
             </div>
-          ) : notifications.length === 0 ? (
+          ) : uniqueNotifications.length === 0 ? (
             <div className="p-12 text-center text-[var(--color-txt2)]">
               <svg className="w-12 h-12 mx-auto mb-4 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -366,7 +366,7 @@ export default function NotificationPanel() {
             </div>
           ) : (
             <>
-              {notifications.map((notif) => (
+              {uniqueNotifications.map((notif) => (
                 <NotificationItem
                   key={notif.id}
                   notification={notif}
@@ -378,7 +378,7 @@ export default function NotificationPanel() {
                   <div className="inline-block h-5 w-5 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
                 </div>
               )}
-              {!hasMore && notifications.length > 0 && (
+              {!hasMore && uniqueNotifications.length > 0 && (
                 <div className="p-4 text-center text-xs text-[var(--color-txt3)]">
                   You're all caught up ✓
                 </div>

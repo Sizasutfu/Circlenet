@@ -87,6 +87,7 @@ const RefreshCwIcon = () => (
   </svg>
 );
 
+// ─── Original VerifiedBadge (was working) ─────────────────────────────
 const VerifiedBadge = () => (
   <svg className="w-4 h-4 text-[var(--color-accent)]" fill="currentColor" viewBox="0 0 20 20">
     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -173,7 +174,17 @@ function MobileUserCard({ user, onAction, currentUserId }) {
   };
 
   const isCurrentUser = user.id === currentUserId;
-  const initials = user.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+
+  // 🔥 FIX: Proper initials calculation - no "0"
+  const initials = user.name 
+    ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) 
+    : '?';
+
+  // 🔥 FIX: normalize booleans - MySQL tinyint columns come back as 1/0,
+  // not true/false, so strict `=== true` checks silently fail and
+  // `value && (...)` renders a literal "0" when the value is 0.
+  const isVerified = user.verified === true || user.verified === 1;
+  const isSuspended = user.suspended === true || user.suspended === 1;
 
   return (
     <div className="border-b border-[var(--color-border)] p-4 hover:bg-[var(--color-surface)] transition">
@@ -195,7 +206,8 @@ function MobileUserCard({ user, onAction, currentUserId }) {
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="font-medium text-[var(--color-txt)] truncate">{user.name}</span>
-                {user.verified && <VerifiedBadge />}
+                {/* 🔥 FIX: Only show badge when verified (handles 1/0 and true/false) */}
+                {isVerified && <VerifiedBadge />}
                 {user.role === 'admin' && (
                   <span className="text-[10px] font-medium bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded">Admin</span>
                 )}
@@ -203,18 +215,19 @@ function MobileUserCard({ user, onAction, currentUserId }) {
               <div className="text-sm text-[var(--color-txt2)]">@{user.username}</div>
             </div>
           </div>
-          
+
           {/* Email */}
           <div className="mt-2 flex items-center gap-1.5 text-sm text-[var(--color-txt)]">
             <MailIcon />
             <span className="truncate">{user.email || '—'}</span>
-            {user.email_verified ? (
+            {/* 🔥 FIX: Handle both 0/1 and true/false */}
+            {user.email_verified == 1 || user.email_verified === true ? (
               <span className="text-xs text-green-500 ml-1">Verified</span>
             ) : (
               <span className="text-xs text-amber-500 ml-1">Unverified</span>
             )}
           </div>
-          
+
           {/* Stats row */}
           <div className="flex items-center gap-4 mt-2 text-sm text-[var(--color-txt2)]">
             <span className="flex items-center gap-1">
@@ -230,13 +243,13 @@ function MobileUserCard({ user, onAction, currentUserId }) {
               {new Date(user.joinDate || user.created_at).toLocaleDateString()}
             </span>
           </div>
-          
+
           {/* Status */}
           <div className="mt-2">
-            <StatusBadge status={user.suspended ? 'suspended' : user.role === 'admin' ? 'admin' : 'active'} />
+            <StatusBadge status={isSuspended ? 'suspended' : user.role === 'admin' ? 'admin' : 'active'} />
           </div>
         </div>
-        
+
         {/* Actions dropdown */}
         <div className="relative flex-shrink-0">
           <button
@@ -257,7 +270,7 @@ function MobileUserCard({ user, onAction, currentUserId }) {
                 View Profile
               </button>
 
-              {!user.suspended && user.role !== 'admin' && (
+              {!isSuspended && user.role !== 'admin' && (
                 <button
                   onClick={() => handleAction('suspend', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-rose-500 hover:bg-rose-500/10 transition text-left"
@@ -267,7 +280,7 @@ function MobileUserCard({ user, onAction, currentUserId }) {
                 </button>
               )}
 
-              {user.suspended && (
+              {isSuspended && (
                 <button
                   onClick={() => handleAction('unsuspend', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-green-500 hover:bg-green-500/10 transition text-left"
@@ -277,7 +290,8 @@ function MobileUserCard({ user, onAction, currentUserId }) {
                 </button>
               )}
 
-              {!user.verified && user.role !== 'admin' && (
+              {/* 🔥 FIX: Only show verify when not verified */}
+              {!isVerified && user.role !== 'admin' && (
                 <button
                   onClick={() => handleAction('verify', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-blue-500 hover:bg-blue-500/10 transition text-left"
@@ -287,7 +301,7 @@ function MobileUserCard({ user, onAction, currentUserId }) {
                 </button>
               )}
 
-              {user.verified && user.role !== 'admin' && (
+              {isVerified && user.role !== 'admin' && (
                 <button
                   onClick={() => handleAction('unverify', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-amber-500 hover:bg-amber-500/10 transition text-left"
@@ -333,7 +347,17 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
   };
 
   const isCurrentUser = user.id === currentUserId;
-  const initials = user.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+
+  // 🔥 FIX: Proper initials calculation - no "0"
+  const initials = user.name 
+    ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) 
+    : '?';
+
+  // 🔥 FIX: normalize booleans - MySQL tinyint columns come back as 1/0,
+  // not true/false, so strict `=== true` checks silently fail and
+  // `value && (...)` renders a literal "0" when the value is 0.
+  const isVerified = user.verified === true || user.verified === 1;
+  const isSuspended = user.suspended === true || user.suspended === 1;
 
   return (
     <tr className="border-b border-[var(--color-border)] hover:bg-[var(--color-surface)] transition">
@@ -353,7 +377,8 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-medium text-[var(--color-txt)]">{user.name}</span>
-              {user.verified && <VerifiedBadge />}
+              {/* 🔥 FIX: Only show badge when verified (handles 1/0 and true/false) */}
+              {isVerified && <VerifiedBadge />}
               {user.role === 'admin' && (
                 <span className="text-[10px] font-medium bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded">Admin</span>
               )}
@@ -365,7 +390,8 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
       <td className="px-4 py-3 text-sm text-[var(--color-txt)]">
         <div className="flex flex-col">
           <span>{user.email || '—'}</span>
-          {user.email_verified ? (
+          {/* 🔥 FIX: Handle both 0/1 and true/false */}
+          {user.email_verified == 1 || user.email_verified === true ? (
             <span className="text-xs text-green-500">Verified</span>
           ) : (
             <span className="text-xs text-amber-500">Unverified</span>
@@ -373,7 +399,7 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
         </div>
       </td>
       <td className="px-4 py-3">
-        <StatusBadge status={user.suspended ? 'suspended' : user.role === 'admin' ? 'admin' : 'active'} />
+        <StatusBadge status={isSuspended ? 'suspended' : user.role === 'admin' ? 'admin' : 'active'} />
       </td>
       <td className="px-4 py-3 text-sm text-[var(--color-txt2)]">
         {new Date(user.joinDate || user.created_at).toLocaleDateString()}
@@ -404,7 +430,7 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
                 View Profile
               </button>
 
-              {!user.suspended && user.role !== 'admin' && (
+              {!isSuspended && user.role !== 'admin' && (
                 <button
                   onClick={() => handleAction('suspend', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-rose-500 hover:bg-rose-500/10 transition text-left"
@@ -414,7 +440,7 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
                 </button>
               )}
 
-              {user.suspended && (
+              {isSuspended && (
                 <button
                   onClick={() => handleAction('unsuspend', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-green-500 hover:bg-green-500/10 transition text-left"
@@ -424,7 +450,8 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
                 </button>
               )}
 
-              {!user.verified && user.role !== 'admin' && (
+              {/* 🔥 FIX: Only show verify when not verified */}
+              {!isVerified && user.role !== 'admin' && (
                 <button
                   onClick={() => handleAction('verify', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-blue-500 hover:bg-blue-500/10 transition text-left"
@@ -434,7 +461,7 @@ function DesktopUserRow({ user, onAction, currentUserId }) {
                 </button>
               )}
 
-              {user.verified && user.role !== 'admin' && (
+              {isVerified && user.role !== 'admin' && (
                 <button
                   onClick={() => handleAction('unverify', user)}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-amber-500 hover:bg-amber-500/10 transition text-left"

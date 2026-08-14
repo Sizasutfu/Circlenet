@@ -1,18 +1,148 @@
 // src/components/dm/DmInbox.jsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDm } from '@/contexts/DmContext';
 import { useAuth } from '@/lib/auth';
+import { useWs } from '@/contexts/WsContext';
+import { apiClient } from '@/lib/api';
+import * as E2E from '@/lib/e2e';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
 
 export default function DmInbox() {
   const { user } = useAuth();
-  const { inbox, activeConvId, openConversation } = useDm();
+  const { inbox, activeConvId, openConversation, e2eEnabled } = useDm();
+  const { registerHandler } = useWs();
   const router = useRouter();
   const [filter, setFilter] = useState('');
+  const [typingUsers, setTypingUsers] = useState({});
+  const [decryptedPreviews, setDecryptedPreviews] = useState({});
+
+  // ─── Decrypt message preview ──────────────────────────────────
+  const decryptPreview = async (conv) => {
+    if (!conv || !conv.last_message) return;
+    
+    // Skip if not encrypted
+    if (!conv.last_message.startsWith('e2e:')) {
+      setDecryptedPreviews(prev => ({
+        ...prev,
+        [conv.id]: conv.last_message
+      }));
+      return;
+    }
+
+    // Check if already decrypted
+    if (decryptedPreviews[conv.id]) return;
+
+    try {
+      const decrypted = await E2E.decrypt(conv.other_id, conv.last_message, apiClient);
+      setDecryptedPreviews(prev => ({
+        ...prev,
+        [conv.id]: decrypted || '[Unable to decrypt]'
+      }));
+    } catch (err) {
+      console.error('[DM] Inbox decryption error:', err);
+      setDecryptedPreviews(prev => ({
+        ...prev,
+        [conv.id]: '🔒 Encrypted message'
+      }));
+    }
+  };
+
+  // ─── Decrypt all inbox messages ─────────────────────────────
+  useEffect(() => {
+    if (!inbox || !inbox.length) return;
+
+    inbox.forEach(conv => {
+      if (conv.last_message && conv.last_message.startsWith('e2e:')) {
+        decryptPreview(conv);
+      } else if (conv.last_message) {
+        // Plaintext message - store as-is
+        setDecryptedPreviews(prev => ({
+          ...prev,
+          [conv.id]: conv.last_message
+        }));
+      }
+    });
+  }, [inbox]);
+
+  // ─── Refresh decrypted preview when inbox updates ──────────
+  useEffect(() => {
+    if (!inbox || !inbox.length) return;
+    
+    inbox.forEach(conv => {
+      if (conv.last_message && conv.last_message.startsWith('e2e:')) {
+        const cacheKey = `${conv.id}_${conv.last_message}`;
+        const cached = sessionStorage.getItem(`dm_preview_${cacheKey}`);
+        
+        if (cached) {
+          setDecryptedPreviews(prev => ({
+            ...prev,
+            [conv.id]: cached
+          }));
+        } else {
+          decryptPreview(conv);
+        }
+      }
+    });
+  }, [inbox]);
+
+  // ─── Track typing indicators ──────────────────────────────
+  useEffect(() => {
+    const unregTyping = registerHandler('typing', (data) => {
+      if (!data || !data.conversationId) return;
+      
+      setTypingUsers((prev) => {
+        const key = `${data.conversationId}_${data.userId}`;
+        if (data.isTyping) {
+          const timeoutId = setTimeout(() => {
+            setTypingUsers((current) => {
+              const newState = { ...current };
+              delete newState[key];
+              return newState;
+            });
+          }, 3000);
+          
+          return { ...prev, [key]: { ...data, timeoutId } };
+        } else {
+          if (prev[key]?.timeoutId) {
+            clearTimeout(prev[key].timeoutId);
+          }
+          const newState = { ...prev };
+          delete newState[key];
+          return newState;
+        }
+      });
+    });
+
+    return () => {
+      unregTyping();
+      Object.values(typingUsers).forEach((item) => {
+        if (item.timeoutId) clearTimeout(item.timeoutId);
+      });
+    };
+  }, [registerHandler]);
+
+  // ─── Check if a user is typing ─────────────────────────────
+  const isTypingInConversation = (conversationId, otherId) => {
+    const key = `${conversationId}_${otherId}`;
+    return !!typingUsers[key];
+  };
+
+  // ─── Get display text for a message ─────────────────────────
+  const getDisplayText = (conv) => {
+    if (!conv || !conv.last_message) return null;
+    
+    // If it's encrypted, use decrypted version
+    if (conv.last_message.startsWith('e2e:')) {
+      return decryptedPreviews[conv.id] || null;
+    }
+    
+    // Plaintext message
+    return conv.last_message;
+  };
 
   const filtered = inbox.filter(
     (c) => c.other_name?.toLowerCase().includes(filter.toLowerCase())
@@ -25,7 +155,7 @@ export default function DmInbox() {
 
   return (
     <div className="flex flex-col h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--color-surface)]">
-      {/* ─── Header with back button, title, and New Message button ─── */}
+      {/* ─── Header ─── */}
       <div className="flex-shrink-0 flex items-center gap-2 p-3 sm:p-4 pb-3 border-b border-[var(--color-border)]">
         <button
           onClick={() => router.back()}
@@ -40,16 +170,20 @@ export default function DmInbox() {
           Messages
         </h2>
         
-        {/* ─── New Message Button in Header ─── */}
-        <button
-          onClick={openNewModal}
-          className="flex-shrink-0 py-1.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer flex items-center gap-1.5"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          New
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-[var(--color-txt3)] hidden sm:inline">
+            {e2eEnabled ? '🔒 E2E' : ''}
+          </span>
+          <button
+            onClick={openNewModal}
+            className="flex-shrink-0 py-1.5 px-4 bg-[var(--color-accent)] text-white rounded-full text-sm font-semibold hover:bg-[var(--color-accent-h)] transition shadow-md shadow-[var(--color-accent-glow)] border-none cursor-pointer flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New
+          </button>
+        </div>
       </div>
 
       {/* ─── Search bar ─── */}
@@ -111,9 +245,21 @@ export default function DmInbox() {
           filtered.map((conv) => {
             const unread = conv.unread_count || 0;
             const isActive = conv.id === activeConvId;
-            const preview = conv.last_message
-              ? (conv.last_sender_id === user?.id ? 'You: ' : '') + conv.last_message
-              : 'No messages yet';
+            const isTyping = isTypingInConversation(conv.id, conv.other_id);
+            
+            // Get the display text (decrypted if needed)
+            const displayText = getDisplayText(conv);
+            
+            // Build preview text
+            let preview = 'No messages yet';
+            if (isTyping) {
+              preview = `${conv.other_name || 'Someone'} is typing...`;
+            } else if (displayText) {
+              const sender = conv.last_sender_id === user?.id ? 'You: ' : '';
+              const mediaIcon = conv.last_media_type ? '📎 ' : '';
+              preview = sender + mediaIcon + displayText;
+            }
+            
             const timeStr = conv.last_message_at
               ? new Date(conv.last_message_at).toLocaleTimeString([], {
                   hour: '2-digit',
@@ -121,7 +267,6 @@ export default function DmInbox() {
                 })
               : '';
 
-            // ── Safe boolean conversion ──
             let isOtherVerified = false;
             if (conv.other) {
               isOtherVerified = !!conv.other.verified;
@@ -152,22 +297,36 @@ export default function DmInbox() {
                 )}
 
                 <div className="flex-1 min-w-0 basis-0 overflow-hidden">
+                  {/* ─── Name row ─── */}
                   <div className="text-sm font-semibold text-[var(--color-txt)] truncate flex items-center gap-1">
                     {conv.other_name}
                     {isOtherVerified && <VerificationBadge size="w-3.5 h-3.5" />}
                   </div>
-                  <div className="text-xs text-[var(--color-txt3)] truncate block max-w-full">
+                  
+                  {/* ─── Preview row ─── */}
+                  <div className={`text-xs truncate block max-w-full ${
+                    isTyping 
+                      ? 'text-[var(--color-green)] italic animate-pulse' 
+                      : 'text-[var(--color-txt3)]'
+                  }`}>
                     {preview}
                   </div>
                 </div>
 
                 <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-1 sm:ml-2 w-10 sm:w-auto">
-                  {timeStr && (
+                  {timeStr && !isTyping && (
                     <div className="text-[10px] text-[var(--color-txt3)] whitespace-nowrap">
                       {timeStr}
                     </div>
                   )}
-                  {unread > 0 && (
+                  {isTyping && (
+                    <div className="flex gap-0.5">
+                      <span className="w-1 h-1 bg-[var(--color-green)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1 h-1 bg-[var(--color-green)] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1 h-1 bg-[var(--color-green)] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  )}
+                  {unread > 0 && !isTyping && (
                     <div className="w-2 h-2 rounded-full bg-[var(--color-accent)]" />
                   )}
                 </div>
@@ -176,8 +335,6 @@ export default function DmInbox() {
           })
         )}
       </div>
-
-      {/* ─── Removed bottom New Message button ─── */}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 // controllers/dmController.js
-// Handles all Direct Message HTTP requests with media support using Cloudinary
+// Handles all Direct Message HTTP requests with E2E encryption support
 
 const dmModel    = require('../models/dmModel');
 const { sendOk, sendError } = require('../middleware/response');
 const { notifyConversation, notifyUser, isOnline } = require('../../wsServer');
-const { uploadImage } = require('../middleware/upload');
+const { uploadMediaWithMetadata } = require('../middleware/upload');
 
 // ─── GET /api/dm/inbox ───────────────────────────────────────
 async function getInbox(req, res) {
@@ -117,7 +117,29 @@ async function sendMessage(req, res) {
       return sendError(res, 403, 'Access denied.');
     }
 
-    const message = await dmModel.sendMessage(conversationId, userId, body, media);
+    // Check if the body is encrypted
+    const isEncrypted = body.startsWith('e2e:');
+
+    // Process media if it exists
+    let processedMedia = null;
+    if (media) {
+      processedMedia = {
+        media_type: media.type || media.media_type || 'file',
+        media_url: media.url || media.media_url,
+        media_thumbnail: media.thumbnail || media.media_thumbnail || null,
+        media_name: media.name || media.media_name || 'file',
+        media_size: media.size || media.media_size || null,
+      };
+    }
+
+    // Save the message
+    const message = await dmModel.saveEncryptedMessage(
+      conversationId, 
+      userId, 
+      body, 
+      processedMedia, 
+      isEncrypted
+    );
 
     const recipientId = await dmModel.getOtherParticipant(conversationId, userId);
     if (recipientId) {
@@ -145,44 +167,20 @@ async function uploadMedia(req, res) {
       return sendError(res, 400, 'No file uploaded.');
     }
 
-    // File is already validated by multer middleware
-    // File is in memory buffer from multer memoryStorage
-
-    // Determine media type
-    let mediaType = 'file';
-    if (file.mimetype.startsWith('image/')) mediaType = 'image';
-    else if (file.mimetype.startsWith('video/')) mediaType = 'video';
-    else if (file.mimetype.startsWith('audio/')) mediaType = 'audio';
-
-    // Upload to Cloudinary or local storage using your existing uploadImage function
-    let fileUrl;
-    let thumbnail = null;
-
     try {
-      // Use your existing uploadImage function
-      fileUrl = await uploadImage(file.buffer, file.originalname);
+      // Use the uploadMediaWithMetadata function from middleware
+      const result = await uploadMediaWithMetadata(
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+        { folder: 'dm_media' }
+      );
       
-      // Generate thumbnail for images (Cloudinary handles this)
-      if (mediaType === 'image' && fileUrl.includes('cloudinary')) {
-        // Cloudinary thumbnail - add transformation
-        thumbnail = fileUrl.replace('/upload/', '/upload/c_thumb,w_200,h_200/');
-      } else if (mediaType === 'image') {
-        // Local thumbnail - you'd need to generate one
-        // For now, use the same URL
-        thumbnail = fileUrl;
-      }
+      return sendOk(res, 200, 'File uploaded successfully.', result);
     } catch (err) {
       console.error('[DM] Upload to storage failed:', err);
       return sendError(res, 500, 'Failed to upload file to storage.');
     }
-
-    return sendOk(res, 200, 'File uploaded successfully.', {
-      url: fileUrl,
-      thumbnail: thumbnail,
-      type: mediaType,
-      name: file.originalname,
-      size: file.size
-    });
   } catch (err) {
     console.error('[DM] uploadMedia error:', err);
     return sendError(res, 500, 'Failed to upload file.');
@@ -325,6 +323,160 @@ async function deleteMessage(req, res) {
   }
 }
 
+// ─── E2E Encryption Endpoints ─────────────────────────────────
+
+// POST /api/dm/e2e/encrypt
+async function encryptMessage(req, res) {
+  try {
+    const userId = req.actorId;
+    const { peerUserId, plaintext } = req.body;
+
+    if (!peerUserId || !plaintext) {
+      return sendError(res, 400, 'peerUserId and plaintext are required.');
+    }
+
+    const e2e = require('../lib/e2e');
+    const encrypted = await e2e.encrypt(peerUserId, plaintext, req.apiClient);
+    
+    return sendOk(res, 200, 'Message encrypted.', { encrypted });
+  } catch (err) {
+    console.error('[DM] encryptMessage error:', err);
+    return sendError(res, 500, 'Failed to encrypt message.');
+  }
+}
+
+// POST /api/dm/e2e/decrypt
+async function decryptMessage(req, res) {
+  try {
+    const userId = req.actorId;
+    const { peerUserId, encryptedText } = req.body;
+
+    if (!peerUserId || !encryptedText) {
+      return sendError(res, 400, 'peerUserId and encryptedText are required.');
+    }
+
+    const e2e = require('../lib/e2e');
+    const decrypted = await e2e.decrypt(peerUserId, encryptedText, req.apiClient);
+    
+    return sendOk(res, 200, 'Message decrypted.', { decrypted });
+  } catch (err) {
+    console.error('[DM] decryptMessage error:', err);
+    return sendError(res, 500, 'Failed to decrypt message.');
+  }
+}
+
+// GET /api/dm/e2e/status/:userId
+async function getE2EStatus(req, res) {
+  try {
+    const userId = req.actorId;
+    const peerUserId = Number(req.params.userId);
+
+    if (!peerUserId || isNaN(peerUserId)) {
+      return sendError(res, 400, 'Invalid user ID.');
+    }
+
+    const e2e = require('../lib/e2e');
+    const enabled = await e2e.isEnabled(peerUserId, req.apiClient);
+    
+    return sendOk(res, 200, 'E2E status fetched.', { enabled });
+  } catch (err) {
+    console.error('[DM] getE2EStatus error:', err);
+    return sendError(res, 500, 'Failed to fetch E2E status.');
+  }
+}
+
+// POST /api/dm/e2e/rotate-keys
+async function rotateKeys(req, res) {
+  try {
+    const userId = req.actorId;
+    const e2e = require('../lib/e2e');
+    await e2e.rotateMyKeys(userId, req.apiClient);
+    return sendOk(res, 200, 'Keys rotated successfully.');
+  } catch (err) {
+    console.error('[DM] rotateKeys error:', err);
+    return sendError(res, 500, 'Failed to rotate keys.');
+  }
+}
+
+// GET /api/dm/e2e/public-key
+async function getPublicKey(req, res) {
+  try {
+    const userId = req.actorId;
+    const keyData = await dmModel.getPublicKey(userId);
+    
+    if (!keyData) {
+      return sendOk(res, 200, 'No public key found.', { publicKey: null });
+    }
+    
+    return sendOk(res, 200, 'Public key fetched.', {
+      publicKey: keyData.public_key,
+      version: keyData.key_version,
+      createdAt: keyData.created_at
+    });
+  } catch (err) {
+    console.error('[DM] getPublicKey error:', err);
+    return sendError(res, 500, 'Failed to fetch public key.');
+  }
+}
+
+// PUT /api/dm/e2e/public-key
+async function updatePublicKey(req, res) {
+  try {
+    const userId = req.actorId;
+    const { publicKey, keyVersion } = req.body;
+
+    if (!publicKey) {
+      return sendError(res, 400, 'publicKey is required.');
+    }
+
+    await dmModel.savePublicKey(userId, publicKey, keyVersion || 1);
+    return sendOk(res, 200, 'Public key updated.');
+  } catch (err) {
+    console.error('[DM] updatePublicKey error:', err);
+    return sendError(res, 500, 'Failed to update public key.');
+  }
+}
+
+// GET /api/dm/e2e/key-versions
+async function getKeyVersions(req, res) {
+  try {
+    const userId = req.actorId;
+    const versions = await dmModel.getPublicKeyVersions(userId);
+    return sendOk(res, 200, 'Key versions fetched.', { versions });
+  } catch (err) {
+    console.error('[DM] getKeyVersions error:', err);
+    return sendError(res, 500, 'Failed to fetch key versions.');
+  }
+}
+
+// GET /api/dm/e2e/public-key/:userId
+async function getPeerPublicKey(req, res) {
+  try {
+    const userId = req.actorId;
+    const peerUserId = Number(req.params.userId);
+    const version = req.query.version ? Number(req.query.version) : null;
+
+    if (!peerUserId || isNaN(peerUserId)) {
+      return sendError(res, 400, 'Invalid user ID.');
+    }
+
+    const keyData = await dmModel.getPublicKey(peerUserId, version);
+    
+    if (!keyData) {
+      return sendError(res, 404, 'Public key not found.');
+    }
+    
+    return sendOk(res, 200, 'Public key fetched.', {
+      publicKey: keyData.public_key,
+      version: keyData.key_version,
+      createdAt: keyData.created_at
+    });
+  } catch (err) {
+    console.error('[DM] getPeerPublicKey error:', err);
+    return sendError(res, 500, 'Failed to fetch public key.');
+  }
+}
+
 module.exports = {
   getInbox,
   getUnreadCount,
@@ -332,11 +484,19 @@ module.exports = {
   getMessages,
   getNewMessages,
   sendMessage,
+  uploadMedia,
   markRead,
   heartbeat,
   getPresence,
   getReadStatus,
   editMessage,
   deleteMessage,
-  uploadMedia
+  encryptMessage,
+  decryptMessage,
+  getE2EStatus,
+  rotateKeys,
+  getPublicKey,
+  updatePublicKey,
+  getKeyVersions,
+  getPeerPublicKey
 };

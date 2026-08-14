@@ -157,8 +157,9 @@ async function createPost(req, res) {
         await PostModel.createMentions(postId, userId, mentionedUserIds, 'post');
         
         // ── Send notifications for mentions ──
-        for (const mentionedId of mentionedUserIds) {
-          // Create notification using NotificationModel
+        const uniqueMentionedIds = [...new Set(mentionedUserIds)];
+        for (const mentionedId of uniqueMentionedIds) {
+          // Create notification using NotificationModel (handles deduplication)
           await NotificationModel.createNotification(
             mentionedId,
             userId,
@@ -279,11 +280,26 @@ async function toggleLike(req, res) {
     if (existing) {
       await PostModel.removeLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
+      
+      // Get the updated list of users who liked this post
+      const likers = await PostModel.getLikers(postId);
+      
+      // Broadcast like update via WebSocket
+      broadcastToAll({
+        type: 'like_update',
+        postId: postId,
+        count: total,
+        userIds: likers.map(l => l.user_id),
+      });
+      
       await broadcastPostCounts(postId);
       return sendOk(res, 200, 'Unliked.', { likes: total, liked: false });
     } else {
       await PostModel.addLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
+      
+      // Get the updated list of users who liked this post
+      const likers = await PostModel.getLikers(postId);
 
       await ContentTypePreference.incrementEngagement(userId, postId);
 
@@ -301,6 +317,14 @@ async function toggleLike(req, res) {
           postId,
         });
       }
+
+      // Broadcast like update via WebSocket
+      broadcastToAll({
+        type: 'like_update',
+        postId: postId,
+        count: total,
+        userIds: likers.map(l => l.user_id),
+      });
 
       await broadcastPostCounts(postId);
       return sendOk(res, 200, 'Liked.', { likes: total, liked: true });
@@ -362,7 +386,8 @@ async function addComment(req, res) {
         await PostModel.createMentions(postId, userId, mentionedUserIds, 'reply');
         
         // ── Send notifications for mentions in comments ──
-        for (const mentionedId of mentionedUserIds) {
+        const uniqueMentionedIds = [...new Set(mentionedUserIds)];
+        for (const mentionedId of uniqueMentionedIds) {
           await NotificationModel.createNotification(
             mentionedId,
             userId,
@@ -464,7 +489,8 @@ async function repost(req, res) {
         if (mentionedUserIds.length) {
           await PostModel.createMentions(repostId, userId, mentionedUserIds, 'post');
           
-          for (const mentionedId of mentionedUserIds) {
+          const uniqueMentionedIds = [...new Set(mentionedUserIds)];
+          for (const mentionedId of uniqueMentionedIds) {
             await NotificationModel.createNotification(
               mentionedId,
               userId,
@@ -493,6 +519,18 @@ async function repost(req, res) {
 
     const topics = await TopicPreferenceModel.getPostTopics(origId);
     await TopicPreferenceModel.recordEngagement(userId, topics, 'repost');
+
+    // Get updated repost count and list
+    const repostCount = await PostModel.getRepostCount(origId);
+    const reposters = await PostModel.getReposters(origId);
+
+    // Broadcast repost update via WebSocket
+    broadcastToAll({
+      type: 'repost_update',
+      postId: origId,
+      count: repostCount,
+      userIds: reposters.map(r => r.user_id),
+    });
 
     await broadcastPostCounts(origId);
 
@@ -525,6 +563,37 @@ async function broadcastPostCounts(postId) {
     PostModel.getCommentCount(postId),
     PostModel.getRepostCount(postId),
   ]);
+  
+  // Get user lists for likes and reposts
+  const [likers, reposters] = await Promise.all([
+    PostModel.getLikers(postId).catch(() => []),
+    PostModel.getReposters(postId).catch(() => []),
+  ]);
+  
+  // Broadcast like update with user list
+  broadcastToAll({
+    type: 'like_update',
+    postId,
+    count: likes,
+    userIds: likers.map(l => l.user_id),
+  });
+  
+  // Broadcast repost update with user list
+  broadcastToAll({
+    type: 'repost_update',
+    postId,
+    count: reposts,
+    userIds: reposters.map(r => r.user_id),
+  });
+  
+  // Broadcast comment update
+  broadcastToAll({
+    type: 'comment_update',
+    postId,
+    count: comments,
+  });
+  
+  // Also broadcast combined counts for backward compatibility
   broadcastToAll({
     type: 'post_counts',
     postId,

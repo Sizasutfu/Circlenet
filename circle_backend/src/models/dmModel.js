@@ -1,7 +1,7 @@
 // models/dmModel.js
-// All database queries for Direct Messages with media support
+// All database queries for Direct Messages with E2E encryption support
 
-const { db } = require('../config/db'); 
+const { db } = require('../config/db');
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -53,6 +53,7 @@ async function getInboxForUser(userId) {
        lm.created_at AS last_message_at,
        lm.media_type AS last_media_type,
        lm.media_url  AS last_media_url,
+       lm.is_encrypted AS last_is_encrypted,
        COALESCE(unread.cnt, 0) AS unread_count
      FROM dm_conversations c
      JOIN users u ON u.id = IF(c.participant_one_id = ?, c.participant_two_id, c.participant_one_id)
@@ -122,6 +123,7 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        m.media_name,
        m.media_size,
        m.is_read,
+       m.is_encrypted,
        m.created_at,
        m.edited_at
      FROM dm_messages m
@@ -164,6 +166,7 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        m.media_name,
        m.media_size,
        m.is_read,
+       m.is_encrypted,
        m.created_at,
        m.edited_at
      FROM dm_messages m
@@ -213,6 +216,56 @@ async function sendMessage(conversationId, senderId, body, media = null) {
        m.media_name,
        m.media_size,
        m.is_read,
+       m.is_encrypted,
+       m.created_at,
+       m.edited_at
+     FROM dm_messages m
+     JOIN users u ON u.id = m.sender_id
+     WHERE m.id = ?`,
+    [result.insertId]
+  );
+
+  return rows[0];
+}
+
+async function saveEncryptedMessage(conversationId, senderId, body, media = null, encrypted = false) {
+  const convId = Number(conversationId);
+  const sid    = Number(senderId);
+
+  let query = `INSERT INTO dm_messages (conversation_id, sender_id, body, is_encrypted`;
+  let values = [convId, sid, body.trim(), encrypted ? 1 : 0];
+  let placeholders = ['?', '?', '?', '?'];
+
+  if (media) {
+    query += `, media_type, media_url, media_thumbnail, media_name, media_size`;
+    values.push(
+      media.media_type || 'file',
+      media.media_url || null,
+      media.media_thumbnail || null,
+      media.media_name || null,
+      media.media_size || null
+    );
+    placeholders.push('?', '?', '?', '?', '?');
+  }
+
+  query += `) VALUES (${placeholders.join(', ')})`;
+  const [result] = await db.query(query, values);
+
+  const [rows] = await db.query(
+    `SELECT
+       m.id,
+       m.conversation_id,
+       m.sender_id,
+       u.name        AS sender_name,
+       u.picture     AS sender_picture,
+       m.body,
+       m.media_type,
+       m.media_url,
+       m.media_thumbnail,
+       m.media_name,
+       m.media_size,
+       m.is_read,
+       m.is_encrypted,
        m.created_at,
        m.edited_at
      FROM dm_messages m
@@ -286,7 +339,8 @@ async function editMessage(messageId, senderId, newBody) {
 
   const [updated] = await db.query(
     `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.media_type, m.media_url, 
-            m.media_thumbnail, m.media_name, m.media_size, m.is_read, m.created_at, m.edited_at
+            m.media_thumbnail, m.media_name, m.media_size, m.is_read, m.is_encrypted,
+            m.created_at, m.edited_at
      FROM dm_messages m WHERE m.id = ?`,
     [Number(messageId)]
   );
@@ -357,6 +411,48 @@ async function getOtherParticipant(conversationId, userId) {
   return rows[0]?.other_id ?? null;
 }
 
+// ─── E2E Key Management ──────────────────────────────────────
+
+async function savePublicKey(userId, publicKey, keyVersion = 1) {
+  // Save to key history
+  await db.query(
+    `INSERT INTO user_key_history (user_id, public_key, key_version, created_at)
+     VALUES (?, ?, ?, NOW())`,
+    [Number(userId), publicKey, Number(keyVersion)]
+  );
+  
+  // Update user's current key
+  await db.query(
+    `UPDATE users SET public_key = ?, key_version = ?, key_updated_at = NOW()
+     WHERE id = ?`,
+    [publicKey, Number(keyVersion), Number(userId)]
+  );
+}
+
+async function getPublicKey(userId, version = null) {
+  let query = `SELECT public_key, key_version, created_at FROM user_key_history WHERE user_id = ?`;
+  const params = [Number(userId)];
+  
+  if (version) {
+    query += ` AND key_version = ? ORDER BY created_at DESC LIMIT 1`;
+    params.push(Number(version));
+  } else {
+    query += ` ORDER BY key_version DESC, created_at DESC LIMIT 1`;
+  }
+  
+  const [rows] = await db.query(query, params);
+  return rows[0] || null;
+}
+
+async function getPublicKeyVersions(userId) {
+  const [rows] = await db.query(
+    `SELECT key_version, created_at FROM user_key_history 
+     WHERE user_id = ? ORDER BY key_version DESC`,
+    [Number(userId)]
+  );
+  return rows;
+}
+
 module.exports = {
   getOrCreateConversation,
   getInboxForUser,
@@ -364,6 +460,7 @@ module.exports = {
   getMessages,
   getNewMessages,
   sendMessage,
+  saveEncryptedMessage,
   getTotalUnreadCount,
   markConversationRead,
   touchPresence,
@@ -371,5 +468,8 @@ module.exports = {
   getReadStatus,
   getOtherParticipant,
   editMessage,
-  deleteMessage
+  deleteMessage,
+  savePublicKey,
+  getPublicKey,
+  getPublicKeyVersions
 };

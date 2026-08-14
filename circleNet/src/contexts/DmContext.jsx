@@ -24,6 +24,8 @@ export function DmProvider({ children }) {
   const [typing, setTyping] = useState(false);
   const [otherOnline, setOtherOnline] = useState(false);
   const [otherLastActive, setOtherLastActive] = useState(null);
+  const [e2eEnabled, setE2eEnabled] = useState(false);
+  const [e2eInitialized, setE2eInitialized] = useState(false);
 
   const userRef = useRef(user);
   const activeConvIdRef = useRef(activeConvId);
@@ -37,6 +39,51 @@ export function DmProvider({ children }) {
   useEffect(() => { latestIdRef.current = latestId; }, [latestId]);
   useEffect(() => { inboxRef.current = inbox; }, [inbox]);
 
+  // ─── Initialize E2E ──────────────────────────────────────────
+  const initializeE2E = useCallback(async () => {
+    if (!userRef.current || e2eInitialized) return;
+    try {
+      await E2E.ensureMyKeys();
+      await E2E.publishMyPublicKey(userRef.current.id, apiClient);
+      setE2eEnabled(true);
+      setE2eInitialized(true);
+      console.log('[E2E] Initialized for user:', userRef.current.id);
+    } catch (err) {
+      console.error('[E2E] Initialization failed:', err);
+      setE2eEnabled(false);
+    }
+  }, [e2eInitialized]);
+
+  // Initialize E2E on user login
+  useEffect(() => {
+    if (user) {
+      initializeE2E();
+    }
+  }, [user, initializeE2E]);
+
+  // ─── Helper: Decrypt a single message ──────────────────────
+  const decryptMessage = useCallback(async (message, peerId) => {
+    if (!message.body || !message.body.startsWith('e2e:')) {
+      return { ...message, _plain: message.body };
+    }
+    try {
+      const plain = await E2E.decrypt(peerId, message.body, apiClient);
+      return { ...message, _plain: plain || '[Unable to decrypt]' };
+    } catch (err) {
+      console.error('[DM] Decryption error:', err);
+      return { ...message, _plain: '[🔒 Encrypted message]' };
+    }
+  }, []);
+
+  // ─── Helper: Decrypt multiple messages ──────────────────────
+  const decryptMessages = useCallback(async (msgs, peerId) => {
+    if (!msgs || !msgs.length) return msgs;
+    return await Promise.all(
+      msgs.map((m) => decryptMessage(m, peerId))
+    );
+  }, [decryptMessage]);
+
+  // ─── Load inbox ──────────────────────────────────────────────
   const loadInbox = useCallback(async () => {
     if (!userRef.current) return;
     try {
@@ -46,6 +93,7 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, []);
 
+  // ─── Poll new messages ──────────────────────────────────────
   const pollNewMessages = useCallback(async () => {
     const convId = activeConvIdRef.current;
     const lastId = latestIdRef.current;
@@ -57,35 +105,25 @@ export function DmProvider({ children }) {
       if (!msgs.length) return;
 
       const conv = inboxRef.current.find((c) => c.id === convId);
-      const decrypted = await Promise.all(
-        msgs.map(async (m) => {
-          if (m.body?.startsWith('e2e:') && conv) {
-            try {
-              const plain = await E2E.decrypt(conv.other_id, m.body, apiClient);
-              return { ...m, _plain: plain || '[Unable to decrypt]' };
-            } catch (err) {
-              console.error('[DM] Decryption error:', err);
-              return { ...m, _plain: '[🔒 Encrypted message]' };
-            }
-          }
-          return { ...m, _plain: m.body };
-        })
-      );
+      if (conv) {
+        const decrypted = await decryptMessages(msgs, conv.other_id);
+        
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newMsgs = decrypted.filter((m) => !existingIds.has(m.id));
+          return [...prev, ...newMsgs];
+        });
 
-      setMessages((prev) => {
-        const existingIds = new Set(prev.map((m) => m.id));
-        const newMsgs = decrypted.filter((m) => !existingIds.has(m.id));
-        return [...prev, ...newMsgs];
-      });
-
-      if (decrypted.length) {
-        setLatestId(decrypted[decrypted.length - 1].id);
+        if (decrypted.length) {
+          setLatestId(decrypted[decrypted.length - 1].id);
+        }
+        await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
+        loadInbox();
       }
-      await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
-      loadInbox();
     } catch (_) {}
-  }, [loadInbox]);
+  }, [loadInbox, decryptMessages]);
 
+  // ─── Send heartbeat ──────────────────────────────────────────
   const sendHeartbeat = useCallback(async () => {
     if (!userRef.current) return;
     try {
@@ -93,6 +131,7 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, []);
 
+  // ─── Fetch presence ──────────────────────────────────────────
   const fetchPresence = useCallback(async () => {
     const convId = activeConvIdRef.current;
     if (!convId) return;
@@ -103,6 +142,7 @@ export function DmProvider({ children }) {
     } catch (_) {}
   }, []);
 
+  // ─── Open conversation ──────────────────────────────────────
   const openConversation = useCallback(async (convId) => {
     if (!userRef.current) return;
     const conv = inboxRef.current.find((c) => c.id === convId);
@@ -113,7 +153,12 @@ export function DmProvider({ children }) {
     }
 
     setActiveConvId(convId);
-    setActiveOther({ id: conv.other_id, name: conv.other_name, picture: conv.other_picture });
+    setActiveOther({ 
+      id: conv.other_id, 
+      name: conv.other_name, 
+      picture: conv.other_picture,
+      verified: conv.other_verified 
+    });
     setMessages([]);
     setHasMore(false);
     setCursor(null);
@@ -132,24 +177,14 @@ export function DmProvider({ children }) {
       const res = await apiClient(`/api/dm/conversations/${convId}/messages?limit=10`);
       const msgs = res.data?.messages || [];
       const hasMoreData = res.data?.hasMore || false;
-      const decrypted = await Promise.all(
-        msgs.map(async (m) => {
-          if (m.body?.startsWith('e2e:') && conv) {
-            try {
-              const plain = await E2E.decrypt(conv.other_id, m.body, apiClient);
-              return { ...m, _plain: plain || '[Unable to decrypt]' };
-            } catch (err) {
-              console.error('[DM] Decryption error:', err);
-              return { ...m, _plain: '[🔒 Encrypted message]' };
-            }
-          }
-          return { ...m, _plain: m.body };
-        })
-      );
+      
+      const decrypted = await decryptMessages(msgs, conv.other_id);
+      
       setMessages(decrypted);
       setHasMore(hasMoreData);
       setCursor(decrypted.length ? decrypted[0].id : null);
       setLatestId(decrypted.length ? decrypted[decrypted.length - 1].id : null);
+      
       await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
       setInbox((prev) =>
         prev.map((c) => (c.id === convId ? { ...c, unread_count: 0 } : c))
@@ -157,8 +192,9 @@ export function DmProvider({ children }) {
     } catch (_) {}
 
     fetchPresence();
-  }, [joinConversation, leaveConversation, fetchPresence]);
+  }, [joinConversation, leaveConversation, fetchPresence, decryptMessages]);
 
+  // ─── Start conversation ──────────────────────────────────────
   const startConversation = useCallback(async (userId) => {
     if (!userRef.current) return;
     const existing = inboxRef.current.find((c) => c.other_id === userId);
@@ -172,7 +208,7 @@ export function DmProvider({ children }) {
         body: { recipientId: userId },
       });
       const data = res.data || res;
-      if (data.conversationId) {
+      if (data.conversationId || data.id) {
         await loadInbox();
         const newConv = inboxRef.current.find((c) => c.other_id === userId);
         if (newConv) {
@@ -184,6 +220,7 @@ export function DmProvider({ children }) {
     }
   }, [openConversation, loadInbox]);
 
+  // ─── Close conversation ──────────────────────────────────────
   const closeConversation = useCallback(() => {
     if (activeConvIdRef.current) {
       leaveConversation(activeConvIdRef.current);
@@ -207,6 +244,7 @@ export function DmProvider({ children }) {
     }
   }, [leaveConversation]);
 
+  // ─── Load more messages ──────────────────────────────────────
   const loadMoreMessages = useCallback(async () => {
     if (!activeConvIdRef.current || !hasMore || loadingMore || !cursor) return;
     setLoadingMore(true);
@@ -217,20 +255,11 @@ export function DmProvider({ children }) {
       );
       const msgs = res.data?.messages || [];
       const hasMoreData = res.data?.hasMore || false;
-      const decrypted = await Promise.all(
-        msgs.map(async (m) => {
-          if (m.body?.startsWith('e2e:') && conv) {
-            try {
-              const plain = await E2E.decrypt(conv.other_id, m.body, apiClient);
-              return { ...m, _plain: plain || '[Unable to decrypt]' };
-            } catch (err) {
-              console.error('[DM] Decryption error:', err);
-              return { ...m, _plain: '[🔒 Encrypted message]' };
-            }
-          }
-          return { ...m, _plain: m.body };
-        })
-      );
+      
+      let decrypted = msgs;
+      if (conv) {
+        decrypted = await decryptMessages(msgs, conv.other_id);
+      }
 
       setMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));
@@ -242,8 +271,9 @@ export function DmProvider({ children }) {
       setCursor(decrypted.length ? decrypted[0].id : cursor);
     } catch (_) {}
     setLoadingMore(false);
-  }, [hasMore, loadingMore, cursor]);
+  }, [hasMore, loadingMore, cursor, decryptMessages]);
 
+  // ─── Send message ────────────────────────────────────────────
   const sendMessage = useCallback(
     async (text, media = null) => {
       if (!userRef.current || !activeConvIdRef.current) return;
@@ -259,33 +289,69 @@ export function DmProvider({ children }) {
       emitTyping(false);
 
       const tempId = 'tmp_' + Date.now();
+      
+      // Create a proper media object for the temp message
+      let mediaForTemp = null;
+      if (media) {
+        mediaForTemp = {
+          media_type: media.type || 'file',
+          media_url: media.url,
+          media_thumbnail: media.thumbnail || null,
+          media_name: media.name || 'file',
+          media_size: media.size || null,
+        };
+      }
+      
       const tempMsg = {
         id: tempId,
         sender_id: userRef.current.id,
         body: text || '',
         created_at: new Date().toISOString(),
         _plain: text || '',
-        media_type: media?.type || null,
-        media_url: media?.url || null,
-        media_thumbnail: media?.thumbnail || null,
-        media_name: media?.name || null,
-        media_size: media?.size || null,
+        ...mediaForTemp,
+        is_encrypted: false,
       };
       setMessages((prev) => [...prev, tempMsg]);
 
       try {
-        const wireBody = text ? await E2E.encrypt(conv.other_id, text, apiClient) : '';
+        // Encrypt if E2E is enabled
+        let wireBody = text || '';
+        let isEncrypted = false;
+        
+        if (text && e2eEnabled && e2eInitialized) {
+          try {
+            wireBody = await E2E.encrypt(conv.other_id, text, apiClient);
+            isEncrypted = true;
+          } catch (err) {
+            console.warn('[E2E] Encryption failed, sending plaintext:', err);
+            wireBody = text;
+            isEncrypted = false;
+          }
+        }
+
+        // Prepare media for the API
+        const mediaForApi = media ? {
+          type: media.type || 'file',
+          url: media.url,
+          thumbnail: media.thumbnail || null,
+          name: media.name || 'file',
+          size: media.size || null,
+        } : null;
+
         const res = await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages`, {
           method: 'POST',
           body: { 
             body: wireBody,
-            media: media || null 
+            media: mediaForApi 
           },
         });
+        
         const saved = res.data || res;
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        
         if (saved && saved.id) {
           saved._plain = text || '';
+          saved.is_encrypted = isEncrypted;
           setMessages((prev) => {
             if (prev.find((m) => m.id === saved.id)) return prev;
             return [...prev, saved];
@@ -298,9 +364,10 @@ export function DmProvider({ children }) {
         throw err;
       }
     },
-    [loadInbox]
+    [loadInbox, e2eEnabled, e2eInitialized]
   );
 
+  // ─── Emit typing ─────────────────────────────────────────────
   const emitTyping = useCallback(
     (isTyping) => {
       if (activeConvIdRef.current) {
@@ -313,6 +380,7 @@ export function DmProvider({ children }) {
     [sendTyping]
   );
 
+  // ─── Edit message ────────────────────────────────────────────
   const editMessage = useCallback(
     async (messageId, newText) => {
       if (!userRef.current || !activeConvIdRef.current || !newText.trim()) return;
@@ -328,7 +396,15 @@ export function DmProvider({ children }) {
       );
 
       try {
-        const wireBody = await E2E.encrypt(conv.other_id, newText, apiClient);
+        let wireBody = newText;
+        if (e2eEnabled && e2eInitialized) {
+          try {
+            wireBody = await E2E.encrypt(conv.other_id, newText, apiClient);
+          } catch (err) {
+            console.warn('[E2E] Encryption failed for edit:', err);
+          }
+        }
+        
         await apiClient(`/api/dm/conversations/${activeConvIdRef.current}/messages/${messageId}`, {
           method: 'PUT',
           body: { body: wireBody },
@@ -342,9 +418,10 @@ export function DmProvider({ children }) {
         throw err;
       }
     },
-    [loadInbox, openConversation]
+    [loadInbox, openConversation, e2eEnabled, e2eInitialized]
   );
 
+  // ─── Delete message ──────────────────────────────────────────
   const deleteMessage = useCallback(
     async (messageId) => {
       if (!userRef.current || !activeConvIdRef.current) return;
@@ -367,21 +444,22 @@ export function DmProvider({ children }) {
     [loadInbox, openConversation]
   );
 
-  // ── WS handlers ──
+  // ─── WS handlers ─────────────────────────────────────────────
   const wsInjectMessage = useCallback(async (convId, message) => {
     if (activeConvIdRef.current !== convId) return;
 
+    const conv = inboxRef.current.find((c) => c.id === convId);
     let plain = message.body;
-    if (plain && plain.startsWith('e2e:')) {
-      const conv = inboxRef.current.find((c) => c.id === convId);
-      if (conv) {
-        try {
-          plain = await E2E.decrypt(conv.other_id, plain, apiClient);
-          plain = plain || '[Unable to decrypt]';
-        } catch (err) {
-          console.error('[DM] WS decryption error:', err);
-          plain = '[🔒 Encrypted message]';
-        }
+    
+    if (plain && plain.startsWith('e2e:') && conv) {
+      try {
+        plain = await E2E.decrypt(conv.other_id, plain, apiClient);
+        plain = plain || '[Unable to decrypt]';
+        message.is_encrypted = true;
+      } catch (err) {
+        console.error('[DM] WS decryption error:', err);
+        plain = '[🔒 Encrypted message]';
+        message.is_encrypted = true;
       }
     }
     message._plain = plain;
@@ -408,6 +486,7 @@ export function DmProvider({ children }) {
             last_message_at: message.created_at,
             last_media_type: message.media_type,
             last_media_url: message.media_url,
+            last_is_encrypted: message.is_encrypted,
             unread_count:
               message.sender_id !== userRef.current?.id &&
               convId !== activeConvIdRef.current
@@ -490,7 +569,7 @@ export function DmProvider({ children }) {
     setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
   }, []);
 
-  // ── Register WS handlers ──
+  // ─── Register WS handlers ────────────────────────────────────
   useEffect(() => {
     const unregNewDM = registerHandler('new_dm', (msg) => {
       wsInjectMessage(msg.conversationId, msg.message);
@@ -521,7 +600,7 @@ export function DmProvider({ children }) {
     handleMessageDeleted,
   ]);
 
-  // ── Presence polling ──
+  // ─── Presence polling ────────────────────────────────────────
   useEffect(() => {
     if (activeConvId) {
       fetchPresence();
@@ -541,7 +620,7 @@ export function DmProvider({ children }) {
     };
   }, [activeConvId, fetchPresence]);
 
-  // ── Polling and initial load ──
+  // ─── Polling and initial load ──────────────────────────────
   useEffect(() => {
     if (!user) {
       if (window._dmInterval) clearInterval(window._dmInterval);
@@ -567,6 +646,7 @@ export function DmProvider({ children }) {
     };
   }, [user, loadInbox, sendHeartbeat, pollNewMessages]);
 
+  // ─── Context value ───────────────────────────────────────────
   const value = {
     inbox,
     activeConvId,
@@ -577,6 +657,8 @@ export function DmProvider({ children }) {
     typing,
     otherOnline,
     otherLastActive,
+    e2eEnabled,
+    e2eInitialized,
     loadInbox,
     openConversation,
     closeConversation,
@@ -587,6 +669,7 @@ export function DmProvider({ children }) {
     pollNewMessages,
     editMessage,
     deleteMessage,
+    initializeE2E,
   };
 
   return <DmContext.Provider value={value}>{children}</DmContext.Provider>;

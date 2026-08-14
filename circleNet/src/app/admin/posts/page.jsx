@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import Link from 'next/link';
+import AdminSidebar from '@/components/admin/AdminSidebar';
 
 // ─── Icons (All SVG, No Emojis) ──────────────────────────────────────
 
@@ -120,6 +121,14 @@ const ViewIcon = () => (
   </svg>
 );
 
+const MenuIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <line x1="3" y1="12" x2="21" y2="12" />
+    <line x1="3" y1="18" x2="21" y2="18" />
+  </svg>
+);
+
 const EmptyPostsIcon = () => (
   <svg className="w-12 h-12 text-[var(--color-txt3)]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
@@ -184,12 +193,10 @@ function MobilePostCard({ post, onAction }) {
     <div className="border-b border-[var(--color-border)] p-4 hover:bg-[var(--color-surface)] transition">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          {/* Post content */}
           <div className="text-sm text-[var(--color-txt)] line-clamp-2">
             {truncateText(post.text)}
           </div>
           
-          {/* Badges */}
           <div className="flex items-center gap-2 flex-wrap mt-1">
             {mediaType && <MediaBadge type={mediaType} />}
             {isRepost && <MediaBadge type="repost" />}
@@ -198,7 +205,6 @@ function MobilePostCard({ post, onAction }) {
             </span>
           </div>
           
-          {/* Author */}
           <div className="mt-2">
             <Link 
               href={`/profile/${post.authorUsername || post.authorId}`}
@@ -210,7 +216,6 @@ function MobilePostCard({ post, onAction }) {
             <span className="text-xs text-[var(--color-txt2)] ml-1">@{post.authorUsername || 'unknown'}</span>
           </div>
           
-          {/* Engagement stats */}
           <div className="flex items-center gap-4 mt-2 text-sm text-[var(--color-txt2)]">
             <span className="flex items-center gap-1">
               <span className="text-rose-500 font-medium">{post.likeCount || 0}</span>
@@ -231,7 +236,6 @@ function MobilePostCard({ post, onAction }) {
           </div>
         </div>
         
-        {/* Actions dropdown */}
         <div className="relative flex-shrink-0">
           <button
             onClick={toggleDropdown}
@@ -429,6 +433,7 @@ export default function AdminPostsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [dialog, setDialog] = useState({
     isOpen: false,
@@ -522,8 +527,9 @@ export default function AdminPostsPage() {
 
   if (loading && posts.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="flex items-center justify-center h-64">
+      <div className="flex min-h-screen bg-[var(--color-bg)]">
+        <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <div className="flex-1 ml-0 md:ml-[260px] flex items-center justify-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
         </div>
       </div>
@@ -531,205 +537,230 @@ export default function AdminPostsPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)]">Manage Posts</h1>
-          <p className="text-sm text-[var(--color-txt2)]">{total.toLocaleString()} total posts</p>
-        </div>
-        <button
-          onClick={fetchPosts}
-          className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:border-[var(--color-accent)] transition"
-        >
-          <RefreshCwIcon />
-          Refresh
-        </button>
-      </div>
+    <div className="flex min-h-screen bg-[var(--color-bg)]">
+      <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      {/* Search */}
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-txt3)]">
-              <SearchIcon />
+      {/* ─── Main Content ─── */}
+      <div className="flex-1 ml-0 md:ml-[260px]">
+        {/* ─── Topbar ─── */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-card)]">
+          <div className="flex items-center gap-3">
+            <button
+              className="md:hidden p-1.5 rounded-lg text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <MenuIcon />
+            </button>
+            <div>
+              <span className="font-semibold text-[var(--color-txt)]">Posts</span>
+              <span className="text-[var(--color-txt2)] ml-1">Management</span>
             </div>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search posts by text or author name..."
-              className="w-full pl-9 pr-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition"
-            />
           </div>
-
           <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
+            onClick={fetchPosts}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition"
+            disabled={loading}
           >
-            <FilterIcon />
-            Filters
+            <RefreshCwIcon />
+            {loading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
 
-        {showFilters && (
-          <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-[var(--color-border)]">
+        {/* ─── Content ─── */}
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
             <div>
-              <label className="block text-xs text-[var(--color-txt2)] mb-1">Media Type</label>
-              <select
-                className="px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt)] focus:border-[var(--color-accent)] outline-none"
+              <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)]">Manage Posts</h1>
+              <p className="text-sm text-[var(--color-txt2)]">{total.toLocaleString()} total posts</p>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-txt3)]">
+                  <SearchIcon />
+                </div>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search posts by text or author name..."
+                  className="w-full pl-9 pr-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none transition"
+                />
+              </div>
+
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] transition"
               >
-                <option value="">All</option>
-                <option value="image">With Images</option>
-                <option value="video">With Videos</option>
-                <option value="text">Text Only</option>
-              </select>
+                <FilterIcon />
+                Filters
+              </button>
             </div>
 
-            <div>
-              <label className="block text-xs text-[var(--color-txt2)] mb-1">Sort By</label>
-              <select
-                className="px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt)] focus:border-[var(--color-accent)] outline-none"
-              >
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="most_liked">Most Liked</option>
-                <option value="most_commented">Most Commented</option>
-                <option value="most_reposted">Most Reposted</option>
-              </select>
-            </div>
-          </div>
-        )}
-      </div>
+            {showFilters && (
+              <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-[var(--color-border)]">
+                <div>
+                  <label className="block text-xs text-[var(--color-txt2)] mb-1">Media Type</label>
+                  <select
+                    className="px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt)] focus:border-[var(--color-accent)] outline-none"
+                  >
+                    <option value="">All</option>
+                    <option value="image">With Images</option>
+                    <option value="video">With Videos</option>
+                    <option value="text">Text Only</option>
+                  </select>
+                </div>
 
-      {/* ─── Desktop Table ─── */}
-      <div className="hidden md:block bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-[var(--color-surface)] border-b border-[var(--color-border)]">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Post</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Author</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Engagement</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Views</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {posts.length === 0 ? (
-                <tr>
-                  <td colSpan="5" className="px-4 py-12 text-center text-[var(--color-txt2)]">
-                    <div className="flex flex-col items-center gap-2">
-                      <EmptyPostsIcon />
-                      <p>No posts found</p>
-                      <p className="text-sm text-[var(--color-txt3)]">Try adjusting your search</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                posts.map((p) => (
-                  <DesktopPostRow
-                    key={p.id}
-                    post={p}
-                    onAction={handleAction}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ─── Mobile Cards ─── */}
-      <div className="md:hidden bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl overflow-hidden">
-        {posts.length === 0 ? (
-          <div className="px-4 py-12 text-center text-[var(--color-txt2)]">
-            <div className="flex flex-col items-center gap-2">
-              <EmptyPostsIcon />
-              <p>No posts found</p>
-              <p className="text-sm text-[var(--color-txt3)]">Try adjusting your search</p>
-            </div>
-          </div>
-        ) : (
-          posts.map((p) => (
-            <MobilePostCard
-              key={p.id}
-              post={p}
-              onAction={handleAction}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Pagination */}
-      {total > 0 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 mt-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)]">
-          <div className="text-sm text-[var(--color-txt2)]">
-            Showing {((page - 1) * 20) + 1}–{Math.min(page * 20, total)} of {total.toLocaleString()}
-          </div>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:border-[var(--color-accent)] transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronLeftIcon />
-            </button>
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              let p;
-              if (totalPages <= 5) p = i + 1;
-              else if (page <= 3) p = i + 1;
-              else if (page >= totalPages - 2) p = totalPages - 4 + i;
-              else p = page - 2 + i;
-              return (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`px-3 py-1 rounded-lg text-sm transition ${
-                    p === page
-                      ? 'bg-[var(--color-accent)] text-white'
-                      : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)]'
-                  }`}
-                >
-                  {p}
-                </button>
-              );
-            })}
-            {totalPages > 5 && page < totalPages - 2 && (
-              <>
-                <span className="px-2 py-1 text-[var(--color-txt3)]">…</span>
-                <button
-                  onClick={() => setPage(totalPages)}
-                  className="px-3 py-1 rounded-lg text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition"
-                >
-                  {totalPages}
-                </button>
-              </>
+                <div>
+                  <label className="block text-xs text-[var(--color-txt2)] mb-1">Sort By</label>
+                  <select
+                    className="px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-txt)] focus:border-[var(--color-accent)] outline-none"
+                  >
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="most_liked">Most Liked</option>
+                    <option value="most_commented">Most Commented</option>
+                    <option value="most_reposted">Most Reposted</option>
+                  </select>
+                </div>
+              </div>
             )}
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:border-[var(--color-accent)] transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronRightIcon />
-            </button>
           </div>
-        </div>
-      )}
 
-      {/* Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={dialog.isOpen}
-        onClose={() => setDialog({ ...dialog, isOpen: false })}
-        onConfirm={confirmAction}
-        title={dialog.title}
-        message={dialog.message}
-        confirmText={dialog.confirmText}
-        danger={dialog.danger}
-      />
+          {/* ─── Desktop Table ─── */}
+          <div className="hidden md:block bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[var(--color-surface)] border-b border-[var(--color-border)]">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Post</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Author</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Engagement</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Views</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-[var(--color-txt2)] uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {posts.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="px-4 py-12 text-center text-[var(--color-txt2)]">
+                        <div className="flex flex-col items-center gap-2">
+                          <EmptyPostsIcon />
+                          <p>No posts found</p>
+                          <p className="text-sm text-[var(--color-txt3)]">Try adjusting your search</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    posts.map((p) => (
+                      <DesktopPostRow
+                        key={p.id}
+                        post={p}
+                        onAction={handleAction}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* ─── Mobile Cards ─── */}
+          <div className="md:hidden bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl overflow-hidden">
+            {posts.length === 0 ? (
+              <div className="px-4 py-12 text-center text-[var(--color-txt2)]">
+                <div className="flex flex-col items-center gap-2">
+                  <EmptyPostsIcon />
+                  <p>No posts found</p>
+                  <p className="text-sm text-[var(--color-txt3)]">Try adjusting your search</p>
+                </div>
+              </div>
+            ) : (
+              posts.map((p) => (
+                <MobilePostCard
+                  key={p.id}
+                  post={p}
+                  onAction={handleAction}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Pagination */}
+          {total > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 mt-4 border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)]">
+              <div className="text-sm text-[var(--color-txt2)]">
+                Showing {((page - 1) * 20) + 1}–{Math.min(page * 20, total)} of {total.toLocaleString()}
+              </div>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:border-[var(--color-accent)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeftIcon />
+                </button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let p;
+                  if (totalPages <= 5) p = i + 1;
+                  else if (page <= 3) p = i + 1;
+                  else if (page >= totalPages - 2) p = totalPages - 4 + i;
+                  else p = page - 2 + i;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={`px-3 py-1 rounded-lg text-sm transition ${
+                        p === page
+                          ? 'bg-[var(--color-accent)] text-white'
+                          : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)]'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+                {totalPages > 5 && page < totalPages - 2 && (
+                  <>
+                    <span className="px-2 py-1 text-[var(--color-txt3)]">…</span>
+                    <button
+                      onClick={() => setPage(totalPages)}
+                      className="px-3 py-1 rounded-lg text-sm text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)] transition"
+                    >
+                      {totalPages}
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:border-[var(--color-accent)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronRightIcon />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Confirm Dialog */}
+          <ConfirmDialog
+            isOpen={dialog.isOpen}
+            onClose={() => setDialog({ ...dialog, isOpen: false })}
+            onConfirm={confirmAction}
+            title={dialog.title}
+            message={dialog.message}
+            confirmText={dialog.confirmText}
+            danger={dialog.danger}
+          />
+        </div>
+      </div>
     </div>
   );
 }

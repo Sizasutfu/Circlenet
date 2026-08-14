@@ -1,7 +1,7 @@
 // src/app/feed/FeedClient.jsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useFeed } from '@/contexts/FeedContext';
@@ -141,7 +141,7 @@ function CommentPreviewList({ comments, postId, totalComments }) {
       ))}
       {remaining > 0 && (
         <Link href={`/post/${postId}`} className="block text-sm text-[var(--color-accent)] hover:underline mt-1">
-          Show {remaining} more {remaining === 1 ? 'reply' : 'replies'}
+          Show {remaining} more {remaining === 1 ? 'comment' : 'comments'}
         </Link>
       )}
     </div>
@@ -202,7 +202,9 @@ export default function FeedClient({ initialPosts = null }) {
   const [toast, setToast] = useState(null);
   const [quoteTarget, setQuoteTarget] = useState(null);
   const [showSignupPrompt, setShowSignupPrompt] = useState(false);
-  const showToast = (msg, type = 'success') => setToast({ message: msg, type });
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ message: msg, type });
+  }, []);
 
   // ── Reset signup prompt when user logs in ──
   useEffect(() => {
@@ -221,7 +223,6 @@ export default function FeedClient({ initialPosts = null }) {
       });
     });
 
-    // ── WS: Like update with user list ──
     const unregisterLike = registerHandler('like_update', (msg) => {
       updatePostInteractions(msg.postId, {
         likes: msg.count,
@@ -230,7 +231,6 @@ export default function FeedClient({ initialPosts = null }) {
       });
     });
 
-    // ── WS: Repost update with user list ──
     const unregisterRepost = registerHandler('repost_update', (msg) => {
       updatePostInteractions(msg.postId, {
         reposts: msg.count,
@@ -239,7 +239,6 @@ export default function FeedClient({ initialPosts = null }) {
       });
     });
 
-    // ── WS: Comment update ──
     const unregisterComment = registerHandler('comment_update', (msg) => {
       updatePostCounts(msg.postId, {
         comments: msg.count,
@@ -287,7 +286,7 @@ export default function FeedClient({ initialPosts = null }) {
     }
   }, [articlesLoading]);
 
-  const handleTabChange = (tab) => {
+  const handleTabChange = useCallback((tab) => {
     if (tab === activeTab) return;
     setActiveTab(tab);
     if (tab === 'articles') {
@@ -300,7 +299,7 @@ export default function FeedClient({ initialPosts = null }) {
         fetchPosts(tab, 1, false);
       }
     }
-  };
+  }, [activeTab, setActiveTab, fetchArticles, articlesLoading, initialized, posts.length, loading, fetchPosts]);
 
   // ── Infinite scroll observer ──
   useEffect(() => {
@@ -330,7 +329,7 @@ export default function FeedClient({ initialPosts = null }) {
   }, [activeTab, articlesHasMore, articlesLoading, hasMore, loadingMore, loadMore, fetchArticles, articlesPage, user, page]);
 
   // ── Interaction handlers ──
-  const handleLike = async (postId) => {
+  const handleLike = useCallback(async (postId) => {
     if (!user) { showToast('Log in to like.', 'error'); return; }
     
     // Optimistic update via FeedContext
@@ -342,58 +341,87 @@ export default function FeedClient({ initialPosts = null }) {
         body: { liked: true }
       });
       // WebSocket will handle the broadcast
-    } catch (_) {
+    } catch (err) {
       // Revert on error
       toggleLike(postId);
-      showToast('Failed to like.', 'error');
+      showToast(err.message || 'Failed to like.', 'error');
     }
-  };
+  }, [user, toggleLike, showToast]);
 
-  const handleComment = (postId) => {
+  const handleComment = useCallback((postId) => {
     if (!user) { showToast('Please log in to comment.', 'error'); return; }
     router.push(`/post/${postId}`);
-  };
+  }, [user, router, showToast]);
 
-  const handleRepost = async (postId) => {
+  const handleRepost = useCallback(async (postId) => {
     if (!user) { showToast('Log in to repost.', 'error'); return; }
+    
+    // Optimistic update
+    updatePostInteractions(postId, {
+      reposts: (posts.find(p => p.id === postId)?.reposts?.length || 0) + 1,
+      reposted: true,
+    });
+    
     try {
-      const response = await apiClient(`/api/posts/${postId}/repost`, {
+      await apiClient(`/api/posts/${postId}/repost`, {
         method: 'POST',
         body: { reposted: true }
       });
-      // WebSocket will handle the broadcast
       showToast('Reposted! 🔁', 'success');
-    } catch (_) {
-      showToast('Failed to repost.', 'error');
+    } catch (err) {
+      // Revert on error
+      updatePostInteractions(postId, {
+        reposts: Math.max(0, (posts.find(p => p.id === postId)?.reposts?.length || 0) - 1),
+        reposted: false,
+      });
+      showToast(err.message || 'Failed to repost.', 'error');
     }
-  };
+  }, [user, updatePostInteractions, posts, showToast]);
 
-  const handleQuote = (postId) => {
+  const handleQuote = useCallback((postId) => {
     if (!user) {
       showToast('Please log in to quote.', 'error');
       return;
     }
     const post = posts.find((p) => p.id === postId);
     if (post) setQuoteTarget(post);
-  };
+  }, [user, posts, showToast]);
 
-  const handleQuoteSuccess = () => {
+  const handleQuoteSuccess = useCallback(() => {
     setQuoteTarget(null);
     showToast('Quote posted! 🎉', 'success');
     fetchPosts(activeTab, 1, false);
-  };
+  }, [activeTab, fetchPosts, showToast]);
 
-  const handleShare = (postId) => {
+  const handleShare = useCallback((postId) => {
     const url = `${window.location.origin}/post/${postId}`;
     if (navigator.share) {
       navigator.share({ title: 'Check this post', url });
     } else {
-      navigator.clipboard.writeText(url).then(() => showToast('Link copied!', 'success'));
+      // Clipboard fallback with error handling
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(() => showToast('Link copied!', 'success'))
+          .catch(() => showToast('Could not copy link. Please copy manually.', 'error'));
+      } else {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand('copy');
+          showToast('Link copied!', 'success');
+        } catch (_) {
+          showToast('Could not copy link. Please copy manually.', 'error');
+        }
+        document.body.removeChild(textarea);
+      }
     }
-  };
+  }, [showToast]);
 
   // ── Compose post ──
-  const handleCreatePost = async (e) => {
+  const handleCreatePost = useCallback(async (e) => {
     e.preventDefault();
     if (!user) { showToast('Please log in to post.', 'error'); return; }
     if (!composerText.trim() && !composerImage) {
@@ -422,6 +450,7 @@ export default function FeedClient({ initialPosts = null }) {
       setComposerText('');
       setComposerImage(null);
       setComposerImagePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       setIsExpanded(false);
       showToast('Post created! 🎉', 'success');
     } catch (err) {
@@ -430,28 +459,30 @@ export default function FeedClient({ initialPosts = null }) {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [user, composerText, composerImage, addPost, showToast]);
 
-  const handleImageSelect = (e) => {
+  const handleImageSelect = useCallback((e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       showToast('Image must be under 5MB.', 'error');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
     setComposerImage(file);
     const reader = new FileReader();
     reader.onload = (ev) => setComposerImagePreview(ev.target.result);
     reader.readAsDataURL(file);
-  };
-  const removeImage = () => {
+  }, [showToast]);
+
+  const removeImage = useCallback(() => {
     setComposerImage(null);
     setComposerImagePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  }, []);
 
   // ── Render content ──
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     if (activeTab === 'articles') {
       if (articlesLoading && articles.length === 0) {
         return (
@@ -509,10 +540,10 @@ export default function FeedClient({ initialPosts = null }) {
       <div className="space-y-0">
         {posts.length === 0 ? (
           <div className="text-center py-8 text-[var(--color-txt2)]">
-            <p>No posts yet. Be the first to share something!</p>
+            <p>{user ? 'No posts yet. Follow people or share something!' : 'No posts yet.'}</p>
             {!user && (
               <Link href="/login" className="inline-block mt-4 px-4 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm">
-                Log in to post
+                Log in to see more
               </Link>
             )}
           </div>
@@ -523,7 +554,7 @@ export default function FeedClient({ initialPosts = null }) {
             const totalComments = post.commentCount || 0;
 
             return (
-              <div key={post.id}>
+              <Fragment key={post.id}>
                 <PostCard
                   post={post}
                   groupMap={groupMap}
@@ -543,27 +574,28 @@ export default function FeedClient({ initialPosts = null }) {
                 {(index + 1) % AD_INTERVAL === 0 && (
                   <AdSlot key={`ad-${post.id}`} placement="feed" className="my-4" />
                 )}
-              </div>
+              </Fragment>
             );
           })
         )}
 
         {!user && showSignupPrompt && hasMore ? (
           <SignupPrompt className="my-4" />
-        ) : (
-          hasMore && (
-            <div ref={loadMoreRef} className="text-center py-4 text-[var(--color-txt2)]">
-              {loadingMore ? <PostSkeletonList count={2} /> : 'Load more'}
-            </div>
-          )
-        )}
-
-        {!hasMore && posts.length > 0 && (
+        ) : hasMore ? (
+          <div ref={loadMoreRef} className="text-center py-4 text-[var(--color-txt2)]">
+            {loadingMore ? <PostSkeletonList count={2} /> : 'Load more'}
+          </div>
+        ) : posts.length > 0 ? (
           <p className="text-center text-sm text-[var(--color-txt3)] py-4">You've seen it all! 🎉</p>
-        )}
+        ) : null}
       </div>
     );
-  };
+  }, [
+    activeTab, articles, articlesHasMore, articlesLoading, loading, posts,
+    error, page, user, hasMore, showSignupPrompt, loadingMore,
+    groupMap, handleLike, handleComment, handleRepost, handleShare,
+    handleQuote, fetchPosts, loadMoreRef
+  ]);
 
   // ─── Main render ──────────────────────────────────────────────────────
   return (

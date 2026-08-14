@@ -17,7 +17,6 @@ import ShareButton from './ShareButton';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
 import { resolveMediaUrl } from '@/lib/url';
-import { usePostInteractions } from '@/hooks/usePostInteractions';
 
 let currentlyPlayingVideo = null;
 
@@ -86,7 +85,6 @@ export default function PostCard({
   const { watchSession } = useLive();
   const { openLightbox } = useLightbox();
 
-  // ── Safely extract data with fallbacks ──
   const {
     id,
     text,
@@ -110,10 +108,14 @@ export default function PostCard({
     reasons = [],
   } = post;
 
-  // 🔥 FIX: Ensure likes and reposts are always arrays
+  // Ensure arrays
   const safeLikes = ensureArray(likes);
   const safeReposts = ensureArray(reposts);
   const safeComments = Array.isArray(comments) ? comments : [];
+
+  const likeCount = safeLikes.length;
+  const liked = currentUser ? safeLikes.some(id => id === currentUser.id) : false;
+  const reposted = currentUser ? safeReposts.some(id => id === currentUser.id) : false;
 
   const groupInfo = groupId ? groupMap.get(groupId) : null;
   const groupTopic = groupInfo?.displayName || groupInfo?.topic || null;
@@ -122,17 +124,6 @@ export default function PostCard({
   const username = post.user?.username || post.authorUsername || post.username || '';
   const avatarUrl = resolveMediaUrl(post.user?.picture || post.authorPicture || null);
   const isVerified = post.user?.verified || post.authorVerified || false;
-
-  // Use WebSocket hook for real-time updates
-  const { 
-    likeState, 
-    repostState, 
-    toggleLike, 
-    toggleRepost,
-    initialize,
-    refresh,
-    isConnected 
-  } = usePostInteractions(id);
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -155,38 +146,6 @@ export default function PostCard({
   const [videoViewsState, setVideoViewsState] = useState(videoViews || 0);
 
   const relativeTime = createdAt ? timeAgo(createdAt) : '';
-
-  // ── Initialize with initial data ──
-  useEffect(() => {
-    // 🔥 FIX: Use safe arrays
-    const initialLikes = {
-      count: safeLikes.length || 0,
-      liked: currentUser ? safeLikes.some(id => id === currentUser.id) : false,
-      userIds: safeLikes,
-    };
-    
-    const initialReposts = {
-      count: safeReposts.length || 0,
-      reposted: currentUser ? safeReposts.some(id => id === currentUser.id) : false,
-      userIds: safeReposts,
-    };
-    
-    const commentCountValue = typeof commentCount === 'number' ? commentCount : safeComments.length;
-    
-    initialize(initialLikes, initialReposts, commentCountValue);
-  }, [id, currentUser, initialize, safeLikes, safeReposts, safeComments, commentCount]);
-
-  // ── Refresh when post data changes (after refresh/rerender) ──
-  useEffect(() => {
-    if (!post) return;
-    
-    // 🔥 FIX: Use safe arrays
-    refresh({
-      likes: safeLikes,
-      reposts: safeReposts,
-      commentCount: typeof commentCount === 'number' ? commentCount : safeComments.length,
-    });
-  }, [post, safeLikes, safeReposts, safeComments, commentCount, refresh]);
 
   // ── Check if current user is mentioned in this post ──
   const isUserMentioned = useMemo(() => {
@@ -354,15 +313,13 @@ export default function PostCard({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Updated like handler with WebSocket
-  const handleLike = async () => {
-    await toggleLike();
+  // ── Like handler ──
+  const handleLike = () => {
     if (onLike) onLike(id);
   };
 
-  // Updated repost handler with WebSocket
-  const handleRepost = async () => {
-    await toggleRepost();
+  // ── Repost handler ──
+  const handleRepost = () => {
     if (onRepost) onRepost(id);
   };
 
@@ -1317,8 +1274,8 @@ export default function PostCard({
             {/* Engagement buttons with WebSocket */}
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
               <LikeButton 
-                count={likeState.count} 
-                active={likeState.liked} 
+                count={likeCount} 
+                active={liked} 
                 onToggle={handleLike}
                 postId={id}
               />
@@ -1327,8 +1284,8 @@ export default function PostCard({
                 onClick={() => onComment && onComment(id)}
               />
               <RepostButton
-                count={repostState.count}
-                active={repostState.reposted}
+                count={repostCount ?? safeReposts.length}
+                active={reposted}
                 onClick={handleRepost}
                 postId={id}
               />
@@ -1345,11 +1302,6 @@ export default function PostCard({
                 </svg>
               </button>
               <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-              {!isConnected && (
-                <span className="text-[10px] text-[var(--color-txt3)] animate-pulse" title="Reconnecting...">
-                  ●
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -1538,8 +1490,8 @@ export default function PostCard({
           {/* Engagement buttons with WebSocket */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
             <LikeButton 
-              count={likeState.count} 
-              active={likeState.liked} 
+              count={likeCount} 
+              active={liked} 
               onToggle={handleLike}
               postId={id}
             />
@@ -1548,8 +1500,8 @@ export default function PostCard({
               onClick={() => onComment && onComment(id)}
             />
             <RepostButton
-              count={repostState.count}
-              active={repostState.reposted}
+              count={repostCount ?? safeReposts.length}
+              active={reposted}
               onClick={handleRepost}
               postId={id}
             />
@@ -1566,11 +1518,6 @@ export default function PostCard({
               </svg>
             </button>
             <ShareButton count={shares || 0} onClick={() => onShare && onShare(id)} />
-            {!isConnected && (
-              <span className="text-[10px] text-[var(--color-txt3)] animate-pulse" title="Reconnecting...">
-                ●
-              </span>
-            )}
           </div>
         </div>
       </div>

@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --experimental-https --experimental-https-key ./localhost+2-key.pem --experimental-https-cert ./localhost+2.pem --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "dev": "next dev --experimental-https --experimental-https-key ./localhost+2-key.pem --experimental-https-cert ./localhost+2.pem --hostname 0.0.0.0"
+    "lint": "eslint"
   },
   "dependencies": {
+    "chart.js": "^4.5.1",
     "next": "16.2.6",
     "react": "19.2.4",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "19.2.4",
     "react-easy-crop": "^6.1.0",
     "sharp": "^0.35.3"

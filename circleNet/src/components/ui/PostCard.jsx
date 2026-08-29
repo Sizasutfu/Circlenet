@@ -485,7 +485,7 @@ export default function PostCard({
       return (
         <div
           ref={videoContainerRef}
-          className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black/5 relative cursor-pointer"
+          className="mt-3 -mx-4 overflow-hidden border-y border-[var(--color-border)] bg-black/5 relative cursor-pointer"
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDblClick}
         >
@@ -546,7 +546,7 @@ export default function PostCard({
 
     if (postImageUrl) {
       return (
-        <div className="mt-3 rounded-lg overflow-hidden border border-[var(--color-border)]">
+        <div className="mt-3 -mx-4 overflow-hidden border-y border-[var(--color-border)]">
           <img
             src={postImageUrl}
             alt="Post image"
@@ -1048,7 +1048,7 @@ export default function PostCard({
             )}
 
             {/* Original post embedded */}
-            <div className="mt-2 border border-[var(--color-border)] rounded-lg overflow-hidden">
+            <div className="mt-2 border border-[var(--color-border)]">
               <PostCard
                 post={originalPost}
                 groupMap={groupMap}

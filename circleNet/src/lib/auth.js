@@ -44,8 +44,11 @@ export function AuthProvider({ children }) {
   const setCurrentUser = useCallback((userData, token) => {
     if (token) localStorage.setItem('circle_token', token);
     if (userData) {
-      localStorage.setItem('circle_user', JSON.stringify(userData));
-      setUser(userData);
+      // Strip the token out of the stored user object — it's persisted
+      // separately under circle_token, and doesn't belong in circle_user.
+      const { token: _discard, ...safeUserData } = userData;
+      localStorage.setItem('circle_user', JSON.stringify(safeUserData));
+      setUser(safeUserData);
     } else {
       localStorage.removeItem('circle_user');
       setUser(null);
@@ -58,8 +61,11 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: { email, password }, // ✅ plain object
     });
-    if (res.token) localStorage.setItem('circle_token', res.token);
-    setCurrentUser(res.data, res.token);
+    // The backend nests the token inside res.data (alongside the user
+    // fields), not at the top level of the response — so it must be read
+    // from res.data.token, not res.token.
+    const token = res.data?.token;
+    setCurrentUser(res.data, token);
     return res;
   }, [setCurrentUser]);
 
@@ -86,8 +92,8 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: { email, code }, // ✅ plain object
     });
-    if (res.token) localStorage.setItem('circle_token', res.token);
-    if (res.data) setCurrentUser(res.data, res.token);
+    const token = res.data?.token;
+    if (res.data) setCurrentUser(res.data, token);
     return res;
   }, [setCurrentUser]);
 
@@ -105,8 +111,8 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: { phone, code }, // ✅ plain object
     });
-    if (res.token) localStorage.setItem('circle_token', res.token);
-    setCurrentUser(res.data, res.token);
+    const token = res.data?.token;
+    setCurrentUser(res.data, token);
     return res;
   }, [setCurrentUser]);
 
@@ -124,8 +130,8 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: { phone, code, name }, // ✅ plain object
     });
-    if (res.token) localStorage.setItem('circle_token', res.token);
-    setCurrentUser(res.data, res.token);
+    const token = res.data?.token;
+    setCurrentUser(res.data, token);
     return res;
   }, [setCurrentUser]);
 

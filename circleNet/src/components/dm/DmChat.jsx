@@ -208,6 +208,39 @@ export default function DmChat() {
     scrollToBottom();
   }, [messages, loadingMore]);
 
+  // ─── Start Video Call ──────────────────────────────────────
+  const handleStartCall = async () => {
+    if (!activeOther?.id) return;
+    await startCall(activeOther.id, activeOther.name, activeOther.picture);
+  };
+
+  // ─── Callback Handler (uses the same logic as handleStartCall) ──
+  const handleCallback = async (userId, userName, userAvatar) => {
+    if (!userId) {
+      console.error('No userId provided for callback');
+      return;
+    }
+    
+    // If the callback is for the current conversation, use handleStartCall
+    // This ensures it uses the exact same logic as the "Start video call" button
+    if (activeOther?.id === userId) {
+      await handleStartCall();
+      return;
+    }
+    
+    // If it's for a different user (edge case), use startCall directly
+    try {
+      const peerId = typeof userId === 'string' ? parseInt(userId) : userId;
+      if (isNaN(peerId) || peerId <= 0) {
+        console.error('Invalid userId for callback:', userId);
+        return;
+      }
+      await startCall(peerId, userName || 'User', userAvatar || '');
+    } catch (err) {
+      console.error('Failed to start callback:', err);
+    }
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && !mediaToSend) || sending) return;
     setSending(true);
@@ -289,11 +322,6 @@ export default function DmChat() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const handleStartCall = async () => {
-    if (!activeOther?.id) return;
-    await startCall(activeOther.id, activeOther.name, activeOther.picture);
-  };
 
   let lastSentId = null;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -423,14 +451,67 @@ export default function DmChat() {
           const key = `${msg.id}-${msg.created_at}-${msg.sender_id}-${isTmp ? 'tmp' : 'real'}`;
           const showMenu = menuOpenId === msg.id;
 
-          // ── System messages (missed calls) ──
+          // ── System messages (missed calls with callback) ──
+          if (isSystem && msg.missed_call) {
+            return (
+              <Fragment key={key}>
+                {divider}
+                <div className="flex justify-center my-1.5">
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full px-4 py-1.5 text-xs text-[var(--color-txt2)] flex items-center gap-3 shadow-sm">
+                    {/* SVG Phone Icon for Missed Call */}
+                    <svg 
+                      className="w-4 h-4 text-[var(--color-rose)] flex-shrink-0" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2" 
+                      viewBox="0 0 24 24"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                      <line x1="2" y1="22" x2="22" y2="2" />
+                    </svg>
+                    
+                    <span>{displayText}</span>
+                    
+                    {/* Callback Button - uses the same logic as "Start video call" */}
+                    {msg.caller_id && (
+                      <button
+                        onClick={() => handleCallback(
+                          msg.caller_id, 
+                          msg.caller_name || 'User', 
+                          msg.caller_avatar || ''
+                        )}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-[var(--color-accent)] text-white rounded-full text-xs font-medium hover:bg-[var(--color-accent-h)] transition shadow-sm"
+                        title="Call back"
+                      >
+                        <svg 
+                          className="w-3 h-3" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          strokeWidth="2.5" 
+                          viewBox="0 0 24 24"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                        </svg>
+                        Call Back
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Fragment>
+            );
+          }
+
+          // ── Other system messages ──
           if (isSystem) {
             return (
               <Fragment key={key}>
                 {divider}
                 <div className="flex justify-center my-1.5">
                   <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full px-4 py-1.5 text-xs text-[var(--color-txt2)] flex items-center gap-2 shadow-sm">
-                    <span className="text-base leading-none">📞</span>
                     <span>{displayText}</span>
                   </div>
                 </div>

@@ -182,9 +182,11 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        m.created_at,
        m.edited_at,
        0 AS is_system,
+       NULL AS caller_id,
        NULL AS caller_name,
        NULL AS caller_avatar,
-       NULL AS missed_call
+       NULL AS missed_call,
+       NULL AS icon_type
      FROM dm_messages m
      JOIN users u ON u.id = m.sender_id
      WHERE ${conditions.join(' AND ')}
@@ -203,7 +205,7 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        mn.called_at AS created_at,
        u.name AS caller_name,
        u.picture AS caller_avatar,
-       CONCAT('📞 Missed call from ', u.name) AS body,
+       CONCAT('Missed call from ', u.name) AS body,
        1 AS is_system,
        1 AS missed_call,
        1 AS is_read,
@@ -216,7 +218,9 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        NULL AS media_thumbnail,
        NULL AS media_name,
        NULL AS media_size,
-       NULL AS edited_at
+       NULL AS edited_at,
+       'missed_call' AS icon_type,
+       u.id AS caller_id
      FROM missed_call_notifications mn
      JOIN users u ON u.id = mn.caller_id
      WHERE mn.conversation_id = ?
@@ -273,9 +277,11 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        m.created_at,
        m.edited_at,
        0 AS is_system,
+       NULL AS caller_id,
        NULL AS caller_name,
        NULL AS caller_avatar,
-       NULL AS missed_call
+       NULL AS missed_call,
+       NULL AS icon_type
      FROM dm_messages m
      JOIN users u ON u.id = m.sender_id
      WHERE m.conversation_id = ? AND m.id > ?
@@ -293,7 +299,7 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        mn.called_at AS created_at,
        u.name AS caller_name,
        u.picture AS caller_avatar,
-       CONCAT('📞 Missed call from ', u.name) AS body,
+       CONCAT('Missed call from ', u.name) AS body,
        1 AS is_system,
        1 AS missed_call,
        1 AS is_read,
@@ -306,7 +312,9 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        NULL AS media_thumbnail,
        NULL AS media_name,
        NULL AS media_size,
-       NULL AS edited_at
+       NULL AS edited_at,
+       'missed_call' AS icon_type,
+       u.id AS caller_id
      FROM missed_call_notifications mn
      JOIN users u ON u.id = mn.caller_id
      WHERE mn.conversation_id = ?

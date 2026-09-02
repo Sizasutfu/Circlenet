@@ -393,6 +393,7 @@ export default function DmChat() {
 
         {messages.map((msg) => {
           const mine = msg.sender_id === user?.id;
+          const isSystem = msg.is_system === true;
           const dateStr = fmtDate(msg.created_at);
           let divider = null;
           if (dateStr !== lastDate) {
@@ -422,6 +423,22 @@ export default function DmChat() {
           const key = `${msg.id}-${msg.created_at}-${msg.sender_id}-${isTmp ? 'tmp' : 'real'}`;
           const showMenu = menuOpenId === msg.id;
 
+          // ── System messages (missed calls) ──
+          if (isSystem) {
+            return (
+              <Fragment key={key}>
+                {divider}
+                <div className="flex justify-center my-1.5">
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full px-4 py-1.5 text-xs text-[var(--color-txt2)] flex items-center gap-2 shadow-sm">
+                    <span className="text-base leading-none">📞</span>
+                    <span>{displayText}</span>
+                  </div>
+                </div>
+              </Fragment>
+            );
+          }
+
+          // ── Regular messages ──
           return (
             <Fragment key={key}>
               {divider}

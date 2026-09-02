@@ -1,4 +1,5 @@
 // app/search/page.js
+import { Suspense } from 'react';
 import SearchClient from './SearchClient';
 
 export const metadata = {
@@ -12,6 +13,11 @@ export const viewport = {
 };
 
 export default function SearchPage() {
-  // No need to pass searchParams – the client uses useSearchParams()
-  return <SearchClient />;
+  // SearchClient uses useSearchParams(), which requires a Suspense
+  // boundary around it or Next.js can't prerender this route.
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading...</div>}>
+      <SearchClient />
+    </Suspense>
+  );
 }

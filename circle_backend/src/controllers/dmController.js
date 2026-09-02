@@ -3,7 +3,7 @@
 
 const dmModel    = require('../models/dmModel');
 const { sendOk, sendError } = require('../middleware/response');
-const { notifyConversation, notifyUser, isOnline } = require('../../wsServer');
+const { notifyUser, isOnline } = require('../../wsServer');
 const { uploadMediaWithMetadata } = require('../middleware/upload');
 
 // ─── GET /api/dm/inbox ───────────────────────────────────────
@@ -143,10 +143,36 @@ async function sendMessage(req, res) {
 
     const recipientId = await dmModel.getOtherParticipant(conversationId, userId);
     if (recipientId) {
-      notifyConversation(conversationId, userId, recipientId, message);
+      // Notify recipient
+      notifyUser(recipientId, {
+        type: 'new_dm',
+        conversationId,
+        message,
+        senderId: userId,
+      });
       
-      if (!isOnline(recipientId)) {
-        // Push notification logic here
+      // Notify sender (for confirmation)
+      notifyUser(userId, {
+        type: 'new_dm',
+        conversationId,
+        message,
+        senderId: userId,
+      });
+
+      // Check if recipient is online for seen status
+      if (isOnline(recipientId)) {
+        // Mark as seen after a short delay
+        setTimeout(async () => {
+          try {
+            await dmModel.markConversationRead(conversationId, recipientId);
+            notifyUser(userId, {
+              type: 'message_seen',
+              conversationId,
+              messageId: message.id,
+              seenBy: recipientId,
+            });
+          } catch (_) {}
+        }, 500);
       }
     }
 
@@ -236,7 +262,8 @@ async function markRead(req, res) {
 
     const senderId = await dmModel.getOtherParticipant(conversationId, userId);
     if (senderId) {
-      notifyUser(senderId, 'dm_read', {
+      notifyUser(senderId, {
+        type: 'dm_read',
         conversationId,
         readBy: userId,
       });
@@ -277,15 +304,19 @@ async function editMessage(req, res) {
 
     const recipientId = await dmModel.getOtherParticipant(updated.conversation_id, userId);
     if (recipientId) {
-      notifyUser(recipientId, 'dm_edited', { 
-        messageId, 
-        conversationId: updated.conversation_id, 
-        body: newBody 
+      notifyUser(recipientId, {
+        type: 'message_edited',
+        conversationId: updated.conversation_id,
+        messageId: messageId,
+        body: newBody,
+        edited_at: updated.edited_at,
       });
-      notifyUser(userId, 'dm_edited', { 
-        messageId, 
-        conversationId: updated.conversation_id, 
-        body: newBody 
+      notifyUser(userId, {
+        type: 'message_edited',
+        conversationId: updated.conversation_id,
+        messageId: messageId,
+        body: newBody,
+        edited_at: updated.edited_at,
       });
     }
 
@@ -306,13 +337,15 @@ async function deleteMessage(req, res) {
 
     const recipientId = await dmModel.getOtherParticipant(result.conversationId, userId);
     if (recipientId) {
-      notifyUser(recipientId, 'dm_deleted', { 
-        messageId, 
-        conversationId: result.conversationId 
+      notifyUser(recipientId, {
+        type: 'message_deleted',
+        conversationId: result.conversationId,
+        messageId: messageId,
       });
-      notifyUser(userId, 'dm_deleted', { 
-        messageId, 
-        conversationId: result.conversationId 
+      notifyUser(userId, {
+        type: 'message_deleted',
+        conversationId: result.conversationId,
+        messageId: messageId,
       });
     }
 
@@ -477,6 +510,81 @@ async function getPeerPublicKey(req, res) {
   }
 }
 
+// ─── Missed Calls Endpoints ──────────────────────────────────
+
+// GET /api/dm/missed-calls
+async function getMissedCalls(req, res) {
+  try {
+    const userId = req.actorId;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    
+    const missedCalls = await dmModel.getMissedCallsForUser(userId, limit);
+    return sendOk(res, 200, 'Missed calls fetched.', missedCalls);
+  } catch (err) {
+    console.error('[DM] getMissedCalls error:', err);
+    return sendError(res, 500, 'Failed to fetch missed calls.');
+  }
+}
+
+// GET /api/dm/missed-calls/count
+async function getMissedCallCount(req, res) {
+  try {
+    const userId = req.actorId;
+    const count = await dmModel.getMissedCallCount(userId);
+    return sendOk(res, 200, 'Missed call count fetched.', { count });
+  } catch (err) {
+    console.error('[DM] getMissedCallCount error:', err);
+    return sendError(res, 500, 'Failed to fetch missed call count.');
+  }
+}
+
+// PUT /api/dm/missed-calls/:id/read
+async function markMissedCallRead(req, res) {
+  try {
+    const userId = req.actorId;
+    const missedCallId = Number(req.params.id);
+    
+    const success = await dmModel.markMissedCallRead(missedCallId, userId);
+    if (!success) {
+      return sendError(res, 404, 'Missed call not found.');
+    }
+    
+    return sendOk(res, 200, 'Missed call marked as read.');
+  } catch (err) {
+    console.error('[DM] markMissedCallRead error:', err);
+    return sendError(res, 500, 'Failed to mark missed call as read.');
+  }
+}
+
+// PUT /api/dm/missed-calls/read-all
+async function markAllMissedCallsRead(req, res) {
+  try {
+    const userId = req.actorId;
+    const count = await dmModel.markAllMissedCallsRead(userId);
+    return sendOk(res, 200, 'All missed calls marked as read.', { count });
+  } catch (err) {
+    console.error('[DM] markAllMissedCallsRead error:', err);
+    return sendError(res, 500, 'Failed to mark missed calls as read.');
+  }
+}
+
+// GET /api/dm/call-history
+async function getCallHistory(req, res) {
+  try {
+    const userId = req.actorId;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const history = await dmModel.getCallHistory(userId, limit, offset);
+    return sendOk(res, 200, 'Call history fetched.', history);
+  } catch (err) {
+    console.error('[DM] getCallHistory error:', err);
+    return sendError(res, 500, 'Failed to fetch call history.');
+  }
+}
+
+// ─── Exports ───────────────────────────────────────────────────
+
 module.exports = {
   getInbox,
   getUnreadCount,
@@ -498,5 +606,11 @@ module.exports = {
   getPublicKey,
   updatePublicKey,
   getKeyVersions,
-  getPeerPublicKey
+  getPeerPublicKey,
+  // Missed calls
+  getMissedCalls,
+  getMissedCallCount,
+  markMissedCallRead,
+  markAllMissedCallsRead,
+  getCallHistory,
 };

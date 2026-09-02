@@ -4,11 +4,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { saveDraft, getDraft, deleteDraft } from '@/lib/drafts';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
-import { extractMentions } from '@/lib/formatText'; // ✅ Import mention extractor
+import { extractMentions } from '@/lib/formatText';
 
 function resolveMediaUrl(url) {
   if (!url) return null;
@@ -199,11 +199,12 @@ function MentionAutocomplete({ searchTerm, onSelect, position }) {
   );
 }
 
-export default function ComposePage({ groupId: groupIdProp = null }) {
+export default function ComposePage({ 
+  groupId: groupIdProp = null,
+  draftId: draftIdProp = null 
+}) {
   const { user } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const draftIdParam = searchParams.get('draftId');
 
   const [mode, setMode] = useState('post');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -251,20 +252,16 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
     const cursor = e.target.selectionStart;
     setPostText(newText);
 
-    // Check if we're typing a mention
     const textBeforeCursor = newText.slice(0, cursor);
     const lastAtIndex = textBeforeCursor.lastIndexOf('@');
     
     if (lastAtIndex !== -1 && lastAtIndex < cursor) {
       const searchTerm = textBeforeCursor.slice(lastAtIndex + 1);
-      // Check if there's a space after the @ (meaning it's not a mention anymore)
       if (!searchTerm.includes(' ') && searchTerm.length > 0) {
         setMentionSearch(searchTerm);
         setShowMentions(true);
-        // Calculate position for dropdown
         if (textareaRef.current) {
           const rect = textareaRef.current.getBoundingClientRect();
-          // Simple position estimation
           setMentionPosition({
             left: 20,
             top: rect.height - 10
@@ -289,10 +286,9 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
       const newText = `${before}@${username} ${after}`;
       setPostText(newText);
       
-      // Focus and set cursor after the mention
       setTimeout(() => {
         if (textareaRef.current) {
-          const newCursor = before.length + username.length + 2; // +2 for @ and space
+          const newCursor = before.length + username.length + 2;
           textareaRef.current.focus();
           textareaRef.current.setSelectionRange(newCursor, newCursor);
         }
@@ -303,17 +299,10 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
     setMentionSearch('');
   };
 
-  // ── Keyboard navigation for mentions ──
   const handleKeyDown = (e) => {
     if (showMentions) {
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        // Navigation handled by autocomplete component
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-      } else if (e.key === 'Enter') {
-        // If mentions are shown, the first suggestion will be selected
-        // The autocomplete component handles this
       } else if (e.key === 'Escape') {
         setShowMentions(false);
         setMentionSearch('');
@@ -335,14 +324,15 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
     showToast(newState ? 'Auto‑save enabled ✅' : 'Auto‑save disabled ⏸️', 'success');
   };
 
+  // ── Load draft from draftId prop ──
   useEffect(() => {
-    if (!draftIdParam || !user) return;
-    const draft = getDraft(draftIdParam);
+    if (!draftIdProp || !user) return;
+    const draft = getDraft(draftIdProp);
     if (!draft) {
       setError('Draft not found.');
       return;
     }
-    setCurrentDraftId(draftIdParam);
+    setCurrentDraftId(draftIdProp);
     if (draft.groupId) setGroupId(draft.groupId);
 
     if (draft.type === 'post') {
@@ -371,7 +361,7 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
       }
     }
     showToast(`Loaded draft: ${draft.type === 'post' ? 'Post' : 'Article'}`, 'success');
-  }, [draftIdParam, user]);
+  }, [draftIdProp, user]);
 
   useEffect(() => {
     const handleMessage = (event) => {
@@ -402,7 +392,7 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
 
   useEffect(() => {
     if (!user) return;
-    if (draftIdParam) return;
+    if (draftIdProp) return;
     try {
       const stored = localStorage.getItem(draftKey);
       if (stored) {
@@ -432,7 +422,7 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
         }
       }
     } catch (_) {}
-  }, [user, draftKey, mode, draftIdParam]);
+  }, [user, draftKey, mode, draftIdProp]);
 
   const saveAutoDraft = useCallback(() => {
     if (!user || !autoSaveEnabled) return;
@@ -648,11 +638,9 @@ export default function ComposePage({ groupId: groupIdProp = null }) {
         return;
       }
 
-      // ── Extract mentions for debugging/validation ──
       const mentions = extractMentions(postText);
       if (mentions.length) {
         console.log('📝 Mentions detected:', mentions);
-        // You could validate mentions here before submitting
       }
 
       setIsSubmitting(true);

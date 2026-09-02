@@ -1,6 +1,7 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 
-export default function NotFound() {
+function NotFoundContent() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-bg text-txt px-4">
       <div className="text-center">
@@ -15,5 +16,17 @@ export default function NotFound() {
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function NotFound() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <NotFoundContent />
+    </Suspense>
   );
 }

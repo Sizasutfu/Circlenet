@@ -5,6 +5,7 @@
 
 const { WebSocketServer, WebSocket } = require('ws');
 function LiveModel() { return require('./src/models/liveModel'); }
+const dmModel = require('./src/models/dmModel');
 
 const userSockets = new Map();
 const activeConversations = new Map();
@@ -95,6 +96,66 @@ function attachWS(httpServer) {
   return wss;
 }
 
+// ─── Missed Call Handler ──────────────────────────────────────
+async function handleMissedCall(ws, userId, data) {
+  const { to, fromName, fromAvatar, timestamp } = data;
+  const recipientId = to;
+  const callerId = userId;
+
+  if (!recipientId || !callerId) return;
+
+  console.log(`[WS] Missed call from ${callerId} to ${recipientId}`);
+
+  try {
+    // Get or create conversation
+    const conversation = await dmModel.getOrCreateConversation(callerId, recipientId);
+    
+    // Save missed call to database - pass null to use current time
+    await dmModel.saveMissedCall(
+      callerId, 
+      recipientId, 
+      conversation.id, 
+      null // Use current time to avoid format issues
+    );
+
+    // Create system message for the chat
+    const message = {
+      id: `missed_call_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      sender_id: null,
+      body: `📞 Missed call from ${fromName || 'Unknown'}`,
+      created_at: new Date().toISOString(),
+      is_system: true,
+      is_encrypted: false,
+      missed_call: true,
+      caller_name: fromName,
+      caller_avatar: fromAvatar,
+      is_read: 1,
+    };
+
+    // Broadcast to recipient
+    notifyUser(recipientId, {
+      type: 'call:missed',
+      conversationId: conversation.id,
+      from: callerId,
+      fromName: fromName,
+      fromAvatar: fromAvatar,
+      timestamp: new Date().toISOString(),
+      message: message,
+    });
+
+    // Also send to sender for confirmation
+    notifyUser(callerId, {
+      type: 'call:missed_confirmation',
+      conversationId: conversation.id,
+      to: recipientId,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error('[WS] Missed call error:', error);
+  }
+}
+
 function handleClientMessage(ws, userId, msg) {
   switch (msg.type) {
     case 'join_conversation': {
@@ -128,6 +189,23 @@ function handleClientMessage(ws, userId, msg) {
       } else {
         _broadcastTyping(convId, userId, false);
       }
+      break;
+    }
+    // ─── Missed Call ──────────────────────────────────────────
+    case 'call:missed': {
+      handleMissedCall(ws, userId, msg);
+      break;
+    }
+    // ─── Direct call signaling ───────────────────────────────
+    case 'call:start':
+    case 'call:accept':
+    case 'call:ice':
+    case 'call:end': {
+      const { to } = msg;
+      if (!to) break;
+      const payload = { ...msg, from: userId };
+      delete payload.to;
+      notifyUser(to, payload);
       break;
     }
     // ─── Live: started (from host) ──────────────────────────────
@@ -211,18 +289,6 @@ function handleClientMessage(ws, userId, msg) {
       _handleRejectBroadcaster(ws, userId, sessionId, targetUserId);
       break;
     }
-    // ─── Direct call signaling ───
-    case 'call:start':
-    case 'call:accept':
-    case 'call:ice':
-    case 'call:end': {
-      const { to } = msg;
-      if (!to) break;
-      const payload = { ...msg, from: userId };
-      delete payload.to;
-      notify(to, payload);
-      break;
-    }
     // ─── Post interaction handlers ───
     case 'like_update': {
       const { postId, count, userIds } = msg;
@@ -281,7 +347,7 @@ async function _handleBecomeBroadcaster(ws, userId, sessionId) {
   const room = liveRooms.get(sessionId);
   if (!room) return;
   if (!room.collaborationEnabled) {
-    notify(userId, { type: 'live:error', text: 'Collaboration is not enabled for this stream' });
+    notifyUser(userId, { type: 'live:error', text: 'Collaboration is not enabled for this stream' });
     return;
   }
   if (room.broadcasters.find(b => b.userId === userId)) return;
@@ -318,7 +384,7 @@ async function _handleApproveBroadcaster(ws, approverId, sessionId, targetUserId
   if (!pending || !pending.has(targetUserId)) return;
   // Check limit
   if (room.broadcasters.length >= 4) {
-    notify(targetUserId, { type: 'live:error', text: 'Broadcaster limit reached' });
+    notifyUser(targetUserId, { type: 'live:error', text: 'Broadcaster limit reached' });
     pending.delete(targetUserId);
     if (pending.size === 0) pendingRequests.delete(sessionId);
     return;
@@ -349,13 +415,13 @@ async function _handleApproveBroadcaster(ws, approverId, sessionId, targetUserId
   const existing = room.broadcasters
     .filter(b => b.userId !== targetUserId)
     .map(b => ({ userId: b.userId, name: b.name, avatar: b.avatar }));
-  notify(targetUserId, { type: 'live:existing_broadcasters', broadcasters: existing });
+  notifyUser(targetUserId, { type: 'live:existing_broadcasters', broadcasters: existing });
   // Update viewer count
   const viewerCount = room.viewers.size;
   LiveModel().setViewerCount(sessionId, viewerCount).catch(() => {});
   _broadcastToRoom(sessionId, { type: 'live:viewer_count', count: viewerCount });
   // Notify the requester that they are approved
-  notify(targetUserId, { type: 'live:request_approved', sessionId });
+  notifyUser(targetUserId, { type: 'live:request_approved', sessionId });
 }
 
 // Broadcaster rejects a request
@@ -368,7 +434,7 @@ async function _handleRejectBroadcaster(ws, rejectorId, sessionId, targetUserId)
   pending.delete(targetUserId);
   if (pending.size === 0) pendingRequests.delete(sessionId);
   // Notify the requester
-  notify(targetUserId, { type: 'live:request_rejected', sessionId });
+  notifyUser(targetUserId, { type: 'live:request_rejected', sessionId });
 }
 
 // ── Live helpers ──────────────────────────────────────────────
@@ -521,34 +587,34 @@ async function _endLiveRoom(sessionId) {
 
 // ── Internal helpers ──────────────────────────────────────────
 function send(ws, payload) {
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
   }
 }
 
-function notify(userId, payload) {
+function notifyUser(userId, payload) {
   const sockets = userSockets.get(userId);
   if (!sockets) return;
-  for (const ws of sockets) send(ws, payload);
+  for (const ws of sockets) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+    }
+  }
 }
 
 function notifyConversation(conversationId, senderId, recipientId, message) {
   const payload = { type: 'new_dm', conversationId, message };
-  notify(senderId, payload);
-  notify(recipientId, payload);
+  notifyUser(senderId, payload);
+  notifyUser(recipientId, payload);
   const active = activeConversations.get(conversationId);
   if (active?.has(recipientId)) {
-    notify(senderId, {
+    notifyUser(senderId, {
       type: 'message_seen',
       conversationId,
       messageId: message.id,
       seenBy: recipientId,
     });
   }
-}
-
-function notifyUser(recipientId, notifType, data) {
-  notify(recipientId, { type: 'notification', notifType, ...data });
 }
 
 function isOnline(userId) {
@@ -585,7 +651,7 @@ function _broadcastTyping(conversationId, typingUserId, isTyping) {
   const payload = { type: 'typing', conversationId, userId: typingUserId, isTyping };
   for (const memberId of members) {
     if (memberId === typingUserId) continue;
-    notify(memberId, payload);
+    notifyUser(memberId, payload);
   }
 }
 
@@ -597,11 +663,11 @@ function broadcastToAll(payload) {
   }
 }
 
+// ─── Exports ───────────────────────────────────────────────────
 module.exports = {
   attachWS,
-  notify,
-  notifyConversation,
   notifyUser,
+  notifyConversation,
   isOnline,
   broadcastLiveStarted,
   broadcastLiveEnded,

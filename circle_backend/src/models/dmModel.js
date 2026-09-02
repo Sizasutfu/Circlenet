@@ -9,6 +9,26 @@ function _orderedPair(idA, idB) {
   return idA < idB ? [idA, idB] : [idB, idA];
 }
 
+function toMySQLDatetime(date) {
+  if (!date) return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  
+  let d;
+  if (typeof date === 'string') {
+    d = new Date(date);
+  } else if (date instanceof Date) {
+    d = date;
+  } else {
+    d = new Date();
+  }
+  
+  // Check if date is valid
+  if (isNaN(d.getTime())) {
+    d = new Date();
+  }
+  
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // ─── Conversations ───────────────────────────────────────────
 
 async function getOrCreateConversation(userIdA, userIdB) {
@@ -48,13 +68,34 @@ async function getInboxForUser(userId) {
        u.name        AS other_name,
        u.picture     AS other_picture,
        u.verified    AS other_verified,
-       lm.body       AS last_message,
-       lm.sender_id  AS last_sender_id,
-       lm.created_at AS last_message_at,
+       COALESCE(
+         lm.body,
+         (SELECT CONCAT('📞 Missed call from ', u2.name) 
+          FROM missed_call_notifications mn2
+          JOIN users u2 ON u2.id = mn2.caller_id
+          WHERE mn2.conversation_id = c.id 
+            AND mn2.recipient_id = ?
+          ORDER BY mn2.called_at DESC 
+          LIMIT 1)
+       ) AS last_message,
+       COALESCE(
+         lm.sender_id,
+         NULL
+       ) AS last_sender_id,
+       COALESCE(
+         lm.created_at,
+         (SELECT mn2.called_at 
+          FROM missed_call_notifications mn2
+          WHERE mn2.conversation_id = c.id 
+            AND mn2.recipient_id = ?
+          ORDER BY mn2.called_at DESC 
+          LIMIT 1)
+       ) AS last_message_at,
        lm.media_type AS last_media_type,
-       lm.media_url  AS last_media_url,
+       lm.media_url AS last_media_url,
        lm.is_encrypted AS last_is_encrypted,
-       COALESCE(unread.cnt, 0) AS unread_count
+       COALESCE(unread.cnt, 0) AS unread_count,
+       COALESCE(missed.cnt, 0) AS missed_call_count
      FROM dm_conversations c
      JOIN users u ON u.id = IF(c.participant_one_id = ?, c.participant_two_id, c.participant_one_id)
      LEFT JOIN dm_messages lm ON lm.id = (
@@ -69,9 +110,22 @@ async function getInboxForUser(userId) {
        WHERE is_read = 0 AND sender_id != ?
        GROUP BY conversation_id
      ) unread ON unread.conversation_id = c.id
+     LEFT JOIN (
+       SELECT conversation_id, COUNT(*) AS cnt
+       FROM missed_call_notifications
+       WHERE recipient_id = ? AND is_read = FALSE
+       GROUP BY conversation_id
+     ) missed ON missed.conversation_id = c.id
      WHERE c.participant_one_id = ? OR c.participant_two_id = ?
-     ORDER BY COALESCE(lm.created_at, c.created_at) DESC`,
-    [uid, uid, uid, uid]
+     ORDER BY COALESCE(lm.created_at, 
+       (SELECT mn2.called_at 
+        FROM missed_call_notifications mn2
+        WHERE mn2.conversation_id = c.id 
+          AND mn2.recipient_id = ?
+        ORDER BY mn2.called_at DESC 
+        LIMIT 1), 
+       c.created_at) DESC`,
+    [uid, uid, uid, uid, uid, uid, uid, uid]
   );
 
   return rows;
@@ -102,6 +156,7 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
     [convId, uid]
   );
 
+  // Get regular messages
   const conditions = ['m.conversation_id = ?'];
   const params     = [convId];
   if (beforeId) {
@@ -125,7 +180,11 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        m.is_read,
        m.is_encrypted,
        m.created_at,
-       m.edited_at
+       m.edited_at,
+       0 AS is_system,
+       NULL AS caller_name,
+       NULL AS caller_avatar,
+       NULL AS missed_call
      FROM dm_messages m
      JOIN users u ON u.id = m.sender_id
      WHERE ${conditions.join(' AND ')}
@@ -134,11 +193,48 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
     [...params, lim + 1]
   );
 
-  const hasMore = rows.length > lim;
-  if (hasMore) rows.pop();
-  rows.reverse();
+  // Get missed call notifications as system messages
+  const [missedCalls] = await db.query(
+    `SELECT
+       mn.id,
+       mn.conversation_id,
+       mn.caller_id,
+       mn.recipient_id,
+       mn.called_at AS created_at,
+       u.name AS caller_name,
+       u.picture AS caller_avatar,
+       CONCAT('📞 Missed call from ', u.name) AS body,
+       1 AS is_system,
+       1 AS missed_call,
+       1 AS is_read,
+       0 AS is_encrypted,
+       NULL AS sender_id,
+       NULL AS sender_name,
+       NULL AS sender_picture,
+       NULL AS media_type,
+       NULL AS media_url,
+       NULL AS media_thumbnail,
+       NULL AS media_name,
+       NULL AS media_size,
+       NULL AS edited_at
+     FROM missed_call_notifications mn
+     JOIN users u ON u.id = mn.caller_id
+     WHERE mn.conversation_id = ?
+       AND mn.recipient_id = ?
+     ORDER BY mn.called_at DESC`,
+    [convId, uid]
+  );
 
-  return { messages: rows, hasMore };
+  // Combine and sort messages by created_at
+  let allMessages = [...rows, ...missedCalls];
+  allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  // Apply limit and pagination
+  const hasMore = allMessages.length > lim;
+  if (hasMore) allMessages = allMessages.slice(-lim);
+  allMessages.reverse();
+
+  return { messages: allMessages, hasMore };
 }
 
 async function getNewMessages(conversationId, requestingUserId, afterId) {
@@ -152,6 +248,7 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
     [convId, uid, Number(afterId)]
   );
 
+  // Get regular messages
   const [rows] = await db.query(
     `SELECT
        m.id,
@@ -168,7 +265,11 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        m.is_read,
        m.is_encrypted,
        m.created_at,
-       m.edited_at
+       m.edited_at,
+       0 AS is_system,
+       NULL AS caller_name,
+       NULL AS caller_avatar,
+       NULL AS missed_call
      FROM dm_messages m
      JOIN users u ON u.id = m.sender_id
      WHERE m.conversation_id = ? AND m.id > ?
@@ -176,7 +277,44 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
     [convId, Number(afterId)]
   );
 
-  return rows;
+  // Get missed call notifications as system messages
+  const [missedCalls] = await db.query(
+    `SELECT
+       mn.id,
+       mn.conversation_id,
+       mn.caller_id,
+       mn.recipient_id,
+       mn.called_at AS created_at,
+       u.name AS caller_name,
+       u.picture AS caller_avatar,
+       CONCAT('📞 Missed call from ', u.name) AS body,
+       1 AS is_system,
+       1 AS missed_call,
+       1 AS is_read,
+       0 AS is_encrypted,
+       NULL AS sender_id,
+       NULL AS sender_name,
+       NULL AS sender_picture,
+       NULL AS media_type,
+       NULL AS media_url,
+       NULL AS media_thumbnail,
+       NULL AS media_name,
+       NULL AS media_size,
+       NULL AS edited_at
+     FROM missed_call_notifications mn
+     JOIN users u ON u.id = mn.caller_id
+     WHERE mn.conversation_id = ?
+       AND mn.recipient_id = ?
+       AND mn.id > ?
+     ORDER BY mn.called_at ASC`,
+    [convId, uid, Number(afterId)]
+  );
+
+  // Combine and sort
+  let allMessages = [...rows, ...missedCalls];
+  allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  return allMessages;
 }
 
 async function sendMessage(conversationId, senderId, body, media = null) {
@@ -453,6 +591,106 @@ async function getPublicKeyVersions(userId) {
   return rows;
 }
 
+// ─── Missed Calls ─────────────────────────────────────────────
+
+async function saveMissedCall(callerId, recipientId, conversationId, calledAt = null) {
+  const now = toMySQLDatetime(calledAt);
+  
+  // Insert into missed call notifications
+  const [result] = await db.query(
+    `INSERT INTO missed_call_notifications 
+     (conversation_id, caller_id, recipient_id, called_at, is_read) 
+     VALUES (?, ?, ?, ?, FALSE)`,
+    [Number(conversationId), Number(callerId), Number(recipientId), now]
+  );
+
+  // Also record in call history
+  await db.query(
+    `INSERT INTO call_history 
+     (caller_id, recipient_id, call_type, status, started_at, ended_at) 
+     VALUES (?, ?, 'video', 'missed', ?, ?)`,
+    [Number(callerId), Number(recipientId), now, now]
+  );
+
+  return result.insertId;
+}
+
+async function getMissedCallsForUser(userId, limit = 50) {
+  const [rows] = await db.query(
+    `SELECT 
+       mn.id,
+       mn.conversation_id,
+       mn.caller_id,
+       mn.recipient_id,
+       mn.called_at,
+       mn.is_read,
+       u.name AS caller_name,
+       u.username AS caller_username,
+       u.picture AS caller_picture,
+       u.verified AS caller_verified
+     FROM missed_call_notifications mn
+     JOIN users u ON u.id = mn.caller_id
+     WHERE mn.recipient_id = ?
+     ORDER BY mn.called_at DESC
+     LIMIT ?`,
+    [Number(userId), Number(limit)]
+  );
+  return rows;
+}
+
+async function getMissedCallCount(userId) {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS count 
+     FROM missed_call_notifications 
+     WHERE recipient_id = ? AND is_read = FALSE`,
+    [Number(userId)]
+  );
+  return rows[0]?.count || 0;
+}
+
+async function markMissedCallRead(missedCallId, userId) {
+  const [result] = await db.query(
+    `UPDATE missed_call_notifications 
+     SET is_read = TRUE 
+     WHERE id = ? AND recipient_id = ?`,
+    [Number(missedCallId), Number(userId)]
+  );
+  return result.affectedRows > 0;
+}
+
+async function markAllMissedCallsRead(userId) {
+  const [result] = await db.query(
+    `UPDATE missed_call_notifications 
+     SET is_read = TRUE 
+     WHERE recipient_id = ? AND is_read = FALSE`,
+    [Number(userId)]
+  );
+  return result.affectedRows;
+}
+
+async function getCallHistory(userId, limit = 50, offset = 0) {
+  const [rows] = await db.query(
+    `SELECT 
+       ch.*,
+       u1.name AS caller_name,
+       u1.username AS caller_username,
+       u1.picture AS caller_picture,
+       u2.name AS recipient_name,
+       u2.username AS recipient_username,
+       u2.picture AS recipient_picture
+     FROM call_history ch
+     LEFT JOIN users u1 ON ch.caller_id = u1.id
+     LEFT JOIN users u2 ON ch.recipient_id = u2.id
+     WHERE ch.caller_id = ? OR ch.recipient_id = ?
+     ORDER BY ch.started_at DESC
+     LIMIT ? OFFSET ?`,
+    [Number(userId), Number(userId), Number(limit), Number(offset)]
+  );
+  return rows;
+}
+
+// ─── Exports ───────────────────────────────────────────────────
+
 module.exports = {
   getOrCreateConversation,
   getInboxForUser,
@@ -471,5 +709,12 @@ module.exports = {
   deleteMessage,
   savePublicKey,
   getPublicKey,
-  getPublicKeyVersions
+  getPublicKeyVersions,
+  // Missed calls
+  saveMissedCall,
+  getMissedCallsForUser,
+  getMissedCallCount,
+  markMissedCallRead,
+  markAllMissedCallsRead,
+  getCallHistory,
 };

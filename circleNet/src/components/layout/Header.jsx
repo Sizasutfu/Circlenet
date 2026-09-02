@@ -1,22 +1,19 @@
 // src/components/layout/Header.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ThemeToggle from '../ThemeToggle';
 import { useAuth } from '@/lib/auth';
 
-export default function Header({ onMenuClick }) {
-  const router = useRouter();
-  const pathname = usePathname();
+// Isolated on its own: useSearchParams() forces whatever calls it to be
+// wrapped in <Suspense>, or Next.js can't statically prerender the page
+// it's rendered on. Keeping it in its own leaf component (instead of at
+// the top of Header) means only this tiny piece needs the boundary —
+// the rest of the header still renders without waiting on it.
+function SearchParamsSync({ pathname, onPlaceholderChange, onQueryChange }) {
   const searchParams = useSearchParams();
-  const isHomePage = pathname === '/' || pathname === '/articles';
-  const { user, logout } = useAuth();
-
-  const [query, setQuery] = useState('');
-  const [showMobileSearch, setShowMobileSearch] = useState(false);
-  const [placeholder, setPlaceholder] = useState('Search...');
 
   useEffect(() => {
     const getSearchContext = () => {
@@ -30,12 +27,25 @@ export default function Header({ onMenuClick }) {
       }
       return 'Search posts...';
     };
-    setPlaceholder(getSearchContext());
-  }, [pathname, searchParams]);
+    onPlaceholderChange(getSearchContext());
+  }, [pathname, searchParams, onPlaceholderChange]);
 
   useEffect(() => {
-    setQuery(searchParams.get('q') || '');
-  }, [searchParams]);
+    onQueryChange(searchParams.get('q') || '');
+  }, [searchParams, onQueryChange]);
+
+  return null;
+}
+
+export default function Header({ onMenuClick }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isHomePage = pathname === '/' || pathname === '/articles';
+  const { user, logout } = useAuth();
+
+  const [query, setQuery] = useState('');
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const [placeholder, setPlaceholder] = useState('Search...');
 
   const goBack = () => {
     if (window.history.length > 1) {
@@ -60,6 +70,14 @@ export default function Header({ onMenuClick }) {
 
   return (
     <>
+      <Suspense fallback={null}>
+        <SearchParamsSync
+          pathname={pathname}
+          onPlaceholderChange={setPlaceholder}
+          onQueryChange={setQuery}
+        />
+      </Suspense>
+
       <header className="sticky top-0 left-0 right-0 z-40 bg-[var(--color-surface)]/85 backdrop-blur-lg border-b border-[var(--color-border)] w-full h-14 flex items-center">
         {/* Left: hamburger + back (no logo) */}
         <div className="flex-1 flex items-center gap-3 min-w-0 px-4 sm:px-6">

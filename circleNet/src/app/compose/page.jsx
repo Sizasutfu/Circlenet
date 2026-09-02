@@ -8,13 +8,13 @@ export const metadata = {
 };
 
 export default async function Page({ searchParams }) {
-  
   const params = searchParams instanceof Promise ? await searchParams : searchParams;
   const groupId = params?.groupId || null;
+  const draftId = params?.draftId || null;
 
   return (
     <Suspense fallback={<div className="p-8 text-center text-[var(--color-txt2)]">Loading...</div>}>
-      <ComposePage groupId={groupId} />
+      <ComposePage groupId={groupId} draftId={draftId} />
     </Suspense>
   );
 }

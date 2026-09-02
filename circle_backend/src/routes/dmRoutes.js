@@ -37,6 +37,15 @@ router.post('/read-status', dmController.getReadStatus);
 router.patch('/conversations/:conversationId/messages/:messageId', dmController.editMessage);
 router.delete('/conversations/:conversationId/messages/:messageId', dmController.deleteMessage);
 
+// ── Missed Calls ──────────────────────────────────────────────
+router.get('/missed-calls', dmController.getMissedCalls);
+router.get('/missed-calls/count', dmController.getMissedCallCount);
+router.put('/missed-calls/:id/read', dmController.markMissedCallRead);
+router.put('/missed-calls/read-all', dmController.markAllMissedCallsRead);
+
+// ── Call History ─────────────────────────────────────────────
+router.get('/call-history', dmController.getCallHistory);
+
 // ── E2E Encryption Routes ────────────────────────────────────
 router.get('/e2e/public-key', dmController.getPublicKey);
 router.put('/e2e/public-key', dmController.updatePublicKey);

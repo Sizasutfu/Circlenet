@@ -32,10 +32,13 @@ export function DmCallProvider({ children }) {
     remoteStream: null,
     micMuted: false,
     camOff: false,
+    callStartTime: null, // Track when call started
   });
 
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
+  const callTimeoutRef = useRef(null);
+  const MISSED_CALL_TIMEOUT = 30000; // 30 seconds
 
   const log = (msg, data) => console.log(`[DmCall] ${msg}`, data || '');
 
@@ -59,6 +62,18 @@ export function DmCallProvider({ children }) {
     return pc;
   }, []);
 
+  // ── Send missed call notification ──
+  const sendMissedCall = useCallback(async (peerId, callerName, callerAvatar) => {
+    log('Sending missed call notification to', peerId);
+    sendMessage({
+      type: 'call:missed',
+      to: peerId,
+      fromName: callerName || user?.name || user?.username || 'Unknown',
+      fromAvatar: callerAvatar || user?.picture || '',
+      timestamp: new Date().toISOString(),
+    });
+  }, [sendMessage, user]);
+
   // ── Start a call (caller) ──
   const startCall = useCallback(async (peerId, peerName = '', peerAvatar = '') => {
     if (!user) {
@@ -70,6 +85,13 @@ export function DmCallProvider({ children }) {
       return;
     }
     log('Starting call to', peerId);
+
+    // Clear any existing timeout
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
@@ -82,6 +104,7 @@ export function DmCallProvider({ children }) {
         isActive: true,
         isIncoming: false,
         status: 'ringing',
+        callStartTime: Date.now(),
       }));
 
       const pc = createPeerConnection(
@@ -104,6 +127,16 @@ export function DmCallProvider({ children }) {
         fromAvatar: user.picture || '',
       });
       log('Offer sent to', peerId);
+
+      // Set timeout for missed call
+      callTimeoutRef.current = setTimeout(() => {
+        log('Call timed out - missed by', peerId);
+        // Send missed call notification
+        sendMissedCall(peerId, user.name || user.username, user.picture || '');
+        // End the call
+        endCall();
+      }, MISSED_CALL_TIMEOUT);
+
     } catch (err) {
       console.error('Failed to start call:', err);
       // Reset state
@@ -112,12 +145,23 @@ export function DmCallProvider({ children }) {
         localStreamRef.current.getTracks().forEach(t => t.stop());
         localStreamRef.current = null;
       }
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
     }
-  }, [user, sendMessage, createPeerConnection, callState.isActive]);
+  }, [user, sendMessage, createPeerConnection, callState.isActive, sendMissedCall]);
 
   // ── Accept an incoming call ──
   const acceptCall = useCallback(async (callerId, offer) => {
     log('Accepting call from', callerId);
+
+    // Clear any incoming timeout
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
@@ -130,6 +174,7 @@ export function DmCallProvider({ children }) {
         isActive: true,
         isIncoming: false,
         status: 'connected',
+        callStartTime: Date.now(),
       }));
 
       const pc = createPeerConnection(
@@ -161,6 +206,17 @@ export function DmCallProvider({ children }) {
   // ── End call ──
   const endCall = useCallback(() => {
     log('Ending call');
+    
+    // Clear timeout
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+
+    // Check if this is a missed call (still in ringing state)
+    const wasRinging = callState.status === 'ringing';
+    const isIncoming = callState.isIncoming;
+
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
@@ -169,9 +225,21 @@ export function DmCallProvider({ children }) {
       localStreamRef.current.getTracks().forEach(t => t.stop());
       localStreamRef.current = null;
     }
+
+    // Send missed call notification if this was an outgoing call that wasn't answered
+    if (wasRinging && !isIncoming && callState.peerId) {
+      log('Call ended while ringing - sending missed call notification');
+      sendMissedCall(
+        callState.peerId,
+        user?.name || user?.username || 'Unknown',
+        user?.picture || ''
+      );
+    }
+
     if (callState.peerId) {
       sendMessage({ type: 'call:end', to: callState.peerId });
     }
+
     setCallState({
       isActive: false,
       isIncoming: false,
@@ -186,8 +254,9 @@ export function DmCallProvider({ children }) {
       remoteStream: null,
       micMuted: false,
       camOff: false,
+      callStartTime: null,
     });
-  }, [callState.peerId, sendMessage]);
+  }, [callState.peerId, callState.status, callState.isIncoming, sendMessage, user, sendMissedCall]);
 
   // ── Toggles ──
   const toggleMic = useCallback(() => {
@@ -214,6 +283,13 @@ export function DmCallProvider({ children }) {
   useEffect(() => {
     const unsubStart = registerHandler('call:start', (msg) => {
       log('📞 Incoming call from', msg.from);
+      
+      // Clear any existing timeout
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
+
       setCallState(prev => ({
         ...prev,
         isIncoming: true,
@@ -221,11 +297,42 @@ export function DmCallProvider({ children }) {
         callerName: msg.fromName || 'Unknown',
         callerAvatar: msg.fromAvatar || '',
         offer: msg.offer,
+        status: 'ringing',
+        callStartTime: Date.now(),
       }));
+
+      // Set timeout for missed incoming call (if user doesn't answer)
+      callTimeoutRef.current = setTimeout(() => {
+        log('Incoming call timed out - missed from', msg.from);
+        // Send missed call notification back to caller
+        sendMessage({
+          type: 'call:missed',
+          to: msg.from,
+          fromName: user?.name || user?.username || 'Unknown',
+          fromAvatar: user?.picture || '',
+          timestamp: new Date().toISOString(),
+        });
+        // Reset state
+        setCallState(prev => ({
+          ...prev,
+          isIncoming: false,
+          status: 'idle',
+          callerId: null,
+          callerName: '',
+          callerAvatar: '',
+          offer: null,
+        }));
+        callTimeoutRef.current = null;
+      }, MISSED_CALL_TIMEOUT);
     });
 
     const unsubAccept = registerHandler('call:accept', ({ from, answer }) => {
       log('Call accepted by', from);
+      // Clear timeout on accept
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
       if (pcRef.current && !pcRef.current.currentRemoteDescription) {
         pcRef.current.setRemoteDescription(new RTCSessionDescription(answer))
           .catch(err => console.error('Set remote desc error:', err));
@@ -240,9 +347,15 @@ export function DmCallProvider({ children }) {
       }
     });
 
-    const unsubEnd = registerHandler('call:end', () => {
+    const unsubEnd = registerHandler('call:end', (msg) => {
       log('Call ended by peer');
       endCall();
+    });
+
+    // Handle missed call notifications
+    const unsubMissed = registerHandler('call:missed', (msg) => {
+      log('📱 Missed call from', msg.from);
+      // This will be handled by DmContext to insert a system message
     });
 
     return () => {
@@ -250,8 +363,13 @@ export function DmCallProvider({ children }) {
       unsubAccept();
       unsubIce();
       unsubEnd();
+      unsubMissed();
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
     };
-  }, [registerHandler, sendMessage, endCall]);
+  }, [registerHandler, sendMessage, endCall, user]);
 
   // ── Incoming call actions ──
   const acceptIncoming = useCallback(() => {
@@ -261,11 +379,23 @@ export function DmCallProvider({ children }) {
   }, [callState.callerId, callState.offer, acceptCall]);
 
   const rejectIncoming = useCallback(() => {
+    // Send missed call notification when rejecting
     if (callState.callerId) {
+      sendMessage({
+        type: 'call:missed',
+        to: callState.callerId,
+        fromName: user?.name || user?.username || 'Unknown',
+        fromAvatar: user?.picture || '',
+        timestamp: new Date().toISOString(),
+      });
       sendMessage({ type: 'call:end', to: callState.callerId });
     }
-    setCallState(prev => ({ ...prev, isIncoming: false, callerId: null, callerName: '', callerAvatar: '', offer: null }));
-  }, [callState.callerId, sendMessage]);
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+    setCallState(prev => ({ ...prev, isIncoming: false, callerId: null, callerName: '', callerAvatar: '', offer: null, status: 'idle' }));
+  }, [callState.callerId, sendMessage, user]);
 
   const value = {
     callState,

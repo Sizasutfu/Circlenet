@@ -39,6 +39,9 @@ export function DmProvider({ children }) {
   useEffect(() => { latestIdRef.current = latestId; }, [latestId]);
   useEffect(() => { inboxRef.current = inbox; }, [inbox]);
 
+  // ─── Helper: log ─────────────────────────────────────────────
+  const log = (msg, data) => console.log(`[DmContext] ${msg}`, data || '');
+
   // ─── Initialize E2E ──────────────────────────────────────────
   const initializeE2E = useCallback(async () => {
     if (!userRef.current || e2eInitialized) return;
@@ -139,6 +142,67 @@ export function DmProvider({ children }) {
       const res = await apiClient(`/api/dm/conversations/${convId}/presence`);
       setOtherOnline(res.data?.online || false);
       setOtherLastActive(res.data?.last_seen_at || null);
+    } catch (_) {}
+  }, []);
+
+  // ─── Handle missed call messages ─────────────────────────────
+  const handleMissedCall = useCallback(async (msg) => {
+    const convId = msg.conversationId || msg.convId;
+    if (!convId) return;
+    
+    // Only insert if the conversation is active
+    if (activeConvIdRef.current !== convId) return;
+
+    log('Inserting missed call message for', msg.fromName);
+
+    // Create a system message for the missed call
+    const missedCallMsg = {
+      id: `missed_call_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      sender_id: null, // System message
+      body: `📞 Missed call from ${msg.fromName || 'Unknown'}`,
+      created_at: msg.timestamp || new Date().toISOString(),
+      _plain: `📞 Missed call from ${msg.fromName || 'Unknown'}`,
+      is_system: true,
+      is_encrypted: false,
+      missed_call: true,
+      caller_name: msg.fromName,
+      caller_avatar: msg.fromAvatar,
+      is_read: 1, // Auto-mark as read
+    };
+
+    setMessages((prev) => {
+      // Check if this missed call message already exists
+      const exists = prev.some((m) => 
+        m.is_system && m.missed_call && 
+        m.caller_name === msg.fromName &&
+        Math.abs(new Date(m.created_at).getTime() - new Date(msg.timestamp || Date.now()).getTime()) < 5000
+      );
+      if (exists) return prev;
+      return [...prev, missedCallMsg];
+    });
+
+    // Update inbox with missed call info
+    setInbox((prev) => {
+      const idx = prev.findIndex((c) => c.id === convId);
+      if (idx !== -1) {
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          last_message: `📞 Missed call from ${msg.fromName || 'Unknown'}`,
+          last_sender_id: null, // System message
+          last_message_at: msg.timestamp || new Date().toISOString(),
+          last_is_encrypted: false,
+          last_is_system: true,
+          last_missed_call: true,
+        };
+        return updated;
+      }
+      return prev;
+    });
+
+    // Mark as read since it's a system message
+    try {
+      await apiClient(`/api/dm/conversations/${convId}/read`, { method: 'PATCH' });
     } catch (_) {}
   }, []);
 
@@ -569,6 +633,20 @@ export function DmProvider({ children }) {
     setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
   }, []);
 
+  // ─── Handle missed call from WebSocket ──────────────────────
+  const handleMissedCallWS = useCallback((msg) => {
+    log('Missed call notification received:', msg);
+    // The message will be: { type: 'call:missed', from, fromName, fromAvatar, timestamp }
+    handleMissedCall({
+      conversationId: activeConvIdRef.current,
+      convId: activeConvIdRef.current,
+      from: msg.from,
+      fromName: msg.fromName,
+      fromAvatar: msg.fromAvatar,
+      timestamp: msg.timestamp,
+    });
+  }, [handleMissedCall]);
+
   // ─── Register WS handlers ────────────────────────────────────
   useEffect(() => {
     const unregNewDM = registerHandler('new_dm', (msg) => {
@@ -580,6 +658,7 @@ export function DmProvider({ children }) {
     const unregTyping = registerHandler('typing', handleTyping);
     const unregMessageEdited = registerHandler('message_edited', handleMessageEdited);
     const unregMessageDeleted = registerHandler('message_deleted', handleMessageDeleted);
+    const unregMissedCall = registerHandler('call:missed', handleMissedCallWS);
 
     return () => {
       unregNewDM();
@@ -588,6 +667,7 @@ export function DmProvider({ children }) {
       unregTyping();
       unregMessageEdited();
       unregMessageDeleted();
+      unregMissedCall();
     };
   }, [
     registerHandler,
@@ -598,6 +678,7 @@ export function DmProvider({ children }) {
     handleTyping,
     handleMessageEdited,
     handleMessageDeleted,
+    handleMissedCallWS,
   ]);
 
   // ─── Presence polling ────────────────────────────────────────

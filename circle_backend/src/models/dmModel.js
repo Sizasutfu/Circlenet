@@ -225,15 +225,21 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
     [convId, uid]
   );
 
-  // Combine and sort messages by created_at
+  // Combine messages
   let allMessages = [...rows, ...missedCalls];
+  
+  // Sort by created_at (oldest first for display)
   allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-  // Apply limit and pagination
+  // Check if there are more messages (for pagination)
   const hasMore = allMessages.length > lim;
-  if (hasMore) allMessages = allMessages.slice(-lim);
-  allMessages.reverse();
+  
+  // If we have more than limit, remove the oldest ones (keep newest)
+  if (hasMore) {
+    allMessages = allMessages.slice(-lim);
+  }
 
+  // Return messages in ascending order (oldest to newest)
   return { messages: allMessages, hasMore };
 }
 
@@ -310,7 +316,7 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
     [convId, uid, Number(afterId)]
   );
 
-  // Combine and sort
+  // Combine and sort by created_at (oldest first)
   let allMessages = [...rows, ...missedCalls];
   allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 

@@ -148,10 +148,21 @@ async function login(req, res) {
 // ─── GET /api/users/:id/profile ───────────────────────────────────────────────
 
 async function getProfile(req, res) {
-  const targetId = parseInt(req.params.id);
+  const param = req.params.id;               // can be numeric ID or username
   const viewerId = parseInt(req.headers['x-user-id']) || null;
 
   try {
+    // If the param is purely numeric, treat it as a user ID.
+    // Otherwise, treat it as a username and resolve to an ID.
+    let targetId;
+    if (/^\d+$/.test(param)) {
+      targetId = parseInt(param);
+    } else {
+      const user = await UserModel.getByUsername(param);
+      if (!user) return sendError(res, 404, 'User not found.');
+      targetId = user.id;
+    }
+
     const profile = await UserModel.getProfile(targetId, viewerId);
     if (!profile) return sendError(res, 404, 'User not found.');
     return sendOk(res, 200, 'Profile fetched.', profile);

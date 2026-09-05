@@ -14,7 +14,9 @@ const ALLOWED_ORIGINS = [
   "https://circlenet-articles.vercel.app/articles",
   "https://blog.circlenet.social",
   "http://10.110.51.203:5000",
-  "http://10.110.51.203:5000",
+  "http://10.116.69.203:5000",
+   "http://10.116.69.203:5000/api",
+  "http://localhost:8081",
   "https://10.110.51.203:3000",
 ];
 

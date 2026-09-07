@@ -28,6 +28,16 @@ const UserModel = {
     return rows[0] || null;
   },
 
+  // NEW: Find user with password (for password change verification)
+  async findByIdWithPassword(id) {
+    const [rows] = await db.query(
+      `SELECT id, name, email, password, username, deleted_at
+       FROM users WHERE id = ? AND deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] || null;
+  },
+
   // ─── Find deleted user by email (for restoration) ──────────────────────
 
   async findDeletedByEmail(email) {
@@ -152,6 +162,14 @@ const UserModel = {
 
   async updateUsername(id, username) {
     await db.query("UPDATE users SET username = ? WHERE id = ? AND deleted_at IS NULL", [username, id]);
+  },
+
+  // NEW: Update password (for change password flow)
+  async updatePassword(userId, hashedPassword) {
+    await db.query(
+      "UPDATE users SET password = ? WHERE id = ? AND deleted_at IS NULL",
+      [hashedPassword, userId]
+    );
   },
 
   // ─── Soft Delete User ──────────────────────────────────────────────────────

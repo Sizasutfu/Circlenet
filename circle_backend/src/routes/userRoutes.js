@@ -55,6 +55,9 @@ router.get('/', requireAuth, userController.searchUsers);
 // ─── Account Deletion Status ─────────────────────────────────────
 router.get('/:id/deletion-status', requireAuth, userController.getDeletionStatus);
 
+// ─── Change Password (logged-in user) ─────────────────────────────
+router.put('/:id/password', requireAuth, userController.changePassword);
+
 // ─── Delete Account ──────────────────────────────────────────────
 // DELETE /api/users/:id — Soft delete user account (30-day grace period)
 router.delete('/:id', requireAuth, userController.deleteAccount);
@@ -122,9 +125,5 @@ router.put('/mentions/read', requireAuth, postController.markMentionsAsRead);
 
 const notificationRoutes = require('./notificationRoutes');
 router.use('/notifications', notificationRoutes);
-
-// ─── REMOVED the interfering middleware ──────────────────────────
-// The problematic middleware was:
-// router.use('/:id', (req, res, next) => { ... });
 
 module.exports = router;

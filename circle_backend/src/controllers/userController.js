@@ -263,6 +263,41 @@ async function updateProfile(req, res) {
   }
 }
 
+// ─── PUT /api/users/:id/password (change password) ──────────────────────────
+
+async function changePassword(req, res) {
+  const userId = parseInt(req.params.id);
+  if (req.actorId !== userId)
+    return sendError(res, 403, 'You can only change your own password.');
+
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword)
+    return sendError(res, 400, 'Current password and new password are required.');
+
+  if (newPassword.length < 6)
+    return sendError(res, 400, 'New password must be at least 6 characters.');
+
+  try {
+    const user = await UserModel.findByIdWithPassword(userId);
+    if (!user)
+      return sendError(res, 404, 'User not found.');
+
+    // Verify current password
+    const match = await bcrypt.compare(currentPassword, user.password);
+    if (!match)
+      return sendError(res, 401, 'Current password is incorrect.');
+
+    // Hash new password
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await UserModel.updatePassword(userId, hashed);
+
+    return sendOk(res, 200, 'Password changed successfully.');
+  } catch (err) {
+    console.error('changePassword error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // ─── GET /api/users?search=<query>&limit=<n> ──────────────────────────────────
 // Used by the New Message modal to find people to DM.
 // Requires auth (x-user-id header) so the caller is excluded from results.
@@ -548,6 +583,7 @@ module.exports = {
   updateCoverImage,
   updateProfile,
   updateUsername,
+  changePassword,  // NEW
   searchUsers,
   getNewMembers,
   getUserByUsername,

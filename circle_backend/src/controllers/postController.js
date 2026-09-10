@@ -146,7 +146,7 @@ async function createPost(req, res) {
     if (mentionedUsernames.length) {
       const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
       const mentionedUserIds = [];
-      
+
       for (const [username, id] of userIdMap) {
         if (id !== userId) {
           mentionedUserIds.push(id);
@@ -155,26 +155,23 @@ async function createPost(req, res) {
 
       if (mentionedUserIds.length) {
         await PostModel.createMentions(postId, userId, mentionedUserIds, 'post');
-        
+
         // ── Send notifications for mentions ──
         const uniqueMentionedIds = [...new Set(mentionedUserIds)];
         for (const mentionedId of uniqueMentionedIds) {
-          // Create notification using NotificationModel (handles deduplication)
           await NotificationModel.createNotification(
             mentionedId,
             userId,
             'mention',
             postId
           );
-          
-          // Real-time WebSocket notification
+
           notifyUser(mentionedId, 'mention', {
             actorId: userId,
             actorName: user.name,
             postId,
           });
 
-          // Push notification for offline users
           if (!isOnline(mentionedId)) {
             try {
               await PushModel.sendPushToUser(
@@ -280,34 +277,30 @@ async function toggleLike(req, res) {
     if (existing) {
       await PostModel.removeLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
-      
-      // Get the updated list of users who liked this post
+
       const likers = await PostModel.getLikers(postId);
-      
-      // Broadcast like update via WebSocket
+
       broadcastToAll({
         type: 'like_update',
         postId: postId,
         count: total,
         userIds: likers.map(l => l.user_id),
       });
-      
+
       await broadcastPostCounts(postId);
       return sendOk(res, 200, 'Unliked.', { likes: total, liked: false });
     } else {
       await PostModel.addLike(userId, postId);
       const total = await PostModel.getLikeCount(postId);
-      
-      // Get the updated list of users who liked this post
+
       const likers = await PostModel.getLikers(postId);
 
       await ContentTypePreference.incrementEngagement(userId, postId);
 
       const post = await PostModel.findById(postId);
       if (post && post.user_id !== userId) {
-        // Use NotificationModel which handles deduplication
         await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
-        
+
         const topics = await TopicPreferenceModel.getPostTopics(postId);
         await TopicPreferenceModel.recordEngagement(userId, topics, 'like');
         const actor = await UserModel.findById(userId);
@@ -318,7 +311,6 @@ async function toggleLike(req, res) {
         });
       }
 
-      // Broadcast like update via WebSocket
       broadcastToAll({
         type: 'like_update',
         postId: postId,
@@ -370,12 +362,11 @@ async function addComment(req, res) {
       replies:       parentIdInt ? undefined : [],
     };
 
-    // ── Handle mentions in comment ──
     const mentionedUsernames = PostModel.extractMentions(text);
     if (mentionedUsernames.length) {
       const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
       const mentionedUserIds = [];
-      
+
       for (const [username, id] of userIdMap) {
         if (id !== userId) {
           mentionedUserIds.push(id);
@@ -384,8 +375,7 @@ async function addComment(req, res) {
 
       if (mentionedUserIds.length) {
         await PostModel.createMentions(postId, userId, mentionedUserIds, 'reply');
-        
-        // ── Send notifications for mentions in comments ──
+
         const uniqueMentionedIds = [...new Set(mentionedUserIds)];
         for (const mentionedId of uniqueMentionedIds) {
           await NotificationModel.createNotification(
@@ -394,7 +384,7 @@ async function addComment(req, res) {
             'mention',
             postId
           );
-          
+
           notifyUser(mentionedId, 'mention', {
             actorId: userId,
             actorName: user.name,
@@ -420,7 +410,6 @@ async function addComment(req, res) {
       }
     }
 
-    // ── Notify post author about comment (if not the same as commenter) ──
     if (post.user_id !== userId) {
       await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
       notifyUser(post.user_id, 'comment', {
@@ -453,8 +442,16 @@ async function addComment(req, res) {
 async function repost(req, res) {
   const origId  = parseInt(req.params.id);
   const userId  = req.actorId;
-  const { text } = req.body;
+
+  // ✅ Defensive: the mobile client sends no body when reposting,
+  // so req.body is undefined. Default to an empty object.
+  const body = req.body || {};
+  const text = typeof body.text === 'string' ? body.text : '';
   const isQuote = text && text.trim().length > 0;
+
+  if (!origId || isNaN(origId)) {
+    return sendError(res, 400, 'Invalid post ID.');
+  }
 
   try {
     const original = await PostModel.findById(origId);
@@ -468,7 +465,7 @@ async function repost(req, res) {
       if (dup) return sendError(res, 409, 'Already reposted.');
     }
 
-    const repostId  = await PostModel.createRepost(userId, text, origId);
+    const repostId  = await PostModel.createRepost(userId, isQuote ? text : null, origId);
     const origEmbed = await PostModel.getOriginalPostEmbed(origId);
 
     await ContentTypePreference.incrementEngagement(userId, origId);
@@ -479,7 +476,7 @@ async function repost(req, res) {
       if (mentionedUsernames.length) {
         const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
         const mentionedUserIds = [];
-        
+
         for (const [username, id] of userIdMap) {
           if (id !== userId) {
             mentionedUserIds.push(id);
@@ -488,7 +485,7 @@ async function repost(req, res) {
 
         if (mentionedUserIds.length) {
           await PostModel.createMentions(repostId, userId, mentionedUserIds, 'post');
-          
+
           const uniqueMentionedIds = [...new Set(mentionedUserIds)];
           for (const mentionedId of uniqueMentionedIds) {
             await NotificationModel.createNotification(
@@ -520,11 +517,9 @@ async function repost(req, res) {
     const topics = await TopicPreferenceModel.getPostTopics(origId);
     await TopicPreferenceModel.recordEngagement(userId, topics, 'repost');
 
-    // Get updated repost count and list
     const repostCount = await PostModel.getRepostCount(origId);
     const reposters = await PostModel.getReposters(origId);
 
-    // Broadcast repost update via WebSocket
     broadcastToAll({
       type: 'repost_update',
       postId: origId,
@@ -563,37 +558,32 @@ async function broadcastPostCounts(postId) {
     PostModel.getCommentCount(postId),
     PostModel.getRepostCount(postId),
   ]);
-  
-  // Get user lists for likes and reposts
+
   const [likers, reposters] = await Promise.all([
     PostModel.getLikers(postId).catch(() => []),
     PostModel.getReposters(postId).catch(() => []),
   ]);
-  
-  // Broadcast like update with user list
+
   broadcastToAll({
     type: 'like_update',
     postId,
     count: likes,
     userIds: likers.map(l => l.user_id),
   });
-  
-  // Broadcast repost update with user list
+
   broadcastToAll({
     type: 'repost_update',
     postId,
     count: reposts,
     userIds: reposters.map(r => r.user_id),
   });
-  
-  // Broadcast comment update
+
   broadcastToAll({
     type: 'comment_update',
     postId,
     count: comments,
   });
-  
-  // Also broadcast combined counts for backward compatibility
+
   broadcastToAll({
     type: 'post_counts',
     postId,
@@ -743,7 +733,6 @@ async function updatePost(req, res) {
   const postId = Number(req.params.id);
   const { text, isLive, liveSessionId, youtubeId, deleteImage, deleteVideo } = req.body || {};
 
-  // New uploaded files (if any), resolved the same way createPost does
   const { path: newImagePath } = resolveFileUrl(req.compressedFiles?.image, req);
   const { path: newVideoPath } = resolveFileUrl(req.compressedFiles?.video, req);
 
@@ -797,7 +786,6 @@ async function updatePost(req, res) {
       updatedYoutubeId = youtubeId;
     }
 
-    // Resolve image: new upload > deletion flag > keep existing
     let updatedImagePath = post.image;
     if (newImagePath) {
       updatedImagePath = newImagePath;
@@ -805,7 +793,6 @@ async function updatePost(req, res) {
       updatedImagePath = null;
     }
 
-    // Resolve video: new upload > deletion flag > keep existing
     let updatedVideoPath = post.video;
     if (newVideoPath) {
       updatedVideoPath = newVideoPath;
@@ -850,7 +837,7 @@ async function getVideos(req, res) {
 async function getMentions(req, res) {
   const userId = req.actorId;
   if (!userId) return sendError(res, 401, 'Authentication required.');
-  
+
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
   const status = req.query.status || 'all';
@@ -882,13 +869,13 @@ async function getUnreadMentionCount(req, res) {
 async function markMentionsAsRead(req, res) {
   const userId = req.actorId;
   if (!userId) return sendError(res, 401, 'Authentication required.');
-  
+
   const { mentionIds } = req.body;
 
   try {
     const result = await PostModel.markMentionsAsRead(userId, mentionIds);
-    return sendOk(res, 200, 'Mentions marked as read.', { 
-      updated: result.affectedRows 
+    return sendOk(res, 200, 'Mentions marked as read.', {
+      updated: result.affectedRows
     });
   } catch (err) {
     console.error('markMentionsAsRead error:', err);
@@ -913,7 +900,6 @@ module.exports = {
   updatePost,
   getCommentsOnUserPosts,
   getVideos,
-  // ── Mention exports ──
   getMentions,
   getUnreadMentionCount,
   markMentionsAsRead,

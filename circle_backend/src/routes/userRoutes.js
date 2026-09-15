@@ -39,11 +39,12 @@ router.post('/restore', userController.restoreAccount);
 // ─── Get User by Username ────────────────────────────────────────
 router.get('/by-username/:username', userController.getUserByUsername);
 
+// ─── New Members ─────────────────────────────────────────────────
+// Must come BEFORE the generic /:id routes so it isn't swallowed
+router.get('/new-members', userController.getNewMembers);
+
 // ─── Get User Profile ────────────────────────────────────────────
 router.get('/:id/profile', userController.getProfile);
-
-// ─── New Members ──────────────────────────────────────────────────
-router.get('/new-members', userController.getNewMembers);
 
 // ════════════════════════════════════════════════════════════════
 //  PROTECTED ROUTES — Authentication required
@@ -55,7 +56,7 @@ router.get('/', requireAuth, userController.searchUsers);
 // ─── Account Deletion Status ─────────────────────────────────────
 router.get('/:id/deletion-status', requireAuth, userController.getDeletionStatus);
 
-// ─── Change Password (logged-in user) ─────────────────────────────
+// ─── Change Password (logged-in user) ────────────────────────────
 router.put('/:id/password', requireAuth, userController.changePassword);
 
 // ─── Delete Account ──────────────────────────────────────────────
@@ -89,7 +90,7 @@ router.put('/:id/publickey', requireAuth, async (req, res) => {
   if (req.actorId !== userId)
     return res.status(403).json({ error: 'Forbidden.' });
 
-  const { publicKey } = req.body;
+  const { publicKey } = req.body || {};
   if (!publicKey)
     return res.status(400).json({ error: 'publicKey is required.' });
 
@@ -102,10 +103,38 @@ router.put('/:id/publickey', requireAuth, async (req, res) => {
   }
 });
 
-// ─── Profile Updates ──────────────────────────────────────────────
-router.put('/:id/picture', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updatePicture);
-router.put('/:id/cover', requireAuth, upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads, userController.updateCoverImage);
-router.put('/:id', requireAuth, userController.updateProfile);
+// ─── Dedicated picture / cover routes (single-purpose) ───────────
+router.put(
+  '/:id/picture',
+  requireAuth,
+  upload.fields([{ name: 'image', maxCount: 1 }]),
+  compressUploads,
+  userController.updatePicture
+);
+router.put(
+  '/:id/cover',
+  requireAuth,
+  upload.fields([{ name: 'image', maxCount: 1 }]),
+  compressUploads,
+  userController.updateCoverImage
+);
+
+// ─── Combined profile update (text + optional avatar / cover) ─────
+// ⚠️  This route accepts multipart/form-data with:
+//     - text fields: name, username, email, bio, phone, location, website, ...
+//     - file fields: avatar (image), coverImage (image)
+//     Multer must run first to populate req.body and req.files.
+router.put(
+  '/:id',
+  requireAuth,
+  upload.fields([
+    { name: 'avatar',     maxCount: 1 },
+    { name: 'coverImage', maxCount: 1 },
+  ]),
+  compressUploads,
+  userController.updateProfile
+);
+
 router.put('/:id/username', requireAuth, userController.updateUsername);
 
 // ─── Admin Routes ──────────────────────────────────────────────────

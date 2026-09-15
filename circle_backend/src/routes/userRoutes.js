@@ -25,6 +25,8 @@ const postController      = require('../controllers/postController');
 router.post('/register',        userController.register);
 router.post('/login',           userController.login);
 
+router.get('/:id/dashboard', requireAuth, userController.getDashboard);
+
 // ─── Password Reset ──────────────────────────────────────────────
 router.post("/reset-password",         requestPasswordReset);
 router.post("/reset-password/confirm", confirmResetPassword);

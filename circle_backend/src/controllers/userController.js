@@ -16,18 +16,13 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 // ─── Username generator ────────────────────────────────────────────────────────
 
-/**
- * Converts a display name to a clean username slug.
- * "Siza Mndzawe" → "siza_mndzawe"
- * Appends a random suffix if the username is already taken.
- */
 async function generateUsername(name) {
   const base = name
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s]/g, '')   // remove special chars
-    .replace(/\s+/g, '_')           // spaces → underscores
-    .slice(0, 20);                  // max 20 chars
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '_')
+    .slice(0, 20);
 
   if (!(await UserModel.usernameExists(base))) return base;
 
@@ -40,11 +35,6 @@ async function generateUsername(name) {
   return username;
 }
 
-/**
- * Resolves the stored URL for an uploaded image.
- * Dev  → /uploads/<filename>  (served statically by Express)
- * Prod → Cloudinary secure_url
- */
 function resolveFileUrl(compressed) {
   if (!compressed) return null;
   return IS_PROD
@@ -54,10 +44,6 @@ function resolveFileUrl(compressed) {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Cleans and validates the extra profile fields coming from req.body.
- * Returns a safe `extras` object ready to pass into the model.
- */
 function extractExtras(body) {
   const {
     phone, location, school,
@@ -163,6 +149,29 @@ async function getProfile(req, res) {
   }
 }
 
+// ─── GET /api/users/:id/dashboard ─────────────────────────────────────────────
+
+async function getDashboard(req, res) {
+  const userId = parseInt(req.params.id);
+  const viewerId = req.actorId;
+
+  if (isNaN(userId)) {
+    return sendError(res, 400, 'Invalid user ID.');
+  }
+
+  if (viewerId !== userId) {
+    return sendError(res, 403, 'You can only view your own dashboard.');
+  }
+
+  try {
+    const stats = await UserModel.getDashboardStats(userId);
+    return sendOk(res, 200, 'Dashboard fetched.', stats);
+  } catch (err) {
+    console.error('getDashboard error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
 // ─── PUT /api/users/:id/picture ───────────────────────────────────────────────
 
 async function updatePicture(req, res) {
@@ -217,8 +226,7 @@ async function updateCoverImage(req, res) {
 }
 
 // ─── PUT /api/users/:id ───────────────────────────────────────────────────────
-// Supports partial updates — only fields present in req.body are changed.
-// Safe when the client sends files only (req.body will be an empty object).
+// Supports partial updates + optional avatar / coverImage file uploads.
 
 async function updateProfile(req, res) {
   const userId = parseInt(req.params.id);
@@ -227,16 +235,13 @@ async function updateProfile(req, res) {
     return sendError(res, 403, 'Forbidden.');
   }
 
-  // ✅ Guard: req.body may be undefined when the client sends only a file
-  //    or an empty multipart body. Default to an empty object so the merge
-  //    logic below treats every field as "not provided".
   const body = req.body || {};
 
   try {
     const existing = await UserModel.findById(userId);
     if (!existing) return sendError(res, 404, 'User not found.');
 
-    // ── Merge: use incoming value if provided, otherwise keep existing ──
+    // ── Merge: use incoming value if provided, else existing ──
     const name = body.name !== undefined
       ? String(body.name).trim()
       : existing.name;
@@ -259,44 +264,23 @@ async function updateProfile(req, res) {
       v != null ? String(v).slice(0, max).trim() || null : null;
 
     const extras = {
-      phone: body.phone !== undefined
-        ? clean(body.phone, 25)
-        : existing.phone,
-
-      location: body.location !== undefined
-        ? clean(body.location, 120)
-        : existing.location,
-
-      school: body.school !== undefined
-        ? clean(body.school, 120)
-        : existing.school,
-
-      occupation: body.occupation !== undefined
-        ? clean(body.occupation, 100)
-        : existing.occupation,
-
-      website: body.website !== undefined
-        ? clean(body.website, 255)
-        : existing.website,
-
+      phone: body.phone !== undefined ? clean(body.phone, 25) : existing.phone,
+      location: body.location !== undefined ? clean(body.location, 120) : existing.location,
+      school: body.school !== undefined ? clean(body.school, 120) : existing.school,
+      occupation: body.occupation !== undefined ? clean(body.occupation, 100) : existing.occupation,
+      website: body.website !== undefined ? clean(body.website, 255) : existing.website,
       dateOfBirth: body.dateOfBirth !== undefined
-        ? (body.dateOfBirth &&
-            /^\d{4}-\d{2}-\d{2}$/.test(body.dateOfBirth)
-              ? body.dateOfBirth
-              : null)
+        ? (body.dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(body.dateOfBirth) ? body.dateOfBirth : null)
         : existing.dateOfBirth,
-
-      gender: body.gender !== undefined
-        ? clean(body.gender, 30)
-        : existing.gender,
+      gender: body.gender !== undefined ? clean(body.gender, 30) : existing.gender,
     };
 
-    // ── Email uniqueness check (only if actually changing) ──
+    // ── Email uniqueness ──
     if (email !== existing.email && (await UserModel.emailTakenByOther(email, userId))) {
       return sendError(res, 409, 'Email already in use.');
     }
 
-    // ── Optional username change (per-field screens may send this) ──
+    // ── Username change ──
     if (body.username !== undefined) {
       const raw = String(body.username).trim().toLowerCase();
       if (raw !== (existing.username || '').toLowerCase()) {
@@ -314,7 +298,21 @@ async function updateProfile(req, res) {
       }
     }
 
-    // ── Apply the update ──
+    // ── Avatar / Cover uploads ──
+    const avatarFile = req.compressedFiles?.avatar;
+    const coverFile  = req.compressedFiles?.coverImage;
+
+    if (avatarFile) {
+      const url = resolveFileUrl(avatarFile);
+      await UserModel.updatePicture(userId, url);
+    }
+
+    if (coverFile) {
+      const url = resolveFileUrl(coverFile);
+      await UserModel.updateCoverImage(userId, url);
+    }
+
+    // ── Write text fields ──
     if (password && password.length >= 6) {
       const hash = await bcrypt.hash(password, 10);
       await UserModel.updateUserWithPassword(userId, name, email, hash, bio, extras);
@@ -465,19 +463,12 @@ async function toggleVerification(req, res) {
 async function deleteAccount(req, res) {
   const userId = parseInt(req.params.id);
 
-  console.log('📝 DELETE /api/users/:id');
-  console.log('📝 User ID:', userId);
-  console.log('📝 req.actorId:', req.actorId);
-  console.log('📝 req.body:', req.body);
-  console.log('📝 Content-Type:', req.headers['content-type']);
-
   let body = req.body;
 
   if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
     if (req.rawBody) {
       try {
         body = JSON.parse(req.rawBody);
-        console.log('📝 Parsed from raw body:', body);
       } catch (err) {
         console.error('📝 Failed to parse raw body:', err);
       }
@@ -615,6 +606,7 @@ module.exports = {
   register,
   login,
   getProfile,
+  getDashboard,
   updatePicture,
   updateCoverImage,
   updateProfile,

@@ -28,7 +28,6 @@ const UserModel = {
     return rows[0] || null;
   },
 
-  // NEW: Find user with password (for password change verification)
   async findByIdWithPassword(id) {
     const [rows] = await db.query(
       `SELECT id, name, email, password, username, deleted_at
@@ -164,7 +163,6 @@ const UserModel = {
     await db.query("UPDATE users SET username = ? WHERE id = ? AND deleted_at IS NULL", [username, id]);
   },
 
-  // NEW: Update password (for change password flow)
   async updatePassword(userId, hashedPassword) {
     await db.query(
       "UPDATE users SET password = ? WHERE id = ? AND deleted_at IS NULL",
@@ -175,7 +173,6 @@ const UserModel = {
   // ─── Soft Delete User ──────────────────────────────────────────────────────
 
   async softDeleteUser(userId) {
-    // Set deleted_at to now, user will be permanently deleted after 30 days
     await db.query(
       "UPDATE users SET deleted_at = NOW() WHERE id = ?",
       [userId]
@@ -194,8 +191,6 @@ const UserModel = {
   // ─── Permanently Delete User (hard delete) ──────────────────────────────
 
   async permanentlyDeleteUser(userId) {
-    // This is called by the cleanup job after 30 days
-    // All related data will be cascade deleted via foreign keys
     await db.query(
       "DELETE FROM users WHERE id = ? AND deleted_at IS NOT NULL",
       [userId]
@@ -283,6 +278,107 @@ const UserModel = {
     }
 
     return { ...rows[0], postCount, followerCount, followingCount, isFollowing };
+  },
+
+  // ─── Dashboard aggregates ─────────────────────────────────────────────────
+
+  async getDashboardStats(userId) {
+    if (!userId || isNaN(userId) || userId <= 0) {
+      throw new Error('Invalid user ID');
+    }
+
+    const [[counts]] = await db.query(
+      `SELECT
+         (SELECT COUNT(*) FROM posts    WHERE user_id = ? AND is_repost = 0) AS postsCount,
+         (SELECT COUNT(*) FROM follows  WHERE following_id = ?)               AS followersCount,
+         (SELECT COUNT(*) FROM follows  WHERE follower_id = ?)                AS followingCount,
+         (SELECT COUNT(*) FROM likes l
+           JOIN posts p ON p.id = l.post_id
+           WHERE p.user_id = ?)                                              AS totalLikes,
+         (SELECT COUNT(*) FROM comments c
+           JOIN posts p ON p.id = c.post_id
+           WHERE p.user_id = ?)                                              AS totalComments,
+         (SELECT COUNT(*) FROM reposts r
+           JOIN posts p ON p.id = r.original_post_id
+           WHERE p.user_id = ?)                                              AS totalReposts,
+         (SELECT COUNT(*) FROM post_views v
+           JOIN posts p ON p.id = v.post_id
+           WHERE p.user_id = ?)                                              AS totalViews,
+         (SELECT COUNT(*) FROM video_views vv
+           JOIN posts p ON p.id = vv.post_id
+           WHERE p.user_id = ?)                                              AS totalVideoViews`,
+      [userId, userId, userId, userId, userId, userId, userId, userId]
+    );
+
+    const [engagementByDay] = await db.query(
+      `SELECT
+         DATE(d.day) AS date,
+         COALESCE(l.cnt, 0) AS likes,
+         COALESCE(c.cnt, 0) AS comments,
+         COALESCE(r.cnt, 0) AS reposts
+       FROM (
+         SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) AS day
+         FROM (
+           SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL
+           SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+         ) AS nums
+       ) AS d
+       LEFT JOIN (
+         SELECT DATE(l.created_at) AS day, COUNT(*) AS cnt
+         FROM likes l
+         JOIN posts p ON p.id = l.post_id
+         WHERE p.user_id = ? AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+         GROUP BY DATE(l.created_at)
+       ) AS l ON l.day = d.day
+       LEFT JOIN (
+         SELECT DATE(c.created_at) AS day, COUNT(*) AS cnt
+         FROM comments c
+         JOIN posts p ON p.id = c.post_id
+         WHERE p.user_id = ? AND c.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+         GROUP BY DATE(c.created_at)
+       ) AS c ON c.day = d.day
+       LEFT JOIN (
+         SELECT DATE(r.created_at) AS day, COUNT(*) AS cnt
+         FROM reposts r
+         JOIN posts p ON p.id = r.original_post_id
+         WHERE p.user_id = ? AND r.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+         GROUP BY DATE(r.created_at)
+       ) AS r ON r.day = d.day
+       ORDER BY d.day ASC`,
+      [userId, userId, userId]
+    );
+
+    const [recentPosts] = await db.query(
+      `SELECT
+         p.id, p.text, p.created_at AS createdAt,
+         (SELECT COUNT(*) FROM likes    WHERE post_id = p.id)          AS likeCount,
+         (SELECT COUNT(*) FROM comments WHERE post_id = p.id)          AS commentCount,
+         (SELECT COUNT(*) FROM reposts  WHERE original_post_id = p.id) AS repostCount,
+         (SELECT COUNT(*) FROM post_views WHERE post_id = p.id)        AS viewCount
+       FROM posts p
+       WHERE p.user_id = ? AND p.is_repost = 0
+       ORDER BY p.created_at DESC
+       LIMIT 5`,
+      [userId]
+    );
+
+    const [[topPost]] = await db.query(
+      `SELECT
+         p.id, p.text,
+         (SELECT COUNT(*) FROM likes WHERE post_id = p.id) AS score
+       FROM posts p
+       WHERE p.user_id = ? AND p.is_repost = 0
+       ORDER BY score DESC, p.created_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+
+    return {
+      ...counts,
+      engagementByDay,
+      recentPosts,
+      topPost: topPost?.id ? topPost : null,
+    };
   },
 
   // ─── Search ────────────────────────────────────────────────────────────────

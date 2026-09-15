@@ -338,26 +338,83 @@ async function hydratePosts(posts, options = {}) {
     }
   });
 
-  // ── Fetch original posts for reposts ──────────────────────
+  // ── Fetch original posts for reposts (WITH engagement data) ──
   const origIds = [
     ...new Set(
       posts.filter(p => p.isRepost && p.originalPostId).map(p => p.originalPostId)
     ),
   ];
   let origMap = {};
+  let origLMap = {}, origRMap = {}, origCMap = {}, origVMap = {}, origVVMap = {};
   if (origIds.length) {
     const oph = origIds.map(() => '?').join(',');
+
+    // Base posts
     const [origRows] = await db.query(
-      `SELECT p.id, p.user_id AS userId, u.name AS author, u.picture AS authorPicture,
+      `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
+              u.picture AS authorPicture, u.verified AS authorVerified,
               p.text, p.image, p.video, p.created_at AS createdAt,
-              p.is_live, p.live_session_id, p.youtube_id,
-              u.verified AS authorVerified
+              p.is_live, p.live_session_id, p.youtube_id
        FROM posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.id IN (${oph})`,
       origIds
     );
     origRows.forEach(o => { origMap[o.id] = o; });
+
+    // ✅ Engagement data for the original posts
+    const [oLikes] = await db.query(
+      `SELECT user_id, post_id FROM likes WHERE post_id IN (${oph})`,
+      origIds
+    );
+    const [oReposts] = await db.query(
+      `SELECT r.user_id, r.original_post_id FROM reposts r
+       JOIN posts p ON p.id = r.repost_post_id
+       WHERE r.original_post_id IN (${oph}) AND (p.text IS NULL OR p.text='')`,
+      origIds
+    );
+    const [oComments] = await db.query(
+      `SELECT c.id, c.post_id, c.user_id AS userId,
+              c.parent_id AS parentId,
+              u.name AS author, u.picture AS authorPicture,
+              c.text, c.created_at AS createdAt
+       FROM comments c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.post_id IN (${oph})
+       ORDER BY c.created_at ASC`,
+      origIds
+    );
+    const [oViews] = await db.query(
+      `SELECT post_id, COUNT(*) AS view_count FROM post_views WHERE post_id IN (${oph}) GROUP BY post_id`,
+      origIds
+    );
+    const [oVideoViews] = await db.query(
+      `SELECT post_id, COUNT(*) AS view_count FROM video_views WHERE post_id IN (${oph}) GROUP BY post_id`,
+      origIds
+    );
+
+    origIds.forEach(id => {
+      origLMap[id] = [];
+      origRMap[id] = [];
+      origCMap[id] = [];
+      origVMap[id] = 0;
+      origVVMap[id] = 0;
+    });
+    oLikes.forEach(l => {
+      if (l && l.post_id && origLMap[l.post_id] !== undefined) origLMap[l.post_id].push(l.user_id);
+    });
+    oReposts.forEach(r => {
+      if (r && r.original_post_id && origRMap[r.original_post_id] !== undefined) origRMap[r.original_post_id].push(r.user_id);
+    });
+    oComments.forEach(c => {
+      if (c && c.post_id && origCMap[c.post_id] !== undefined) origCMap[c.post_id].push(c);
+    });
+    oViews.forEach(v => {
+      if (v && v.post_id && origVMap[v.post_id] !== undefined) origVMap[v.post_id] = Number(v.view_count);
+    });
+    oVideoViews.forEach(v => {
+      if (v && v.post_id && origVVMap[v.post_id] !== undefined) origVVMap[v.post_id] = Number(v.view_count);
+    });
   }
 
   // ── Resolve group names ──────────────────────────────────
@@ -416,13 +473,16 @@ async function hydratePosts(posts, options = {}) {
     p.viewCount = p.views;
     p.videoViewCount = p.videoViews;
 
+    // ✅ Build the embedded original post WITH engagement data
     if (p.isRepost && p.originalPostId) {
       const orig = origMap[p.originalPostId];
       if (orig) {
+        const origComments = origCMap[orig.id] || [];
         p.originalPost = {
           id: orig.id,
           userId: orig.userId,
           author: orig.author,
+          authorUsername: orig.authorUsername,
           authorPicture: orig.authorPicture,
           authorVerified: !!orig.authorVerified,
           text: orig.text,
@@ -432,6 +492,27 @@ async function hydratePosts(posts, options = {}) {
           isLive: orig.is_live,
           liveSessionId: orig.live_session_id,
           youtubeId: orig.youtube_id,
+          // ✅ Include user object so PostCard can render name/username
+          user: {
+            id: orig.userId,
+            name: orig.author || 'Unknown',
+            username: orig.authorUsername || null,
+            avatar: orig.authorPicture || null,
+            verified: !!orig.authorVerified,
+          },
+          // ✅ Engagement data
+          likes: origLMap[orig.id] || [],
+          reposts: origRMap[orig.id] || [],
+          comments: nestComments(origComments),
+          commentCount: origComments.length,
+          likeCount: (origLMap[orig.id] || []).length,
+          repostCount: (origRMap[orig.id] || []).length,
+          views: origVMap[orig.id] || 0,
+          videoViews: origVVMap[orig.id] || 0,
+          viewCount: origVMap[orig.id] || 0,
+          videoViewCount: origVVMap[orig.id] || 0,
+          isRepost: false,
+          reasons: [],
         };
       } else {
         p.originalPost = null;
@@ -450,6 +531,9 @@ async function hydratePosts(posts, options = {}) {
       p.originalPost.image         = toRelativePath(p.originalPost.image);
       p.originalPost.video         = toRelativePath(p.originalPost.video);
       p.originalPost.authorPicture = toRelativePath(p.originalPost.authorPicture);
+      if (p.originalPost.user) {
+        p.originalPost.user.avatar = toRelativePath(p.originalPost.user.avatar);
+      }
     }
   });
 
@@ -570,7 +654,6 @@ async function createPost(userId, text, image, video, groupId = null, isLive = f
   if (text) {
     await savePostTopics(postId, text);
     
-    // ── Handle mentions ──
     const mentionedUsernames = extractMentions(text);
     if (mentionedUsernames.length) {
       const userIdMap = await getMentionedUserIds(mentionedUsernames);
@@ -697,13 +780,10 @@ async function updatePost(postId, text, userId = null, isLive = null, liveSessio
   const [result] = await db.query(query, params);
   if (!result.affectedRows) throw new Error('Post not found.');
 
-  // Update topics
   await db.query('DELETE FROM post_topics WHERE post_id = ?', [postId]);
   if (text) {
     await savePostTopics(postId, text);
     
-    // ── Handle mentions on update ──
-    // Clear existing mentions for this post
     await db.query('DELETE FROM mentions WHERE post_id = ?', [postId]);
     
     const mentionedUsernames = extractMentions(text);
@@ -842,7 +922,6 @@ async function addComment(postId, userId, text, parentId = null) {
 
   await saveCommentTopics(postId, text);
 
-  // ── Handle mentions in comments ──
   const mentionedUsernames = extractMentions(text);
   if (mentionedUsernames.length) {
     const userIdMap = await getMentionedUserIds(mentionedUsernames);
@@ -934,7 +1013,6 @@ async function createRepost(userId, text, originalPostId) {
   if (text) {
     await savePostTopics(repostPostId, text);
     
-    // ── Handle mentions in repost text ──
     const mentionedUsernames = extractMentions(text);
     if (mentionedUsernames.length) {
       const userIdMap = await getMentionedUserIds(mentionedUsernames);
@@ -989,10 +1067,12 @@ async function deleteRepost(userId, originalPostId) {
   }
 }
 
+// ── Get original post embed WITH engagement data ────────────
 async function getOriginalPostEmbed(originalPostId) {
   if (!originalPostId || isNaN(originalPostId) || originalPostId <= 0) {
     throw new Error('Invalid post ID');
   }
+
   const [rows] = await db.query(
     `SELECT p.id, p.user_id AS userId, u.name AS author, u.username AS authorUsername,
             u.picture AS authorPicture, u.verified AS authorVerified,
@@ -1001,7 +1081,65 @@ async function getOriginalPostEmbed(originalPostId) {
      FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?`,
     [originalPostId]
   );
-  return rows[0] || null;
+
+  const orig = rows[0];
+  if (!orig) return null;
+
+  // ✅ Fetch engagement data for the embedded post
+  const [[likes], [reposts], [comments], [views], [videoViews]] = await Promise.all([
+    db.query('SELECT user_id FROM likes WHERE post_id = ?', [originalPostId]),
+    db.query(
+      `SELECT r.user_id FROM reposts r
+       JOIN posts p ON p.id = r.repost_post_id
+       WHERE r.original_post_id = ? AND (p.text IS NULL OR p.text='')`,
+      [originalPostId]
+    ),
+    db.query(
+      `SELECT c.id, c.post_id, c.user_id AS userId,
+              c.parent_id AS parentId,
+              u.name AS author, u.picture AS authorPicture,
+              c.text, c.created_at AS createdAt
+       FROM comments c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.post_id = ?
+       ORDER BY c.created_at ASC`,
+      [originalPostId]
+    ),
+    db.query(
+      'SELECT COUNT(*) AS total FROM post_views WHERE post_id = ?',
+      [originalPostId]
+    ),
+    db.query(
+      'SELECT COUNT(*) AS total FROM video_views WHERE post_id = ?',
+      [originalPostId]
+    ),
+  ]);
+
+  const flatComments = comments || [];
+  const nestedComments = nestComments(flatComments);
+
+  return {
+    ...orig,
+    user: {
+      id: orig.userId,
+      name: orig.author || 'Unknown',
+      username: orig.authorUsername || null,
+      avatar: orig.authorPicture || null,
+      verified: !!orig.authorVerified,
+    },
+    likes: likes.map(l => l.user_id),
+    reposts: reposts.map(r => r.user_id),
+    comments: nestedComments,
+    commentCount: flatComments.length,
+    likeCount: likes.length,
+    repostCount: reposts.length,
+    views: Number(views[0]?.total || 0),
+    videoViews: Number(videoViews[0]?.total || 0),
+    viewCount: Number(views[0]?.total || 0),
+    videoViewCount: Number(videoViews[0]?.total || 0),
+    isRepost: false,
+    reasons: [],
+  };
 }
 
 // ── Trending posts ─────────────────────────────────────────
@@ -1400,7 +1538,6 @@ module.exports = {
   getRepostCount,
   getLikers,
   getReposters,
-  // ── Mention exports ──
   extractMentions,
   getMentionedUserIds,
   createMentions,

@@ -156,7 +156,6 @@ async function createPost(req, res) {
       if (mentionedUserIds.length) {
         await PostModel.createMentions(postId, userId, mentionedUserIds, 'post');
 
-        // ── Send notifications for mentions ──
         const uniqueMentionedIds = [...new Set(mentionedUserIds)];
         for (const mentionedId of uniqueMentionedIds) {
           await NotificationModel.createNotification(
@@ -443,8 +442,7 @@ async function repost(req, res) {
   const origId  = parseInt(req.params.id);
   const userId  = req.actorId;
 
-  // ✅ Defensive: the mobile client sends no body when reposting,
-  // so req.body is undefined. Default to an empty object.
+  // ✅ Defensive: mobile client sends no body when reposting
   const body = req.body || {};
   const text = typeof body.text === 'string' ? body.text : '';
   const isQuote = text && text.trim().length > 0;
@@ -470,7 +468,6 @@ async function repost(req, res) {
 
     await ContentTypePreference.incrementEngagement(userId, origId);
 
-    // ── Handle mentions in repost text ──
     if (text) {
       const mentionedUsernames = PostModel.extractMentions(text);
       if (mentionedUsernames.length) {
@@ -504,7 +501,6 @@ async function repost(req, res) {
       }
     }
 
-    // ── Notify original post author about repost ──
     if (original.user_id !== userId) {
       await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
       notifyUser(original.user_id, 'repost', {
@@ -611,9 +607,10 @@ async function recordView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
 
+  const body = req.body || {};
   const userId   = req.actorId;
-  const viewerId = userId || req.body.fingerprint || req.ip;
-  const dwellMs  = req.body.dwellMs != null ? Number(req.body.dwellMs) : null;
+  const viewerId = userId || body.fingerprint || req.ip;
+  const dwellMs  = body.dwellMs != null ? Number(body.dwellMs) : null;
 
   try {
     await PostModel.recordView(postId, viewerId);
@@ -652,14 +649,17 @@ async function recordVideoView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
 
-  const watchedSeconds = Number(req.body.watchedSeconds);
-  const duration       = Number(req.body.duration);
+  // ✅ Guard: req.body may be undefined when the client sends no payload
+  const body = req.body || {};
+  const watchedSeconds = Number(body.watchedSeconds);
+  const duration       = Number(body.duration);
+
   if (isNaN(watchedSeconds) || watchedSeconds < 0) {
     return sendError(res, 400, 'watchedSeconds is required.');
   }
 
   const userId   = req.actorId;
-  const viewerId = userId || req.body.fingerprint || req.ip;
+  const viewerId = userId || body.fingerprint || req.ip;
 
   try {
     const post = await PostModel.findById(postId);

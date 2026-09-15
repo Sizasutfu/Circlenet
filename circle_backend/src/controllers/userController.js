@@ -29,10 +29,8 @@ async function generateUsername(name) {
     .replace(/\s+/g, '_')           // spaces → underscores
     .slice(0, 20);                  // max 20 chars
 
-  // Check if base is available
   if (!(await UserModel.usernameExists(base))) return base;
 
-  // Append random 4-digit suffix until unique
   let username;
   do {
     const suffix = Math.floor(1000 + Math.random() * 9000);
@@ -64,10 +62,8 @@ function extractExtras(body) {
   const {
     phone, location, school,
     occupation, website, dateOfBirth, gender,
-  } = body;
+  } = body || {};
 
-  // Phone is stored as "dialCode|digits", e.g. "+254|712345678"
-  // Strip anything that isn't digits, +, -, spaces, (, ) or |
   const cleanPhone = phone
     ? String(phone).replace(/[^\d+\-\s()|]/g, '').slice(0, 25) || null
     : null;
@@ -86,7 +82,7 @@ function extractExtras(body) {
 // ─── POST /api/users/register ──────────────────────────────────────────────────
 
 async function register(req, res) {
-  const { name, email, password } = req.body;
+  const { name, email, password } = req.body || {};
   if (!name || !email || !password)
     return sendError(res, 400, 'Name, email, and password are required.');
 
@@ -110,7 +106,7 @@ async function register(req, res) {
 // ─── POST /api/users/login ─────────────────────────────────────────────────────
 
 async function login(req, res) {
-  const { email, password } = req.body;
+  const { email, password } = req.body || {};
   if (!email || !password)
     return sendError(res, 400, 'Email and password are required.');
 
@@ -118,7 +114,6 @@ async function login(req, res) {
     const user = await UserModel.findByEmail(email);
     if (!user) return sendError(res, 404, 'No account with that email.');
 
-    // Check if account is soft-deleted
     if (user.deleted_at) {
       return sendError(res, 403, 'Your account has been deleted. You can restore it within 30 days.');
     }
@@ -133,10 +128,8 @@ async function login(req, res) {
       });
     }
 
-    // Generate JWT
     const token = generateToken({ id: user.id, email: user.email, name: user.name });
 
-    // Never send the password hash to the client
     const { password: _, email_verified: __, deleted_at: ___, ...safeUser } = user;
     return sendOk(res, 200, 'Login successful.', { ...safeUser, token });
   } catch (err) {
@@ -148,12 +141,10 @@ async function login(req, res) {
 // ─── GET /api/users/:id/profile ───────────────────────────────────────────────
 
 async function getProfile(req, res) {
-  const param = req.params.id;               // can be numeric ID or username
+  const param = req.params.id;
   const viewerId = parseInt(req.headers['x-user-id']) || null;
 
   try {
-    // If the param is purely numeric, treat it as a user ID.
-    // Otherwise, treat it as a username and resolve to an ID.
     let targetId;
     if (/^\d+$/.test(param)) {
       targetId = parseInt(param);
@@ -173,7 +164,6 @@ async function getProfile(req, res) {
 }
 
 // ─── PUT /api/users/:id/picture ───────────────────────────────────────────────
-// Route must use: upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads
 
 async function updatePicture(req, res) {
   const userId = parseInt(req.params.id);
@@ -185,13 +175,10 @@ async function updatePicture(req, res) {
     const user = await UserModel.findById(userId);
     if (!user) return sendError(res, 404, 'User not found.');
 
-    // compressUploads sets req.compressedFiles.image.
-    // resolveFileUrl returns a local path (dev) or Cloudinary URL (prod).
     const pictureUrl = resolveFileUrl(req.compressedFiles?.image);
 
     await UserModel.updatePicture(userId, pictureUrl);
 
-    // Notify all followers about the new profile picture
     const followerIds = await FollowModel.getFollowerIds(userId);
     await Promise.all(
       followerIds.map(fId =>
@@ -207,7 +194,6 @@ async function updatePicture(req, res) {
 }
 
 // ─── PUT /api/users/:id/cover ─────────────────────────────────────────────────
-// Route must use: upload.fields([{ name: 'image', maxCount: 1 }]), compressUploads
 
 async function updateCoverImage(req, res) {
   const userId = parseInt(req.params.id);
@@ -231,28 +217,109 @@ async function updateCoverImage(req, res) {
 }
 
 // ─── PUT /api/users/:id ───────────────────────────────────────────────────────
+// Supports partial updates — only fields present in req.body are changed.
+// Safe when the client sends files only (req.body will be an empty object).
 
 async function updateProfile(req, res) {
   const userId = parseInt(req.params.id);
-  const { name, email, password, bio } = req.body;
 
-  if (req.actorId !== userId)
+  if (req.actorId !== userId) {
     return sendError(res, 403, 'Forbidden.');
-  if (!name || !email)
-    return sendError(res, 400, 'Name and email are required.');
+  }
 
-  const cleanBio = bio ? String(bio).slice(0, 160).trim() || null : null;
-  const extras = extractExtras(req.body);
+  // ✅ Guard: req.body may be undefined when the client sends only a file
+  //    or an empty multipart body. Default to an empty object so the merge
+  //    logic below treats every field as "not provided".
+  const body = req.body || {};
 
   try {
-    if (await UserModel.emailTakenByOther(email, userId))
-      return sendError(res, 409, 'Email already in use.');
+    const existing = await UserModel.findById(userId);
+    if (!existing) return sendError(res, 404, 'User not found.');
 
+    // ── Merge: use incoming value if provided, otherwise keep existing ──
+    const name = body.name !== undefined
+      ? String(body.name).trim()
+      : existing.name;
+
+    const email = body.email !== undefined
+      ? String(body.email).trim()
+      : existing.email;
+
+    const password = body.password;
+
+    const bio = body.bio !== undefined
+      ? (String(body.bio).slice(0, 160).trim() || null)
+      : existing.bio;
+
+    if (!name || !email) {
+      return sendError(res, 400, 'Name and email are required.');
+    }
+
+    const clean = (v, max) =>
+      v != null ? String(v).slice(0, max).trim() || null : null;
+
+    const extras = {
+      phone: body.phone !== undefined
+        ? clean(body.phone, 25)
+        : existing.phone,
+
+      location: body.location !== undefined
+        ? clean(body.location, 120)
+        : existing.location,
+
+      school: body.school !== undefined
+        ? clean(body.school, 120)
+        : existing.school,
+
+      occupation: body.occupation !== undefined
+        ? clean(body.occupation, 100)
+        : existing.occupation,
+
+      website: body.website !== undefined
+        ? clean(body.website, 255)
+        : existing.website,
+
+      dateOfBirth: body.dateOfBirth !== undefined
+        ? (body.dateOfBirth &&
+            /^\d{4}-\d{2}-\d{2}$/.test(body.dateOfBirth)
+              ? body.dateOfBirth
+              : null)
+        : existing.dateOfBirth,
+
+      gender: body.gender !== undefined
+        ? clean(body.gender, 30)
+        : existing.gender,
+    };
+
+    // ── Email uniqueness check (only if actually changing) ──
+    if (email !== existing.email && (await UserModel.emailTakenByOther(email, userId))) {
+      return sendError(res, 409, 'Email already in use.');
+    }
+
+    // ── Optional username change (per-field screens may send this) ──
+    if (body.username !== undefined) {
+      const raw = String(body.username).trim().toLowerCase();
+      if (raw !== (existing.username || '').toLowerCase()) {
+        if (!/^[a-z0-9_]{3,25}$/.test(raw)) {
+          return sendError(
+            res,
+            400,
+            'Username must be 3–25 characters and contain only letters, numbers, or underscores.'
+          );
+        }
+        if (await UserModel.usernameExists(raw, userId)) {
+          return sendError(res, 409, 'Username already taken.');
+        }
+        await UserModel.updateUsername(userId, raw);
+      }
+    }
+
+    // ── Apply the update ──
     if (password && password.length >= 6) {
       const hash = await bcrypt.hash(password, 10);
-      await UserModel.updateUserWithPassword(userId, name, email, hash, cleanBio, extras);
+      await UserModel.updateUserWithPassword(userId, name, email, hash, bio, extras);
     } else {
-      await UserModel.updateUser(userId, name, email, cleanBio, extras);
+      await UserModel.updateUser(userId, name, email, bio, extras);
     }
 
     const updated = await UserModel.findById(userId);
@@ -270,7 +337,7 @@ async function changePassword(req, res) {
   if (req.actorId !== userId)
     return sendError(res, 403, 'You can only change your own password.');
 
-  const { currentPassword, newPassword } = req.body;
+  const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword)
     return sendError(res, 400, 'Current password and new password are required.');
 
@@ -282,12 +349,10 @@ async function changePassword(req, res) {
     if (!user)
       return sendError(res, 404, 'User not found.');
 
-    // Verify current password
     const match = await bcrypt.compare(currentPassword, user.password);
     if (!match)
       return sendError(res, 401, 'Current password is incorrect.');
 
-    // Hash new password
     const hashed = await bcrypt.hash(newPassword, 10);
     await UserModel.updatePassword(userId, hashed);
 
@@ -299,8 +364,6 @@ async function changePassword(req, res) {
 }
 
 // ─── GET /api/users?search=<query>&limit=<n> ──────────────────────────────────
-// Used by the New Message modal to find people to DM.
-// Requires auth (x-user-id header) so the caller is excluded from results.
 
 async function searchUsers(req, res) {
   const search = (req.query.search || '').trim();
@@ -321,7 +384,6 @@ async function searchUsers(req, res) {
 }
 
 // ─── GET /api/users/new-members?limit=10 ──────────────────────────────────────
-// Returns users who joined in the last 7 days, excluding self and already-followed.
 
 async function getNewMembers(req, res) {
   const limit    = Math.min(parseInt(req.query.limit) || 10, 20);
@@ -342,7 +404,7 @@ async function updateUsername(req, res) {
   const userId = parseInt(req.params.id);
   if (req.actorId !== userId) return sendError(res, 403, 'Forbidden.');
 
-  const raw = (req.body.username || '').trim().toLowerCase();
+  const raw = ((req.body || {}).username || '').trim().toLowerCase();
 
   if (!/^[a-z0-9_]{3,25}$/.test(raw))
     return sendError(res, 400, 'Username must be 3–25 characters and contain only letters, numbers, or underscores.');
@@ -376,14 +438,11 @@ async function getUserByUsername(req, res) {
 }
 
 // ─── PUT /api/users/:id/verify (Admin only) ──────────────────────────────────
-// Optional admin endpoint to toggle verification badge.
 
 async function toggleVerification(req, res) {
   const userId = parseInt(req.params.id);
-  const { verified } = req.body; // expected boolean
+  const { verified } = req.body || {};
 
-  // Ensure the caller is an admin – you must implement this check yourself.
-  // For example, you could have a middleware that sets req.user.isAdmin.
   if (!req.user || !req.user.isAdmin) {
     return sendError(res, 403, 'Admin privileges required.');
   }
@@ -402,23 +461,18 @@ async function toggleVerification(req, res) {
 }
 
 // ─── DELETE /api/users/:id ────────────────────────────────────────────────────
-// Soft delete user account with email and password confirmation (30-day grace period)
 
 async function deleteAccount(req, res) {
   const userId = parseInt(req.params.id);
-  
-  // ─── DEBUG: Log the request ────────────────────────────────────
+
   console.log('📝 DELETE /api/users/:id');
   console.log('📝 User ID:', userId);
   console.log('📝 req.actorId:', req.actorId);
   console.log('📝 req.body:', req.body);
-  console.log('📝 req.rawBody:', req.rawBody);
   console.log('📝 Content-Type:', req.headers['content-type']);
 
-  // ─── Check if body exists and has content ──────────────────────
   let body = req.body;
 
-  // If body is undefined or empty, try to parse from raw body
   if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
     if (req.rawBody) {
       try {
@@ -430,7 +484,6 @@ async function deleteAccount(req, res) {
     }
   }
 
-  // Final check - if still no body, return error
   if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
     return res.status(400).json({
       success: false,
@@ -439,49 +492,40 @@ async function deleteAccount(req, res) {
   }
 
   const { email, password } = body;
-  
-  // Verify user is deleting their own account
+
   if (req.actorId !== userId) {
     return sendError(res, 403, 'You can only delete your own account.');
   }
 
-  // Validate email and password are provided
   if (!email || !password) {
     return sendError(res, 400, 'Email and password are required to delete your account.');
   }
 
-  // Validate email format
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return sendError(res, 400, 'Please provide a valid email address.');
   }
 
-  // Validate password
   if (!password || typeof password !== 'string' || password.length < 6) {
     return sendError(res, 400, 'Password must be at least 6 characters.');
   }
 
   try {
-    // Verify the user exists
     const user = await UserModel.findById(userId);
     if (!user) {
       return sendError(res, 404, 'User not found or already deleted.');
     }
 
-    // Verify email matches
     if (user.email.toLowerCase() !== email.toLowerCase()) {
       return sendError(res, 401, 'Email does not match our records.');
     }
 
-    // Verify password
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return sendError(res, 401, 'Incorrect password.');
     }
 
-    // Soft delete - mark as deleted with timestamp
     await UserModel.softDeleteUser(userId);
 
-    // Get deletion status to show user how many days they have
     const status = await UserModel.getDeletionStatus(userId);
 
     return sendOk(res, 200, 'Your account has been scheduled for deletion.', {
@@ -496,41 +540,34 @@ async function deleteAccount(req, res) {
 }
 
 // ─── POST /api/users/restore ──────────────────────────────────────────────────
-// Restore a soft-deleted account
 
 async function restoreAccount(req, res) {
-  const { email, password } = req.body;
-  
+  const { email, password } = req.body || {};
+
   if (!email || !password) {
     return sendError(res, 400, 'Email and password are required.');
   }
 
   try {
-    // Find the deleted user by email
     const user = await UserModel.findDeletedByEmail(email);
     if (!user) {
       return sendError(res, 404, 'No deleted account found with that email.');
     }
 
-    // Verify the password
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return sendError(res, 401, 'Wrong password.');
     }
 
-    // Check if the 30-day window has passed
     const status = await UserModel.getDeletionStatus(user.id);
     if (status && status.daysRemaining <= 0) {
       return sendError(res, 410, 'Your account has been permanently deleted and cannot be restored.');
     }
 
-    // Restore the account
     await UserModel.restoreUser(user.id);
 
-    // Generate new token
     const token = generateToken({ id: user.id, email: user.email, name: user.name });
 
-    // Get the restored user data
     const restoredUser = await UserModel.findById(user.id);
     const { password: _, deleted_at: __, ...safeUser } = restoredUser;
 
@@ -546,11 +583,10 @@ async function restoreAccount(req, res) {
 }
 
 // ─── GET /api/users/:id/deletion-status ──────────────────────────────────────
-// Get the deletion status for a user
 
 async function getDeletionStatus(req, res) {
   const userId = parseInt(req.params.id);
-  
+
   if (req.actorId !== userId) {
     return sendError(res, 403, 'You can only check your own account status.');
   }
@@ -583,7 +619,7 @@ module.exports = {
   updateCoverImage,
   updateProfile,
   updateUsername,
-  changePassword,  // NEW
+  changePassword,
   searchUsers,
   getNewMembers,
   getUserByUsername,

@@ -2,7 +2,7 @@
 const CommentModel = require('../models/commentModel');
 const { sendOk, sendError } = require('../middleware/response');
 
-// ── Get a single comment with its replies ──
+// ── Get a single comment with its direct replies ──
 async function getComment(req, res) {
   const userId = req.actorId ?? null;
   const commentId = parseInt(req.params.id);
@@ -38,9 +38,10 @@ async function replyToComment(req, res) {
   }
 }
 
-// ── NEW: Get all comments for a post (including replies) ──
+// ── Get all comments for a post (flat list) ──
 async function getCommentsByPostId(req, res) {
-  const postId = parseInt(req.params.Id);
+  // ✅ Fixed: was `req.params.Id` (capital I) — must match `/:postId/comments`
+  const postId = parseInt(req.params.postId);
   if (!postId || isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
 
   try {
@@ -52,4 +53,49 @@ async function getCommentsByPostId(req, res) {
   }
 }
 
-module.exports = { getComment, replyToComment, getCommentsByPostId };
+// ── Get a comment and its full nested reply tree ──
+async function getCommentThread(req, res) {
+  const commentId = parseInt(req.params.id);
+  if (!commentId || isNaN(commentId)) {
+    return sendError(res, 400, 'Invalid comment ID.');
+  }
+
+  try {
+    const comment = await CommentModel.getCommentById(commentId);
+    if (!comment) return sendError(res, 404, 'Comment not found.');
+
+    // Pull every comment on the same post and nest them
+    const allComments = await CommentModel.getCommentsByPostId(comment.postId);
+    const tree = CommentModel.nestComments(allComments);
+
+    // Find the target comment in the tree (recursive)
+    const findById = (nodes, id) => {
+      for (const n of nodes) {
+        if (String(n.id) === String(id)) return n;
+        if (n.replies?.length) {
+          const found = findById(n.replies, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const thread = findById(tree, commentId);
+    if (!thread) return sendError(res, 404, 'Comment not found.');
+
+    return sendOk(res, 200, 'Comment thread fetched.', {
+      comment: thread,
+      postId: comment.postId,
+    });
+  } catch (err) {
+    console.error('getCommentThread error:', err);
+    return sendError(res, 500, 'Server error.');
+  }
+}
+
+module.exports = {
+  getComment,
+  replyToComment,
+  getCommentsByPostId,
+  getCommentThread,
+};

@@ -158,17 +158,24 @@ async function createPost(req, res) {
 
         const uniqueMentionedIds = [...new Set(mentionedUserIds)];
         for (const mentionedId of uniqueMentionedIds) {
-          await NotificationModel.createNotification(
+          const notifId = await NotificationModel.createNotification(
             mentionedId,
             userId,
             'mention',
             postId
           );
 
-          notifyUser(mentionedId, 'mention', {
+          notifyUser(mentionedId, {
+            type: 'new-notification',
+            notificationType: 'mention',
+            id: notifId,
             actorId: userId,
             actorName: user.name,
+            actorUsername: user.username,
+            actorPicture: user.picture,
+            actorVerified: user.verified,
             postId,
+            createdAt: new Date().toISOString(),
           });
 
           if (!isOnline(mentionedId)) {
@@ -196,12 +203,21 @@ async function createPost(req, res) {
 
     await Promise.all(
       sampled.map(async fId => {
-        await NotificationModel.createNotification(fId, userId, 'new_post', postId);
-        notifyUser(fId, 'new_post', {
-          actorId:   userId,
+        const notifId = await NotificationModel.createNotification(fId, userId, 'new_post', postId);
+
+        notifyUser(fId, {
+          type: 'new-notification',
+          notificationType: 'new_post',
+          id: notifId,
+          actorId: userId,
           actorName: user.name,
+          actorUsername: user.username,
+          actorPicture: user.picture,
+          actorVerified: user.verified,
           postId,
+          createdAt: new Date().toISOString(),
         });
+
         if (!isOnline(fId)) {
           try {
             await PushModel.sendPushToUser(
@@ -298,15 +314,23 @@ async function toggleLike(req, res) {
 
       const post = await PostModel.findById(postId);
       if (post && post.user_id !== userId) {
-        await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
+        const notifId = await NotificationModel.createNotification(post.user_id, userId, 'like', postId);
 
         const topics = await TopicPreferenceModel.getPostTopics(postId);
         await TopicPreferenceModel.recordEngagement(userId, topics, 'like');
         const actor = await UserModel.findById(userId);
-        notifyUser(post.user_id, 'like', {
-          actorId:   userId,
+
+        notifyUser(post.user_id, {
+          type: 'new-notification',
+          notificationType: 'like',
+          id: notifId,
+          actorId: userId,
           actorName: actor?.name ?? 'Someone',
+          actorUsername: actor?.username,
+          actorPicture: actor?.picture,
+          actorVerified: actor?.verified,
           postId,
+          createdAt: new Date().toISOString(),
         });
       }
 
@@ -361,6 +385,57 @@ async function addComment(req, res) {
       replies:       parentIdInt ? undefined : [],
     };
 
+    // ── Reply notification (only when this is a nested reply) ──
+    if (parentIdInt) {
+      const [parentRows] = await db.query(
+        'SELECT user_id FROM comments WHERE id = ?',
+        [parentIdInt]
+      );
+      const parentAuthorId = parentRows[0]?.user_id;
+
+      if (parentAuthorId && parentAuthorId !== userId) {
+        const notifId = await NotificationModel.createNotification(
+          parentAuthorId,
+          userId,
+          'reply',
+          postId,
+          null,
+          { commentId, parentCommentId: parentIdInt }
+        );
+
+        notifyUser(parentAuthorId, {
+          type: 'new-notification',
+          notificationType: 'reply',
+          id: notifId,
+          actorId: userId,
+          actorName: user.name,
+          actorUsername: user.username,
+          actorPicture: user.picture,
+          actorVerified: user.verified,
+          postId,
+          commentId,
+          parentCommentId: parentIdInt,
+          commentText: text,
+          createdAt: new Date().toISOString(),
+        });
+
+        if (!isOnline(parentAuthorId)) {
+          try {
+            await PushModel.sendPushToUser(
+              parentAuthorId,
+              'comments',
+              'New reply 💬',
+              `${user.name} replied: "${text.slice(0, 100)}"`,
+              `/post/${postId}`,
+              { postId, actorId: userId, commentId, parentCommentId: parentIdInt }
+            );
+          } catch (pushErr) {
+            console.error('Push notification error for reply:', pushErr);
+          }
+        }
+      }
+    }
+
     const mentionedUsernames = PostModel.extractMentions(text);
     if (mentionedUsernames.length) {
       const userIdMap = await PostModel.getMentionedUserIds(mentionedUsernames);
@@ -377,18 +452,25 @@ async function addComment(req, res) {
 
         const uniqueMentionedIds = [...new Set(mentionedUserIds)];
         for (const mentionedId of uniqueMentionedIds) {
-          await NotificationModel.createNotification(
+          const notifId = await NotificationModel.createNotification(
             mentionedId,
             userId,
             'mention',
             postId
           );
 
-          notifyUser(mentionedId, 'mention', {
+          notifyUser(mentionedId, {
+            type: 'new-notification',
+            notificationType: 'mention',
+            id: notifId,
             actorId: userId,
             actorName: user.name,
+            actorUsername: user.username,
+            actorPicture: user.picture,
+            actorVerified: user.verified,
             postId,
             commentId,
+            createdAt: new Date().toISOString(),
           });
 
           if (!isOnline(mentionedId)) {
@@ -409,13 +491,28 @@ async function addComment(req, res) {
       }
     }
 
+    // ── Post-author comment notification (top-level comments only) ──
     if (post.user_id !== userId) {
-      await NotificationModel.createNotification(post.user_id, userId, 'comment', postId);
-      notifyUser(post.user_id, 'comment', {
-        actorId:   userId,
+      const notifId = await NotificationModel.createNotification(
+        post.user_id,
+        userId,
+        'comment',
+        postId
+      );
+
+      notifyUser(post.user_id, {
+        type: 'new-notification',
+        notificationType: 'comment',
+        id: notifId,
+        actorId: userId,
         actorName: user.name,
+        actorUsername: user.username,
+        actorPicture: user.picture,
+        actorVerified: user.verified,
         postId,
-        comment:   commentData,
+        commentId,
+        commentText: text,
+        createdAt: new Date().toISOString(),
       });
     }
 
@@ -442,7 +539,6 @@ async function repost(req, res) {
   const origId  = parseInt(req.params.id);
   const userId  = req.actorId;
 
-  // ✅ Defensive: mobile client sends no body when reposting
   const body = req.body || {};
   const text = typeof body.text === 'string' ? body.text : '';
   const isQuote = text && text.trim().length > 0;
@@ -485,16 +581,24 @@ async function repost(req, res) {
 
           const uniqueMentionedIds = [...new Set(mentionedUserIds)];
           for (const mentionedId of uniqueMentionedIds) {
-            await NotificationModel.createNotification(
+            const notifId = await NotificationModel.createNotification(
               mentionedId,
               userId,
               'mention',
               repostId
             );
-            notifyUser(mentionedId, 'mention', {
+
+            notifyUser(mentionedId, {
+              type: 'new-notification',
+              notificationType: 'mention',
+              id: notifId,
               actorId: userId,
               actorName: user.name,
+              actorUsername: user.username,
+              actorPicture: user.picture,
+              actorVerified: user.verified,
               postId: repostId,
+              createdAt: new Date().toISOString(),
             });
           }
         }
@@ -502,11 +606,19 @@ async function repost(req, res) {
     }
 
     if (original.user_id !== userId) {
-      await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
-      notifyUser(original.user_id, 'repost', {
-        actorId:   userId,
+      const notifId = await NotificationModel.createNotification(original.user_id, userId, 'repost', origId);
+
+      notifyUser(original.user_id, {
+        type: 'new-notification',
+        notificationType: 'repost',
+        id: notifId,
+        actorId: userId,
         actorName: user.name,
-        postId:    origId,
+        actorUsername: user.username,
+        actorPicture: user.picture,
+        actorVerified: user.verified,
+        postId: origId,
+        createdAt: new Date().toISOString(),
       });
     }
 
@@ -649,7 +761,6 @@ async function recordVideoView(req, res) {
   const postId = parseInt(req.params.id);
   if (isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
 
-  // ✅ Guard: req.body may be undefined when the client sends no payload
   const body = req.body || {};
   const watchedSeconds = Number(body.watchedSeconds);
   const duration       = Number(body.duration);

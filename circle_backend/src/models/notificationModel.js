@@ -6,10 +6,11 @@
 const { db } = require('../config/db');
 const { sendPushToUser } = require('./pushModel');
 
-//push copy for each notification type ────
+// ── Push copy for each notification type ────
 const PUSH_COPY = {
   like:        (actor, snippet) => ({ title: 'New like ❤️',           body: snippet ? `${actor} liked your post: "${snippet}"` : `${actor} liked your post` }),
   comment:     (actor, snippet) => ({ title: 'New comment 💬',         body: snippet ? `${actor} commented: "${snippet}"` : `${actor} commented on your post` }),
+  reply:       (actor, snippet) => ({ title: 'New reply 💬',           body: snippet ? `${actor} replied: "${snippet}"` : `${actor} replied to your comment` }),
   repost:      (actor, snippet) => ({ title: 'New repost 🔁',          body: `${actor} reposted your post` }),
   follow:      (actor)          => ({ title: 'New follower 👤',         body: `${actor} started following you` }),
   mention:     (actor, snippet) => ({ title: 'You were mentioned 📣',   body: snippet ? `${actor} mentioned you: "${snippet}"` : `${actor} mentioned you in a post` }),
@@ -24,6 +25,7 @@ const PUSH_COPY = {
 const TYPE_TO_PREF = {
   like:        'likes',
   comment:     'comments',
+  reply:       'comments',
   repost:      'reposts',
   follow:      'follows',
   mention:     'mentions',
@@ -35,16 +37,33 @@ const TYPE_TO_PREF = {
 };
 
 // ── Create a notification (deduplicates automatically) ─────
-async function createNotification(recipientId, actorId, type, postId = null, sessionId = null) {
-  if (recipientId === actorId) return; // never notify yourself
+// Returns the new notification id, or null if deduplicated / failed.
+async function createNotification(
+  recipientId,
+  actorId,
+  type,
+  postId = null,
+  sessionId = null,
+  options = {} // { commentId, parentCommentId }
+) {
+  if (recipientId === actorId) return null; // never notify yourself
+
+  const { commentId = null, parentCommentId = null } = options;
 
   try {
-    // 🔥 FIX: Better duplicate detection for different notification types
+    // ── Duplicate detection per type ──
     let duplicateCheckQuery;
     let params;
-    
-    if (type === 'live' && sessionId) {
-      // For live notifications, check by session_id within the last 24 hours
+
+    if (type === 'reply' && parentCommentId) {
+      duplicateCheckQuery = `
+        SELECT id FROM notifications
+        WHERE recipient_id = ? AND actor_id = ? AND type = ?
+          AND parent_comment_id = ?
+          AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      `;
+      params = [recipientId, actorId, type, parentCommentId];
+    } else if (type === 'live' && sessionId) {
       duplicateCheckQuery = `
         SELECT id FROM notifications
         WHERE recipient_id = ? AND actor_id = ? AND type = ?
@@ -53,7 +72,6 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
       `;
       params = [recipientId, actorId, type, sessionId];
     } else if (type === 'follow') {
-      // For follow notifications, check within the last 24 hours
       duplicateCheckQuery = `
         SELECT id FROM notifications
         WHERE recipient_id = ? AND actor_id = ? AND type = ?
@@ -61,7 +79,6 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
       `;
       params = [recipientId, actorId, type];
     } else if (type === 'mention' || type === 'like' || type === 'comment' || type === 'repost') {
-      // For post-related notifications, check by post_id within the last 24 hours
       duplicateCheckQuery = `
         SELECT id FROM notifications
         WHERE recipient_id = ? AND actor_id = ? AND type = ?
@@ -70,7 +87,6 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
       `;
       params = [recipientId, actorId, type, postId];
     } else {
-      // Generic check for other types
       duplicateCheckQuery = `
         SELECT id FROM notifications
         WHERE recipient_id = ? AND actor_id = ? AND type = ?
@@ -84,40 +100,49 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
     const [dup] = await db.query(duplicateCheckQuery, params);
     if (dup.length > 0) {
       console.log(`[Notification] Skipping duplicate ${type} for user ${recipientId} (already sent recently)`);
-      return; // already exists
+      return null;
     }
 
-    // INSERT and capture the new row's id for the push payload
+    // ── Insert ──
     const [result] = await db.query(
-      `INSERT INTO notifications (recipient_id, actor_id, type, post_id, session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, NOW())`,
-      [recipientId, actorId, type, postId, sessionId]
+      `INSERT INTO notifications
+         (recipient_id, actor_id, type, post_id, session_id, comment_id, parent_comment_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [recipientId, actorId, type, postId, sessionId, commentId, parentCommentId]
     );
     const notifId = result.insertId;
 
-    // ── Fire push notification (non-blocking) ───────────────
+    // ── Fire push notification (non-blocking) ──
     const prefType = TYPE_TO_PREF[type];
     const copyFn   = PUSH_COPY[type];
+
     if (copyFn) {
-      // For verification notifications, we don't need actor name
+      // Verification notifications have no actor
       if (type === 'verified' || type === 'unverified') {
         const { title, body } = copyFn(null);
         sendPushToUser(recipientId, null, title, body, './', {
           notifId,
           type,
         }).catch(err => console.error('push dispatch error:', err.message));
-        return;
+        return notifId;
       }
 
-      if (prefType && copyFn) {
-        db.query(
-          // Fetch actor name + post snippet in one query
-          `SELECT u.name AS actorName, LEFT(p.text, 60) AS snippet
-           FROM users u
-           LEFT JOIN posts p ON p.id = ?
-           WHERE u.id = ?`,
-          [postId, actorId]
-        )
+      if (prefType) {
+        // For reply notifications, the snippet comes from the reply comment.
+        // For everything else, it comes from the post.
+        const snippetQuery = commentId
+          ? `SELECT u.name AS actorName, LEFT(c.text, 60) AS snippet
+             FROM users u
+             LEFT JOIN comments c ON c.id = ?
+             WHERE u.id = ?`
+          : `SELECT u.name AS actorName, LEFT(p.text, 60) AS snippet
+             FROM users u
+             LEFT JOIN posts p ON p.id = ?
+             WHERE u.id = ?`;
+
+        const snippetParams = commentId ? [commentId, actorId] : [postId, actorId];
+
+        db.query(snippetQuery, snippetParams)
           .then(([[row]]) => {
             if (!row) return;
             const { title, body } = copyFn(row.actorName, row.snippet || null);
@@ -126,21 +151,25 @@ async function createNotification(recipientId, actorId, type, postId = null, ses
               sessionId,
               actorId,
               notifId,
+              commentId,
+              parentCommentId,
             });
           })
           .catch(err => console.error('push dispatch error:', err.message));
       }
     }
+
+    return notifId;
   } catch (err) {
     // Log but never crash the calling request over a notification failure
     console.error('createNotification error:', err.message);
+    return null;
   }
 }
 
 // ── Create a system notification (no actor — used for admin actions) ──
 async function createSystemNotification(recipientId, type, message) {
   try {
-    // Check for duplicate system notifications within the last hour
     const [dup] = await db.query(
       `SELECT id FROM notifications
        WHERE recipient_id = ? AND type = ? AND message = ?
@@ -148,19 +177,18 @@ async function createSystemNotification(recipientId, type, message) {
        LIMIT 1`,
       [recipientId, type, message]
     );
-    
+
     if (dup.length > 0) {
       console.log(`[Notification] Skipping duplicate system ${type} for user ${recipientId}`);
-      return;
+      return null;
     }
 
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO notifications (recipient_id, actor_id, type, message, created_at)
        VALUES (?, NULL, ?, ?, NOW())`,
       [recipientId, type, message]
     );
 
-    // Fire push notification (non-blocking)
     const pushCopy = {
       report_resolved: { title: 'Report Update ✅', body: message },
       report_ignored:  { title: 'Report Update ℹ️',  body: message },
@@ -172,18 +200,21 @@ async function createSystemNotification(recipientId, type, message) {
       sendPushToUser(recipientId, null, copy.title, copy.body, './', { type })
         .catch(err => console.error('push dispatch error:', err.message));
     }
+
+    return result.insertId;
   } catch (err) {
     console.error('createSystemNotification error:', err.message);
+    return null;
   }
 }
 
 // ── Create verification notification ────────────────────────
 async function createVerificationNotification(userId, verified) {
   const type = verified ? 'verified' : 'unverified';
-  const message = verified 
+  const message = verified
     ? '🎉 Congratulations! Your account has been verified. You now have a verification badge!'
     : 'Your verification badge has been removed. If you think this was a mistake, please contact support.';
-  
+
   return createSystemNotification(userId, type, message);
 }
 
@@ -193,19 +224,24 @@ async function getNotifications(userId, limit = 10, offset = 0) {
     `SELECT
        n.id,
        n.type,
-       n.is_read      AS isRead,
-       n.created_at   AS createdAt,
-       n.post_id      AS postId,
-       n.session_id   AS sessionId,
-       n.message      AS customMessage,
-       a.id           AS actorId,
-       a.name         AS actorName,
-       a.username     AS actorUsername,
-       a.picture      AS actorPicture,
-       LEFT(p.text, 80) AS postSnippet
+       n.is_read              AS isRead,
+       n.created_at           AS createdAt,
+       n.post_id              AS postId,
+       n.session_id           AS sessionId,
+       n.comment_id           AS commentId,
+       n.parent_comment_id    AS parentCommentId,
+       n.message              AS customMessage,
+       a.id                   AS actorId,
+       a.name                 AS actorName,
+       a.username             AS actorUsername,
+       a.picture              AS actorPicture,
+       a.verified             AS actorVerified,
+       LEFT(p.text, 80)       AS postSnippet,
+       LEFT(rc.text, 120)     AS commentText
      FROM notifications n
-     LEFT JOIN users a ON a.id = n.actor_id
-     LEFT JOIN posts p ON p.id = n.post_id
+     LEFT JOIN users    a  ON a.id  = n.actor_id
+     LEFT JOIN posts    p  ON p.id  = n.post_id
+     LEFT JOIN comments rc ON rc.id = n.comment_id
      WHERE n.recipient_id = ?
      ORDER BY n.created_at DESC
      LIMIT ? OFFSET ?`,

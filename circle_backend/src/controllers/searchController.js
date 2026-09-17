@@ -43,7 +43,7 @@ async function search(req, res) {
 
   const VALID_TYPES = new Set(['all', 'posts', 'people', 'groups']);
   const type = req.query.type || 'all';
-  
+
   if (!VALID_TYPES.has(type)) {
     return sendError(res, 400, 'Invalid type. Must be "all", "posts", "people", or "groups".');
   }
@@ -111,20 +111,20 @@ async function search(req, res) {
         _searchGroups(q, { limit: 10, offset: 0 }),
       ]);
 
-      const typedPosts = (posts || []).map(p => ({ 
-        ...p, 
-        _type: 'post', 
-        createdAt: p.createdAt || p.created_at || new Date().toISOString() 
+      const typedPosts = (posts || []).map(p => ({
+        ...p,
+        _type: 'post',
+        createdAt: p.createdAt || p.created_at || new Date().toISOString(),
       }));
-      const typedPeople = (people || []).map(u => ({ 
-        ...u, 
-        _type: 'user', 
-        createdAt: u.createdAt || u.created_at || new Date().toISOString() 
+      const typedPeople = (people || []).map(u => ({
+        ...u,
+        _type: 'user',
+        createdAt: u.createdAt || u.created_at || new Date().toISOString(),
       }));
-      const typedGroups = (groups || []).map(g => ({ 
-        ...g, 
-        _type: 'group', 
-        createdAt: g.createdAt || g.created_at || new Date().toISOString() 
+      const typedGroups = (groups || []).map(g => ({
+        ...g,
+        _type: 'group',
+        createdAt: g.createdAt || g.created_at || new Date().toISOString(),
       }));
 
       const combined = [...typedPosts, ...typedPeople, ...typedGroups]
@@ -152,33 +152,52 @@ async function search(req, res) {
 }
 
 // ── Helper function for posts search ──────────────────────
+// Returns rows in the shape PostModel.hydratePosts expects (camelCase
+// aliases + author columns), then runs hydration so every caller gets
+// the same enriched shape the feed uses — nested `user`, `likes`,
+// `reposts`, `comments`, `commentCount`, `viewCount`, `videoViews`.
 async function _searchPosts(q, { limit, offset }) {
   const like = `%${escapeLike(q)}%`;
-  const [rows] = await db.query(
-    `SELECT p.*, u.name as authorName, u.username as authorUsername, u.picture as authorPicture,
-            u.verified as authorVerified,
-            (SELECT COUNT(*) FROM post_views WHERE post_id = p.id) as viewCount,
-            (SELECT COUNT(*) FROM video_views WHERE post_id = p.id) as videoViewCount
+  const [rawPosts] = await db.query(
+    `SELECT
+       p.id,
+       p.user_id          AS userId,
+       u.name             AS author,
+       u.username         AS authorUsername,
+       u.picture          AS authorPicture,
+       u.verified         AS authorVerified,
+       p.text,
+       p.image,
+       p.video,
+       p.is_repost        AS isRepost,
+       p.original_post_id AS originalPostId,
+       p.group_id         AS groupId,
+       p.created_at       AS createdAt,
+       p.is_live,
+       p.live_session_id,
+       p.youtube_id
      FROM posts p
-     JOIN users u ON p.user_id = u.id
+     JOIN users u ON u.id = p.user_id
      WHERE p.text LIKE ?
      ORDER BY p.created_at DESC
      LIMIT ? OFFSET ?`,
     [like, parseInt(limit), parseInt(offset)]
   );
-  return rows;
+
+  if (!rawPosts.length) return [];
+  return PostModel.hydratePosts(rawPosts);
 }
 
 // ── Helper function for groups search ──────────────────────
 async function _searchGroups(q, { limit, offset }) {
   const like = `%${escapeLike(q)}%`;
   const [rows] = await db.query(
-    `SELECT g.*, 
+    `SELECT g.*,
             (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount,
             g.post_count as postCount
      FROM \`groups\` g
-     WHERE g.display_name LIKE ? 
-        OR g.topic LIKE ? 
+     WHERE g.display_name LIKE ?
+        OR g.topic LIKE ?
         OR g.description LIKE ?
      ORDER BY g.member_count DESC, g.created_at DESC
      LIMIT ? OFFSET ?`,
@@ -250,15 +269,14 @@ async function getHistory(req, res) {
   if (!userId) {
     return sendError(res, 401, 'Unauthorized.');
   }
-  
+
   try {
-    // Clean old entries (older than 30 days - matching vanilla code)
     await db.query(
       `DELETE FROM search_history
        WHERE user_id = ? AND searched_at < NOW() - INTERVAL 30 DAY`,
       [userId]
     );
-    
+
     const [rows] = await db.query(
       `SELECT id, query, tab, searched_at
        FROM search_history
@@ -267,7 +285,7 @@ async function getHistory(req, res) {
        LIMIT 20`,
       [userId]
     );
-    
+
     return sendOk(res, 200, 'History fetched.', rows);
   } catch (err) {
     console.error('[Search] getHistory error:', err);
@@ -284,8 +302,7 @@ async function saveHistory(req, res) {
 
   const query = (req.body.query || '').trim();
   const tab = req.body.tab || 'all';
-  
-  // Validate tab - match vanilla code pattern
+
   const validTabs = ['all', 'posts', 'people', 'groups'];
   if (!validTabs.includes(tab)) {
     return sendError(res, 400, 'Invalid tab.');
@@ -296,29 +313,25 @@ async function saveHistory(req, res) {
   }
 
   try {
-    // Check if entry exists (like vanilla code)
     const [existing] = await db.query(
-      `SELECT id FROM search_history 
+      `SELECT id FROM search_history
        WHERE user_id = ? AND query = ? AND tab = ?`,
       [userId, query, tab]
     );
-    
+
     if (existing.length) {
-      // Update existing entry
       await db.query(
         `UPDATE search_history SET searched_at = NOW() WHERE id = ?`,
         [existing[0].id]
       );
     } else {
-      // Insert new entry
       await db.query(
         `INSERT INTO search_history (user_id, query, tab, searched_at)
          VALUES (?, ?, ?, NOW())`,
         [userId, query, tab]
       );
     }
-    
-    // Return the updated history list (matching vanilla code)
+
     const [rows] = await db.query(
       `SELECT id, query, tab, searched_at
        FROM search_history
@@ -327,7 +340,7 @@ async function saveHistory(req, res) {
        LIMIT 20`,
       [userId]
     );
-    
+
     return sendOk(res, 200, 'History saved.', rows);
   } catch (err) {
     console.error('[Search] saveHistory error:', err);
@@ -341,23 +354,22 @@ async function deleteHistoryEntry(req, res) {
   if (!userId) {
     return sendError(res, 401, 'Unauthorized.');
   }
-  
+
   const entryId = parseInt(req.params.id);
   if (!entryId || isNaN(entryId) || entryId <= 0) {
     return sendError(res, 400, 'Invalid entry ID.');
   }
-  
+
   try {
     const [result] = await db.query(
       `DELETE FROM search_history WHERE id = ? AND user_id = ?`,
       [entryId, userId]
     );
-    
+
     if (result.affectedRows === 0) {
       return sendError(res, 404, 'Entry not found.');
     }
-    
-    // Return updated history list
+
     const [rows] = await db.query(
       `SELECT id, query, tab, searched_at
        FROM search_history
@@ -366,7 +378,7 @@ async function deleteHistoryEntry(req, res) {
        LIMIT 20`,
       [userId]
     );
-    
+
     return sendOk(res, 200, 'Deleted.', rows);
   } catch (err) {
     console.error('[Search] deleteHistoryEntry error:', err);
@@ -380,13 +392,13 @@ async function clearHistory(req, res) {
   if (!userId) {
     return sendError(res, 401, 'Unauthorized.');
   }
-  
+
   try {
     await db.query(
       `DELETE FROM search_history WHERE user_id = ?`,
       [userId]
     );
-    
+
     return sendOk(res, 200, 'History cleared.', []);
   } catch (err) {
     console.error('[Search] clearHistory error:', err);

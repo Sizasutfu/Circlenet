@@ -57,6 +57,22 @@ async function getOrCreateConversation(userIdA, userIdB) {
   };
 }
 
+// Returns the two user ids for a conversation, in insertion order.
+// Used by wsServer._broadcastTyping so typing events reach users who
+// are on the inbox screen and haven't joined the conversation room.
+async function getConversationParticipantIds(conversationId) {
+  const [rows] = await db.query(
+    `SELECT participant_one_id, participant_two_id
+     FROM dm_conversations
+     WHERE id = ?
+     LIMIT 1`,
+    [Number(conversationId)]
+  );
+  if (!rows.length) return [];
+  const row = rows[0];
+  return [row.participant_one_id, row.participant_two_id].filter((id) => id != null);
+}
+
 async function getInboxForUser(userId) {
   const uid = Number(userId);
 
@@ -707,6 +723,7 @@ async function getCallHistory(userId, limit = 50, offset = 0) {
 
 module.exports = {
   getOrCreateConversation,
+  getConversationParticipantIds,   // ← new export
   getInboxForUser,
   isParticipant,
   getMessages,

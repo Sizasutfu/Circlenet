@@ -178,16 +178,19 @@ function handleClientMessage(ws, userId, msg) {
       const convId = Number(msg.conversationId);
       if (!convId) break;
       const key = `${convId}:${userId}`;
-      if (typingTimers.has(key)) { clearTimeout(typingTimers.get(key)); typingTimers.delete(key); }
+      if (typingTimers.has(key)) {
+        clearTimeout(typingTimers.get(key));
+        typingTimers.delete(key);
+      }
       if (msg.isTyping) {
-        _broadcastTyping(convId, userId, true);
+        _broadcastTyping(convId, userId, true).catch(() => {});
         const timer = setTimeout(() => {
-          _broadcastTyping(convId, userId, false);
+          _broadcastTyping(convId, userId, false).catch(() => {});
           typingTimers.delete(key);
         }, 4000);
         typingTimers.set(key, timer);
       } else {
-        _broadcastTyping(convId, userId, false);
+        _broadcastTyping(convId, userId, false).catch(() => {});
       }
       break;
     }
@@ -645,13 +648,44 @@ function broadcastLiveEnded(sessionId) {
   );
 }
 
-function _broadcastTyping(conversationId, typingUserId, isTyping) {
+// ── Typing ─────────────────────────────────────────────────────
+// Delivers typing events to conversation participants, not just to
+// the ChatDetailScreen room. Previously this returned early when the
+// activeConversations room was empty, which meant users sitting on
+// the inbox never received typing events — the inbox "typing…"
+// indicator only worked if the recipient happened to be on the chat
+// screen itself.
+async function _broadcastTyping(conversationId, typingUserId, isTyping) {
+  const payload = {
+    type: 'typing',
+    conversationId,
+    userId: typingUserId,
+    isTyping,
+  };
+
+  const recipientIds = new Set();
+
+  // 1. Conversation participants (this is what makes the inbox indicator work)
+  try {
+    const participantIds = await dmModel.getConversationParticipantIds(conversationId);
+    for (const pid of participantIds) {
+      if (pid != null) recipientIds.add(Number(pid));
+    }
+  } catch (err) {
+    console.warn('[WS] typing participant lookup failed:', err.message);
+  }
+
+  // 2. Anyone who joined the conversation room (in-chat indicator)
   const members = activeConversations.get(conversationId);
-  if (!members) return;
-  const payload = { type: 'typing', conversationId, userId: typingUserId, isTyping };
-  for (const memberId of members) {
-    if (memberId === typingUserId) continue;
-    notifyUser(memberId, payload);
+  if (members) {
+    for (const m of members) recipientIds.add(Number(m));
+  }
+
+  // Deliver — skip the typist themselves
+  const typistId = Number(typingUserId);
+  for (const recipientId of recipientIds) {
+    if (recipientId === typistId) continue;
+    notifyUser(recipientId, payload);
   }
 }
 

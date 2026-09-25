@@ -11,7 +11,7 @@ function _orderedPair(idA, idB) {
 
 function toMySQLDatetime(date) {
   if (!date) return new Date().toISOString().slice(0, 19).replace('T', ' ');
-  
+
   let d;
   if (typeof date === 'string') {
     d = new Date(date);
@@ -20,12 +20,12 @@ function toMySQLDatetime(date) {
   } else {
     d = new Date();
   }
-  
+
   // Check if date is valid
   if (isNaN(d.getTime())) {
     d = new Date();
   }
-  
+
   return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
@@ -165,12 +165,10 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
   const uid    = Number(requestingUserId);
   const lim    = Math.min(Number(limit) || 10, 100);
 
-  await db.query(
-    `UPDATE dm_messages
-     SET is_read = 1
-     WHERE conversation_id = ? AND sender_id != ? AND is_read = 0`,
-    [convId, uid]
-  );
+  // NOTE: This function used to run `UPDATE dm_messages SET is_read = 1`
+  // as a side effect of fetching, which silently cleared unread state
+  // on every poll. That UPDATE has been removed — read state is now
+  // only changed via markConversationRead (PATCH /conversations/:id/read).
 
   // Get regular messages
   const conditions = ['m.conversation_id = ?'];
@@ -247,13 +245,13 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
 
   // Combine messages
   let allMessages = [...rows, ...missedCalls];
-  
+
   // Sort by created_at (oldest first for display)
   allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   // Check if there are more messages (for pagination)
   const hasMore = allMessages.length > lim;
-  
+
   // If we have more than limit, remove the oldest ones (keep newest)
   if (hasMore) {
     allMessages = allMessages.slice(-lim);
@@ -267,12 +265,11 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
   const convId = Number(conversationId);
   const uid    = Number(requestingUserId);
 
-  await db.query(
-    `UPDATE dm_messages
-     SET is_read = 1
-     WHERE conversation_id = ? AND sender_id != ? AND is_read = 0 AND id > ?`,
-    [convId, uid, Number(afterId)]
-  );
+  // NOTE: This function used to run `UPDATE dm_messages SET is_read = 1`
+  // as a side effect of polling for new messages, which cleared unread
+  // state even when the user wasn't looking at the chat. That UPDATE has
+  // been removed — read state is now only changed via markConversationRead
+  // (PATCH /conversations/:id/read).
 
   // Get regular messages
   const [rows] = await db.query(
@@ -545,6 +542,9 @@ async function getTotalUnreadCount(userId) {
   return rows[0]?.total || 0;
 }
 
+// The ONLY function that mutates is_read. Called from markRead controller
+// (PATCH /conversations/:id/read), which the client fires when the
+// recipient is actually viewing the conversation.
 async function markConversationRead(conversationId, userId) {
   await db.query(
     `UPDATE dm_messages
@@ -588,7 +588,7 @@ async function savePublicKey(userId, publicKey, keyVersion = 1) {
      VALUES (?, ?, ?, NOW())`,
     [Number(userId), publicKey, Number(keyVersion)]
   );
-  
+
   // Update user's current key
   await db.query(
     `UPDATE users SET public_key = ?, key_version = ?, key_updated_at = NOW()
@@ -600,14 +600,14 @@ async function savePublicKey(userId, publicKey, keyVersion = 1) {
 async function getPublicKey(userId, version = null) {
   let query = `SELECT public_key, key_version, created_at FROM user_key_history WHERE user_id = ?`;
   const params = [Number(userId)];
-  
+
   if (version) {
     query += ` AND key_version = ? ORDER BY created_at DESC LIMIT 1`;
     params.push(Number(version));
   } else {
     query += ` ORDER BY key_version DESC, created_at DESC LIMIT 1`;
   }
-  
+
   const [rows] = await db.query(query, params);
   return rows[0] || null;
 }
@@ -625,7 +625,7 @@ async function getPublicKeyVersions(userId) {
 
 async function saveMissedCall(callerId, recipientId, conversationId, calledAt = null) {
   const now = toMySQLDatetime(calledAt);
-  
+
   // Insert into missed call notifications
   const [result] = await db.query(
     `INSERT INTO missed_call_notifications 
@@ -723,7 +723,7 @@ async function getCallHistory(userId, limit = 50, offset = 0) {
 
 module.exports = {
   getOrCreateConversation,
-  getConversationParticipantIds,   // ← new export
+  getConversationParticipantIds,
   getInboxForUser,
   isParticipant,
   getMessages,

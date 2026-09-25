@@ -65,6 +65,8 @@ async function getMessages(req, res) {
     const limit    = Math.min(parseInt(req.query.limit) || 10, 100);
     const beforeId = req.query.before_id ? Number(req.query.before_id) : null;
 
+    // NOTE: This endpoint no longer marks messages read as a side effect.
+    // Read state is only changed via PATCH /conversations/:id/read.
     const result = await dmModel.getMessages(conversationId, userId, { limit, beforeId });
     return sendOk(res, 200, 'Messages fetched.', result);
   } catch (err) {
@@ -89,6 +91,8 @@ async function getNewMessages(req, res) {
       return sendError(res, 403, 'Access denied.');
     }
 
+    // NOTE: This endpoint no longer marks messages read as a side effect.
+    // Read state is only changed via PATCH /conversations/:id/read.
     const messages = await dmModel.getNewMessages(conversationId, userId, afterId);
     return sendOk(res, 200, 'New messages fetched.', messages);
   } catch (err) {
@@ -134,10 +138,10 @@ async function sendMessage(req, res) {
 
     // Save the message
     const message = await dmModel.saveEncryptedMessage(
-      conversationId, 
-      userId, 
-      body, 
-      processedMedia, 
+      conversationId,
+      userId,
+      body,
+      processedMedia,
       isEncrypted
     );
 
@@ -150,7 +154,7 @@ async function sendMessage(req, res) {
         message,
         senderId: userId,
       });
-      
+
       // Notify sender (for confirmation)
       notifyUser(userId, {
         type: 'new_dm',
@@ -159,21 +163,13 @@ async function sendMessage(req, res) {
         senderId: userId,
       });
 
-      // Check if recipient is online for seen status
-      if (isOnline(recipientId)) {
-        // Mark as seen after a short delay
-        setTimeout(async () => {
-          try {
-            await dmModel.markConversationRead(conversationId, recipientId);
-            notifyUser(userId, {
-              type: 'message_seen',
-              conversationId,
-              messageId: message.id,
-              seenBy: recipientId,
-            });
-          } catch (_) {}
-        }, 500);
-      }
+      // NOTE: Previously this block auto-marked the conversation as read
+      // whenever the recipient had any open WebSocket connection, which
+      // meant messages appeared "seen" the instant they were sent — even
+      // if the recipient was on another screen. Removed intentionally.
+      // Read state is now only changed via PATCH /conversations/:id/read,
+      // which the client fires when the recipient is actually viewing the
+      // conversation.
     }
 
     return sendOk(res, 201, 'Message sent.', message);
@@ -201,7 +197,7 @@ async function uploadMedia(req, res) {
         file.mimetype,
         { folder: 'dm_media' }
       );
-      
+
       return sendOk(res, 200, 'File uploaded successfully.', result);
     } catch (err) {
       console.error('[DM] Upload to storage failed:', err);
@@ -248,6 +244,8 @@ async function getPresence(req, res) {
 }
 
 // ─── PATCH /api/dm/conversations/:conversationId/read ────────
+// The ONLY endpoint that mutates read state. Fired explicitly by the
+// client when the recipient is actually viewing the conversation.
 async function markRead(req, res) {
   try {
     const userId         = req.actorId;
@@ -370,7 +368,7 @@ async function encryptMessage(req, res) {
 
     const e2e = require('../lib/e2e');
     const encrypted = await e2e.encrypt(peerUserId, plaintext, req.apiClient);
-    
+
     return sendOk(res, 200, 'Message encrypted.', { encrypted });
   } catch (err) {
     console.error('[DM] encryptMessage error:', err);
@@ -390,7 +388,7 @@ async function decryptMessage(req, res) {
 
     const e2e = require('../lib/e2e');
     const decrypted = await e2e.decrypt(peerUserId, encryptedText, req.apiClient);
-    
+
     return sendOk(res, 200, 'Message decrypted.', { decrypted });
   } catch (err) {
     console.error('[DM] decryptMessage error:', err);
@@ -410,7 +408,7 @@ async function getE2EStatus(req, res) {
 
     const e2e = require('../lib/e2e');
     const enabled = await e2e.isEnabled(peerUserId, req.apiClient);
-    
+
     return sendOk(res, 200, 'E2E status fetched.', { enabled });
   } catch (err) {
     console.error('[DM] getE2EStatus error:', err);
@@ -436,11 +434,11 @@ async function getPublicKey(req, res) {
   try {
     const userId = req.actorId;
     const keyData = await dmModel.getPublicKey(userId);
-    
+
     if (!keyData) {
       return sendOk(res, 200, 'No public key found.', { publicKey: null });
     }
-    
+
     return sendOk(res, 200, 'Public key fetched.', {
       publicKey: keyData.public_key,
       version: keyData.key_version,
@@ -494,11 +492,11 @@ async function getPeerPublicKey(req, res) {
     }
 
     const keyData = await dmModel.getPublicKey(peerUserId, version);
-    
+
     if (!keyData) {
       return sendError(res, 404, 'Public key not found.');
     }
-    
+
     return sendOk(res, 200, 'Public key fetched.', {
       publicKey: keyData.public_key,
       version: keyData.key_version,
@@ -517,7 +515,7 @@ async function getMissedCalls(req, res) {
   try {
     const userId = req.actorId;
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-    
+
     const missedCalls = await dmModel.getMissedCallsForUser(userId, limit);
     return sendOk(res, 200, 'Missed calls fetched.', missedCalls);
   } catch (err) {
@@ -543,12 +541,12 @@ async function markMissedCallRead(req, res) {
   try {
     const userId = req.actorId;
     const missedCallId = Number(req.params.id);
-    
+
     const success = await dmModel.markMissedCallRead(missedCallId, userId);
     if (!success) {
       return sendError(res, 404, 'Missed call not found.');
     }
-    
+
     return sendOk(res, 200, 'Missed call marked as read.');
   } catch (err) {
     console.error('[DM] markMissedCallRead error:', err);
@@ -574,7 +572,7 @@ async function getCallHistory(req, res) {
     const userId = req.actorId;
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
     const offset = parseInt(req.query.offset) || 0;
-    
+
     const history = await dmModel.getCallHistory(userId, limit, offset);
     return sendOk(res, 200, 'Call history fetched.', history);
   } catch (err) {

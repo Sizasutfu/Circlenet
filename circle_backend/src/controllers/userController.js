@@ -65,15 +65,35 @@ function extractExtras(body) {
   };
 }
 
-// Resolve the requesting viewer's id from any of the sources we know about.
-// Prefers req.actorId (set by requireAuth / optionalAuth middleware), then
-// falls back to the x-user-id header for legacy clients.
+// Resolve the requesting viewer's id from any source we know about.
+// Prefers req.actorId (set by requireAuth / optionalAuth middleware),
+// then falls back to the x-user-id header for legacy clients.
 function getViewerId(req) {
   if (req.actorId) return req.actorId;
   const raw = req.headers['x-user-id'];
   if (!raw) return null;
   const parsed = parseInt(raw);
   return isNaN(parsed) ? null : parsed;
+}
+
+// Adds isFollowed / isFollowing / followersCount to a profile payload.
+// Used by getProfile and getUserByUsername so the two endpoints stay
+// consistent.
+async function withFollowStatus(payload, viewerId, targetId) {
+  let isFollowed = false;
+  if (viewerId && Number(viewerId) !== Number(targetId)) {
+    const existing = await FollowModel.getFollow(viewerId, targetId);
+    isFollowed = !!existing;
+  }
+
+  const followerCount = await FollowModel.getFollowerCount(targetId);
+
+  return {
+    ...payload,
+    isFollowed,
+    isFollowing: isFollowed, // both names for client compatibility
+    followerCount,
+  };
 }
 
 // ─── POST /api/users/register ──────────────────────────────────────────────────
@@ -137,11 +157,8 @@ async function login(req, res) {
 
 // ─── GET /api/users/:id/profile ───────────────────────────────────────────────
 //
-// Profiles are public — we don't require auth. But when the request IS
-// authenticated (via requireAuth, optionalAuth, or the legacy x-user-id
-// header), we populate `isFollowed` / `isFollowing` / `followersCount`
-// in the response so the client knows whether the viewer follows this
-// user. Without a viewerId, those default to false / the true count.
+// Public route, wrapped in optionalAuth so logged-in viewers get
+// isFollowed / isFollowing / followersCount on the response.
 async function getProfile(req, res) {
   const param    = req.params.id;
   const viewerId = getViewerId(req);
@@ -159,28 +176,35 @@ async function getProfile(req, res) {
     const profile = await UserModel.getProfile(targetId, viewerId);
     if (!profile) return sendError(res, 404, 'User not found.');
 
-    // Compute the follow flag authoritatively regardless of what the
-    // model returned. The model may or may not already include it — if
-    // it does, we're just overwriting with the same value.
-    let isFollowed = false;
-    if (viewerId && Number(viewerId) !== Number(targetId)) {
-      const existing = await FollowModel.getFollow(viewerId, targetId);
-      isFollowed = !!existing;
-    }
-
-    // Same for the follower count — the users table may have a
-    // denormalised column that drifts; the joins are cheap.
-    const followerCount = await FollowModel.getFollowerCount(targetId);
-
-    return sendOk(res, 200, 'Profile fetched.', {
-      ...profile,
-      isFollowed,
-      isFollowing: isFollowed, // both names for client compatibility
-      followersCount: followerCount,
-    });
+    const enriched = await withFollowStatus(profile, viewerId, targetId);
+    return sendOk(res, 200, 'Profile fetched.', enriched);
   } catch (err) {
     console.error('getProfile error:', err);
     return sendError(res, 500, 'Server error.');
+  }
+}
+
+// ─── GET /api/users/by-username/:username ────────────────────────────────────
+//
+// Public route, wrapped in optionalAuth. Returns the same enriched shape
+// as getProfile so the web app (which fetches profiles by username) sees
+// isFollowed / isFollowing / followersCount on first load.
+async function getUserByUsername(req, res) {
+  try {
+    const { username } = req.params;
+    const viewerId = getViewerId(req);
+
+    const user = await UserModel.getByUsername(username);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const enriched = await withFollowStatus(user, viewerId, user.id);
+
+    return res.json({ success: true, data: enriched });
+  } catch (err) {
+    console.error('getUserByUsername error:', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
   }
 }
 
@@ -454,22 +478,6 @@ async function updateUsername(req, res) {
   }
 }
 
-// ─── GET /api/users/by-username/:username ────────────────────────────────────
-
-async function getUserByUsername(req, res) {
-  try {
-    const { username } = req.params;
-    const user = await UserModel.getByUsername(username);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    return res.json({ success: true, data: user });
-  } catch (err) {
-    console.error('getUserByUsername error:', err);
-    return res.status(500).json({ success: false, message: 'Server error.' });
-  }
-}
-
 // ─── PUT /api/users/:id/verify (Admin only) ──────────────────────────────────
 
 async function toggleVerification(req, res) {
@@ -641,6 +649,7 @@ module.exports = {
   register,
   login,
   getProfile,
+  getUserByUsername,
   getDashboard,
   updatePicture,
   updateCoverImage,
@@ -649,7 +658,6 @@ module.exports = {
   changePassword,
   searchUsers,
   getNewMembers,
-  getUserByUsername,
   toggleVerification,
   deleteAccount,
   restoreAccount,

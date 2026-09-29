@@ -39,7 +39,8 @@ router.post("/email/verify",            verifyEmail);
 router.post('/restore', userController.restoreAccount);
 
 // ─── Get User by Username ────────────────────────────────────────
-router.get('/by-username/:username', userController.getUserByUsername);
+// optionalAuth so the viewer's follow state is attached when logged in.
+router.get('/by-username/:username', optionalAuth, userController.getUserByUsername);
 
 // ─── New Members ─────────────────────────────────────────────────
 // Must come BEFORE the generic /:id routes so it isn't swallowed.
@@ -49,7 +50,7 @@ router.get('/new-members', optionalAuth, userController.getNewMembers);
 // ─── Get User Profile ────────────────────────────────────────────
 // optionalAuth: profile itself is public, but if a valid token is
 // present we populate req.actorId so the controller can tag the
-// response with isFollowed / isFollowing / followersCount.
+// response with isFollowed / isFollowing / followerCount.
 router.get('/:id/profile', optionalAuth, userController.getProfile);
 
 // ════════════════════════════════════════════════════════════════

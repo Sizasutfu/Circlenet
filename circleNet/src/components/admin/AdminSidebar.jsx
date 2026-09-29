@@ -3,6 +3,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
 import { useState, useEffect } from 'react';
 
 // ─── Icons ──────────────────────────────────────────────────────────────
@@ -39,6 +40,13 @@ const ReportsIcon = () => (
   </svg>
 );
 
+const VerificationIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <polyline points="9 12 11 14 15 10" />
+  </svg>
+);
+
 const AdsIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
@@ -69,8 +77,8 @@ const CloseIcon = () => (
 
 // ─── AdminSidebar Component ────────────────────────────────────────────
 
-export default function AdminSidebar({ 
-  isOpen = false, 
+export default function AdminSidebar({
+  isOpen = false,
   onClose = null,
   className = '',
 }) {
@@ -79,6 +87,7 @@ export default function AdminSidebar({
   const { user } = useAuth();
 
   const [isMobile, setIsMobile] = useState(false);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
 
   // Check if we're on mobile
   useEffect(() => {
@@ -89,6 +98,31 @@ export default function AdminSidebar({
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Fetch pending verification count. Runs on mount and whenever the
+  // route changes so the badge updates after approving/rejecting.
+  useEffect(() => {
+    let cancelled = false;
+    const fetchPending = async () => {
+      try {
+        const token = localStorage.getItem('circle_admin_token');
+        if (!token) return;
+        const res = await apiClient(
+          '/api/admin/verification-requests?status=pending&page=1',
+          { admin: true }
+        );
+        if (cancelled) return;
+        const data = res.data || res;
+        setPendingVerifications(Number(data.total) || 0);
+      } catch {
+        // Silent — badge is a nice-to-have, not critical path
+      }
+    };
+    fetchPending();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('circle_admin_token');
@@ -102,10 +136,17 @@ export default function AdminSidebar({
   };
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: DashboardIcon, href: '/admin' },
-    { id: 'users', label: 'Users', icon: UsersIcon, href: '/admin/users' },
-    { id: 'posts', label: 'Posts', icon: PostsIcon, href: '/admin/posts' },
-    { id: 'reports', label: 'Reports', icon: ReportsIcon, href: '/admin/reports' },
+    { id: 'dashboard',    label: 'Dashboard',    icon: DashboardIcon, href: '/admin' },
+    { id: 'users',        label: 'Users',        icon: UsersIcon,     href: '/admin/users' },
+    { id: 'posts',        label: 'Posts',        icon: PostsIcon,     href: '/admin/posts' },
+    { id: 'reports',      label: 'Reports',      icon: ReportsIcon,   href: '/admin/reports' },
+    {
+      id: 'verification',
+      label: 'Verification',
+      icon: VerificationIcon,
+      href: '/admin/verification-requests',
+      badge: pendingVerifications,
+    },
   ];
 
   const managementItems = [
@@ -129,7 +170,7 @@ export default function AdminSidebar({
     <>
       {/* ─── Overlay for mobile ─── */}
       {isOpen && isMobile && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40"
           onClick={() => onClose && onClose()}
         />
@@ -154,7 +195,7 @@ export default function AdminSidebar({
             <span className="text-lg font-bold text-[var(--color-txt)]">Circle</span>
             <span className="text-[10px] font-medium bg-[var(--color-accent)]/10 text-[var(--color-accent)] px-2 py-0.5 rounded-full">Admin</span>
           </div>
-          
+
           {/* Close Button - Only visible on mobile */}
           <button
             onClick={() => onClose && onClose()}
@@ -175,14 +216,19 @@ export default function AdminSidebar({
               onClick={() => handleNavigate(item.href)}
               className={`
                 flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition mb-0.5
-                ${isActive(item.href) 
-                  ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' 
+                ${isActive(item.href)
+                  ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
                   : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)]'
                 }
               `}
             >
               <item.icon />
-              {item.label}
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.badge > 0 && (
+                <span className="text-[10px] font-semibold bg-[var(--color-accent)] text-white rounded-full min-w-[18px] h-[18px] px-1.5 flex items-center justify-center">
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
             </button>
           ))}
 
@@ -196,8 +242,8 @@ export default function AdminSidebar({
                   onClick={() => handleNavigate(item.href)}
                   className={`
                     flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition mb-0.5
-                    ${isActive(item.href) 
-                      ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' 
+                    ${isActive(item.href)
+                      ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
                       : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)]'
                     }
                   `}
@@ -217,8 +263,8 @@ export default function AdminSidebar({
               onClick={() => handleNavigate(item.href)}
               className={`
                 flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition mb-0.5
-                ${isActive(item.href) 
-                  ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' 
+                ${isActive(item.href)
+                  ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
                   : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)] hover:bg-[var(--color-surface)]'
                 }
               `}
@@ -227,7 +273,7 @@ export default function AdminSidebar({
               {item.label}
             </button>
           ))}
-          
+
           {/* Logout */}
           <button
             onClick={handleLogout}

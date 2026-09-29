@@ -12,7 +12,7 @@ import { useLightbox } from '@/hooks/useLightbox';
 import { useDm } from '@/contexts/DmContext';
 import { resolveMediaUrl } from '@/lib/url';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
-import VerificationBadge from '@/components/ui/VerificationBadge'; // ✅ added
+import VerificationBadge from '@/components/ui/VerificationBadge';
 
 // ── Profile cache ──
 const profileCache = new Map();
@@ -36,6 +36,45 @@ function setCachedProfile(key, data) {
     data,
     timestamp: Date.now(),
   });
+}
+
+// ── Robust "am I following this user?" parser ──
+function parseFollowedFlag(profileData) {
+  if (!profileData) return false;
+
+  const fields = [
+    'isFollowed', 'is_followed',
+    'isFollowing', 'is_following',
+    'followedByMe', 'followed_by_me',
+    'amFollowing', 'am_following',
+    'viewerIsFollowing', 'viewer_is_following',
+    'viewerFollows', 'viewer_follows',
+    'following', 'followed',
+  ];
+
+  for (const key of fields) {
+    const v = profileData[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'boolean') return v;
+    if (v === 1 || v === '1' || v === 'true') return true;
+    if (v === 0 || v === '0' || v === 'false') return false;
+  }
+
+  return false;
+}
+
+function parseFollowerCount(profileData, fallback = 0) {
+  if (!profileData) return fallback;
+  const candidates = [
+    'followerCount', 'followersCount', 'follower_count', 'followers_count',
+  ];
+  for (const key of candidates) {
+    const v = profileData[key];
+    if (v !== undefined && v !== null && !isNaN(Number(v))) {
+      return Number(v);
+    }
+  }
+  return fallback;
 }
 
 // ── User list modal ──
@@ -123,24 +162,27 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const isOwnProfile = !username && !userIdParam && currentUser;
   const profileKey = getCacheKey(username, userIdParam || currentUser?.id);
 
-  // ── State (initialized from cache if available) ──
-  const cached = getCachedProfile(profileKey);
+  // ── State (initialized from cache if available, on first render only) ──
+  const initialCacheRead = useRef(undefined);
+  if (initialCacheRead.current === undefined) {
+    initialCacheRead.current = getCachedProfile(profileKey);
+  }
+  const initialCache = initialCacheRead.current;
 
-  const [profile, setProfile] = useState(cached?.profile || initialUser || null);
-  const [loading, setLoading] = useState(!profile && !initialUser);
+  const [profile, setProfile] = useState(initialCache?.profile || initialUser || null);
+  const [loading, setLoading] = useState(!initialCache?.profile && !initialUser);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('posts');
-  const [posts, setPosts] = useState(cached?.posts || []);
-  const [postsPage, setPostsPage] = useState(cached?.page || 1);
-  const [postsHasMore, setPostsHasMore] = useState(cached?.hasMore || false);
+  const [posts, setPosts] = useState(initialCache?.posts || []);
+  const [postsPage, setPostsPage] = useState(initialCache?.page || 1);
+  const [postsHasMore, setPostsHasMore] = useState(initialCache?.hasMore || false);
   const [postsLoading, setPostsLoading] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
   const postsLoadMoreRef = useRef(null);
   const [toast, setToast] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   const [listModal, setListModal] = useState({ open: false, type: '', users: [], isLoading: false });
-
-  // ── Quote modal state ──
   const [quoteTarget, setQuoteTarget] = useState(null);
 
   const showToast = (msg, type = 'success') => {
@@ -152,15 +194,39 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const profileRef = useRef(profile);
   useEffect(() => { profileRef.current = profile; }, [profile]);
 
+  // ── Track which profileKey we've already hydrated so the effect doesn't loop ──
+  const hydratedKeyRef = useRef(null);
+
   // ── Fetch profile ──
+  // IMPORTANT: `cached` is NOT in the dependency array. It used to be, and
+  // because setCachedProfile() mutates the underlying Map, the next call to
+  // getCachedProfile() returned a fresh object reference every render,
+  // which made React re-run this effect indefinitely. Reading `cached`
+  // inside the effect body instead keeps the deps stable.
   useEffect(() => {
+    if (hydratedKeyRef.current === profileKey) return;
+    hydratedKeyRef.current = profileKey;
+
+    // 1) Server-rendered initialUser
     if (initialUser) {
-      setProfile(initialUser);
+      const normalised = {
+        ...initialUser,
+        isFollowing: parseFollowedFlag(initialUser),
+        followerCount: parseFollowerCount(initialUser, initialUser.followerCount || 0),
+      };
+      setProfile(normalised);
       setLoading(false);
-      setCachedProfile(profileKey, { profile: initialUser, posts, page: postsPage, hasMore: postsHasMore });
+      setCachedProfile(profileKey, {
+        profile: normalised,
+        posts: [],
+        page: 1,
+        hasMore: false,
+      });
       return;
     }
 
+    // 2) Cache hit
+    const cached = getCachedProfile(profileKey);
     if (cached && cached.profile) {
       setProfile(cached.profile);
       setPosts(cached.posts || []);
@@ -170,6 +236,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       return;
     }
 
+    // 3) Network fetch
     let endpoint;
     if (username) {
       endpoint = `/api/users/by-username/${username}`;
@@ -182,34 +249,53 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       return;
     }
 
+    let cancelled = false;
+
     const fetchProfile = async () => {
       setLoading(true);
       setError(null);
       try {
         const res = await apiClient(endpoint);
+        if (cancelled) return;
+
         const profileData = res.data || res;
-        setProfile(profileData);
-        setCachedProfile(profileKey, { profile: profileData, posts: [], page: 1, hasMore: false });
+
+        // Unwrap double envelope if present
+        const payload = (profileData && typeof profileData === 'object' && 'data' in profileData && !Array.isArray(profileData))
+          ? profileData.data
+          : profileData;
+
+        const normalised = {
+          ...payload,
+          isFollowing: parseFollowedFlag(payload),
+          followerCount: parseFollowerCount(payload, payload.followerCount || 0),
+        };
+
+        setProfile(normalised);
+        setCachedProfile(profileKey, {
+          profile: normalised,
+          posts: [],
+          page: 1,
+          hasMore: false,
+        });
       } catch (err) {
+        if (cancelled) return;
         console.error('[Profile] Error:', err);
         setError(err.message || 'Failed to load profile');
         if (err.message?.includes('404') && username) {
           router.push('/feed');
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    const profileId = profile?.id;
-    const targetId = userIdParam || currentUser?.id;
-    if (profileId && (profileId === targetId || profile.username === username)) {
-      setLoading(false);
-      return;
-    }
-
     fetchProfile();
-  }, [username, userIdParam, currentUser, initialUser, router, profileKey, cached]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profileKey, initialUser, username, userIdParam, currentUser, router]);
 
   // ── Fetch posts ──
   const fetchPosts = useCallback(async (page = 1, append = false) => {
@@ -239,10 +325,10 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   }, [postsLoading, posts, profileKey]);
 
   useEffect(() => {
-    if (profile && !cached?.posts && !posts.length) {
+    if (profile && !posts.length) {
       fetchPosts(1, false);
     }
-  }, [profile, fetchPosts, cached, posts.length]);
+  }, [profile, fetchPosts, posts.length]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -265,7 +351,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
       showToast('Log in to like.', 'error');
       return;
     }
-    // Optimistic update
     const postIndex = posts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
     const post = posts[postIndex];
@@ -280,7 +365,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     try {
       await apiClient(`/api/posts/${postId}/like`, { method: 'POST' });
     } catch (_) {
-      // Revert on error
       const revert = [...posts];
       setPosts(revert);
       showToast('Failed to like.', 'error');
@@ -303,7 +387,6 @@ export default function ProfileClient({ username = null, initialUser = null }) {
     try {
       await apiClient(`/api/posts/${postId}/repost`, { method: 'POST' });
       showToast('Reposted! 🔁', 'success');
-      // Update repost count locally
       const postIndex = posts.findIndex(p => p.id === postId);
       if (postIndex !== -1) {
         const newPosts = [...posts];
@@ -339,31 +422,78 @@ export default function ProfileClient({ username = null, initialUser = null }) {
   const handleQuoteSuccess = () => {
     setQuoteTarget(null);
     showToast('Quoted successfully! 🎉', 'success');
-    fetchPosts(1, false); // refresh feed
+    fetchPosts(1, false);
   };
 
   // ── Follow ──
   const handleFollowToggle = async () => {
-    if (!currentUser || !profile) return;
-    const following = profile.isFollowing;
-    const method = following ? 'DELETE' : 'POST';
-    const endpoint = following ? `/api/unfollow/${profile.id}` : `/api/follow/${profile.id}`;
+    if (!currentUser || !profile || followPending) return;
+
+    const wasFollowing = !!profile.isFollowing;
+    const prevCount = profile.followerCount || 0;
+    const targetId = profile.id;
+
+    setFollowPending(true);
+
+    const optimistic = {
+      ...profile,
+      isFollowing: !wasFollowing,
+      followerCount: wasFollowing ? Math.max(0, prevCount - 1) : prevCount + 1,
+    };
+    setProfile(optimistic);
+
     try {
-      await apiClient(endpoint, { method });
-      const newProfile = {
+      let res;
+      if (wasFollowing) {
+        res = await apiClient(`/api/unfollow/${targetId}`, { method: 'DELETE' });
+      } else {
+        res = await apiClient(`/api/follow/${targetId}`, { method: 'POST' });
+      }
+
+      const payload = res?.data || res;
+      const serverCount = typeof payload?.followerCount === 'number'
+        ? payload.followerCount
+        : optimistic.followerCount;
+      const serverIsFollowing = typeof payload?.isFollowing === 'boolean'
+        ? payload.isFollowing
+        : !wasFollowing;
+
+      const reconciled = {
         ...profile,
-        isFollowing: !profile.isFollowing,
-        followerCount: profile.isFollowing ? (profile.followerCount || 0) - 1 : (profile.followerCount || 0) + 1,
+        isFollowing: serverIsFollowing,
+        followerCount: serverCount,
       };
-      setProfile(newProfile);
+      setProfile(reconciled);
       const currentCache = getCachedProfile(profileKey) || {};
-      setCachedProfile(profileKey, {
-        ...currentCache,
-        profile: newProfile,
-      });
+      setCachedProfile(profileKey, { ...currentCache, profile: reconciled });
     } catch (err) {
-      console.error('Follow action failed:', err);
-      showToast('Failed to follow/unfollow.', 'error');
+      const status = err?.status || err?.response?.status;
+      const rawMsg = err?.message || err?.response?.data?.message || '';
+      const msg = String(rawMsg).toLowerCase();
+
+      const alreadyFollowing =
+        (status === 409 || status === 400) && /already follow/.test(msg);
+      const alreadyNotFollowing =
+        (status === 404 || status === 409 || status === 400) &&
+        /not follow/.test(msg);
+
+      if (alreadyFollowing) {
+        const snapped = { ...profile, isFollowing: true };
+        setProfile(snapped);
+        const currentCache = getCachedProfile(profileKey) || {};
+        setCachedProfile(profileKey, { ...currentCache, profile: snapped });
+        showToast("You're already following this user.", 'success');
+      } else if (alreadyNotFollowing) {
+        const snapped = { ...profile, isFollowing: false };
+        setProfile(snapped);
+        const currentCache = getCachedProfile(profileKey) || {};
+        setCachedProfile(profileKey, { ...currentCache, profile: snapped });
+      } else {
+        setProfile(profile);
+        showToast('Failed to follow/unfollow.', 'error');
+      }
+    } finally {
+      setFollowPending(false);
     }
   };
 
@@ -387,13 +517,15 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         body: formData,
       });
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
-      const newProfile = refetch.data || refetch;
+      const payload = refetch.data?.data || refetch.data || refetch;
+      const newProfile = {
+        ...payload,
+        isFollowing: parseFollowedFlag(payload),
+        followerCount: parseFollowerCount(payload, payload.followerCount || 0),
+      };
       setProfile(newProfile);
       const currentCache = getCachedProfile(profileKey) || {};
-      setCachedProfile(profileKey, {
-        ...currentCache,
-        profile: newProfile,
-      });
+      setCachedProfile(profileKey, { ...currentCache, profile: newProfile });
       showToast('Avatar updated! 📸');
     } catch (err) {
       console.error('Avatar upload error:', err);
@@ -420,13 +552,15 @@ export default function ProfileClient({ username = null, initialUser = null }) {
         body: formData,
       });
       const refetch = await apiClient(`/api/users/${currentUser.id}/profile`);
-      const newProfile = refetch.data || refetch;
+      const payload = refetch.data?.data || refetch.data || refetch;
+      const newProfile = {
+        ...payload,
+        isFollowing: parseFollowedFlag(payload),
+        followerCount: parseFollowerCount(payload, payload.followerCount || 0),
+      };
       setProfile(newProfile);
       const currentCache = getCachedProfile(profileKey) || {};
-      setCachedProfile(profileKey, {
-        ...currentCache,
-        profile: newProfile,
-      });
+      setCachedProfile(profileKey, { ...currentCache, profile: newProfile });
       showToast('Cover updated! 🖼️');
     } catch (err) {
       console.error('Cover upload error:', err);
@@ -666,13 +800,14 @@ export default function ProfileClient({ username = null, initialUser = null }) {
               <>
                 <button
                   onClick={handleFollowToggle}
-                  className={`px-4 py-2 rounded-[var(--radius-radius-sm)] text-sm font-medium transition ${
+                  disabled={followPending}
+                  className={`px-4 py-2 rounded-[var(--radius-radius-sm)] text-sm font-medium transition disabled:opacity-60 ${
                     isFollowing
                       ? 'border border-[var(--color-border)] text-[var(--color-txt2)] hover:bg-[var(--color-accent-bg)] hover:text-[var(--color-accent)]'
                       : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-h)] shadow-md shadow-[var(--color-accent-glow)]'
                   }`}
                 >
-                  {isFollowing ? 'Following' : 'Follow'}
+                  {followPending ? '…' : isFollowing ? 'Following' : 'Follow'}
                 </button>
                 <button
                   onClick={() => {
@@ -733,7 +868,7 @@ export default function ProfileClient({ username = null, initialUser = null }) {
             <div className="space-y-4">
               {posts.length === 0 ? (
                 <p className="text-[var(--color-txt2)] text-center py-8">
-                  {isOwnProfile ? 'You haven’t posted yet.' : 'No posts yet.'}
+                  {isOwnProfile ? "You haven't posted yet." : 'No posts yet.'}
                 </p>
               ) : (
                 posts.map((post) => (

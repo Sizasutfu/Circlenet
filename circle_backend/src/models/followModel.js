@@ -13,9 +13,12 @@ async function getFollow(followerId, followingId) {
   return rows[0] || null;
 }
 
+// INSERT IGNORE — if a duplicate follow slips through (two near-
+// simultaneous taps), the second insert becomes a no-op instead of
+// throwing ER_DUP_ENTRY and surfacing a 500 to the client.
 async function addFollow(followerId, followingId) {
   await db.query(
-    'INSERT INTO follows (follower_id, following_id) VALUES (?,?)',
+    'INSERT IGNORE INTO follows (follower_id, following_id) VALUES (?,?)',
     [followerId, followingId]
   );
 }
@@ -66,12 +69,20 @@ async function getFollowing(userId, viewerId) {
 // Adds isFollowing:true/false to each user based on whether viewerId follows them
 async function tagFollowStatus(users, viewerId) {
   if (!viewerId || !users.length) return users;
+
   const [fRows] = await db.query(
     'SELECT following_id FROM follows WHERE follower_id=?',
     [viewerId]
   );
-  const followingSet = new Set(fRows.map(r => r.following_id));
-  return users.map(u => ({ ...u, isFollowing: followingSet.has(u.id) }));
+
+  // Normalise both sides of the lookup to strings so a numeric id from
+  // MySQL and a string id from a JOINed column still compare equal.
+  const followingSet = new Set(fRows.map(r => String(r.following_id)));
+
+  return users.map(u => ({
+    ...u,
+    isFollowing: followingSet.has(String(u.id)),
+  }));
 }
 
 // Used by search to tag follow status on people results
@@ -81,7 +92,7 @@ async function getFollowingSet(viewerId) {
     'SELECT following_id FROM follows WHERE follower_id=?',
     [viewerId]
   );
-  return new Set(rows.map(r => r.following_id));
+  return new Set(rows.map(r => String(r.following_id)));
 }
 
 // ── Returns a plain array of user IDs who follow the given userId ──

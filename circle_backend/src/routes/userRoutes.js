@@ -6,7 +6,7 @@
 
 const router           = require('express').Router();
 const userController   = require('../controllers/userController');
-const { requireAuth }  = require('../middleware/auth');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { requestPasswordReset, confirmResetPassword, sendVerification, verifyEmail } = require("../controllers/authController");
 const { requireAdmin } = require('../middleware/adminAuth');
 
@@ -42,11 +42,15 @@ router.post('/restore', userController.restoreAccount);
 router.get('/by-username/:username', userController.getUserByUsername);
 
 // ─── New Members ─────────────────────────────────────────────────
-// Must come BEFORE the generic /:id routes so it isn't swallowed
-router.get('/new-members', userController.getNewMembers);
+// Must come BEFORE the generic /:id routes so it isn't swallowed.
+// optionalAuth so the viewer's follow state is attached when logged in.
+router.get('/new-members', optionalAuth, userController.getNewMembers);
 
 // ─── Get User Profile ────────────────────────────────────────────
-router.get('/:id/profile', userController.getProfile);
+// optionalAuth: profile itself is public, but if a valid token is
+// present we populate req.actorId so the controller can tag the
+// response with isFollowed / isFollowing / followersCount.
+router.get('/:id/profile', optionalAuth, userController.getProfile);
 
 // ════════════════════════════════════════════════════════════════
 //  PROTECTED ROUTES — Authentication required
@@ -66,11 +70,13 @@ router.put('/:id/password', requireAuth, userController.changePassword);
 router.delete('/:id', requireAuth, userController.deleteAccount);
 
 // ─── Follow Lists ─────────────────────────────────────────────────
-router.get('/:id/following', (req, res, next) => {
+// optionalAuth: lists are public, but when the viewer is logged in the
+// controller tags each user with isFollowing relative to them.
+router.get('/:id/following', optionalAuth, (req, res, next) => {
   req.params.userId = req.params.id;
   followController.getFollowing(req, res, next);
 });
-router.get('/:id/followers', (req, res, next) => {
+router.get('/:id/followers', optionalAuth, (req, res, next) => {
   req.params.userId = req.params.id;
   followController.getFollowers(req, res, next);
 });

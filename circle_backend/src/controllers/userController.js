@@ -65,6 +65,17 @@ function extractExtras(body) {
   };
 }
 
+// Resolve the requesting viewer's id from any of the sources we know about.
+// Prefers req.actorId (set by requireAuth / optionalAuth middleware), then
+// falls back to the x-user-id header for legacy clients.
+function getViewerId(req) {
+  if (req.actorId) return req.actorId;
+  const raw = req.headers['x-user-id'];
+  if (!raw) return null;
+  const parsed = parseInt(raw);
+  return isNaN(parsed) ? null : parsed;
+}
+
 // ─── POST /api/users/register ──────────────────────────────────────────────────
 
 async function register(req, res) {
@@ -125,10 +136,15 @@ async function login(req, res) {
 }
 
 // ─── GET /api/users/:id/profile ───────────────────────────────────────────────
-
+//
+// Profiles are public — we don't require auth. But when the request IS
+// authenticated (via requireAuth, optionalAuth, or the legacy x-user-id
+// header), we populate `isFollowed` / `isFollowing` / `followersCount`
+// in the response so the client knows whether the viewer follows this
+// user. Without a viewerId, those default to false / the true count.
 async function getProfile(req, res) {
-  const param = req.params.id;
-  const viewerId = parseInt(req.headers['x-user-id']) || null;
+  const param    = req.params.id;
+  const viewerId = getViewerId(req);
 
   try {
     let targetId;
@@ -142,7 +158,26 @@ async function getProfile(req, res) {
 
     const profile = await UserModel.getProfile(targetId, viewerId);
     if (!profile) return sendError(res, 404, 'User not found.');
-    return sendOk(res, 200, 'Profile fetched.', profile);
+
+    // Compute the follow flag authoritatively regardless of what the
+    // model returned. The model may or may not already include it — if
+    // it does, we're just overwriting with the same value.
+    let isFollowed = false;
+    if (viewerId && Number(viewerId) !== Number(targetId)) {
+      const existing = await FollowModel.getFollow(viewerId, targetId);
+      isFollowed = !!existing;
+    }
+
+    // Same for the follower count — the users table may have a
+    // denormalised column that drifts; the joins are cheap.
+    const followerCount = await FollowModel.getFollowerCount(targetId);
+
+    return sendOk(res, 200, 'Profile fetched.', {
+      ...profile,
+      isFollowed,
+      isFollowing: isFollowed, // both names for client compatibility
+      followersCount: followerCount,
+    });
   } catch (err) {
     console.error('getProfile error:', err);
     return sendError(res, 500, 'Server error.');

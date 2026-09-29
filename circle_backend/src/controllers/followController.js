@@ -9,6 +9,11 @@ const NotificationModel = require('../models/notificationModel');
 const { sendOk, sendError } = require('../middleware/response');
 
 // POST /api/follow/:targetId
+//
+// Idempotent: if the follow row already exists, we return 200 with the
+// current state instead of 409. This keeps clients that hold stale
+// `isFollowed` flags (e.g. after a slow response, an optimistic update,
+// or a cache miss) from getting stuck in a Follow → error → Follow loop.
 async function follow(req, res) {
   const followerId  = req.actorId;
   const followingId = parseInt(req.params.targetId);
@@ -21,7 +26,13 @@ async function follow(req, res) {
     if (!target) return sendError(res, 404, 'User not found.');
 
     const existing = await FollowModel.getFollow(followerId, followingId);
-    if (existing)  return sendError(res, 409, 'Already following this user.');
+    if (existing) {
+      const followerCount = await FollowModel.getFollowerCount(followingId);
+      return sendOk(res, 200, 'Already following.', {
+        followerCount,
+        isFollowing: true,
+      });
+    }
 
     await FollowModel.addFollow(followerId, followingId);
 
@@ -29,27 +40,42 @@ async function follow(req, res) {
 
     await NotificationModel.createNotification(followingId, followerId, 'follow', null);
 
-    return sendOk(res, 201, `You are now following ${target.name}.`, { followerCount });
+    return sendOk(res, 201, `You are now following ${target.name}.`, {
+      followerCount,
+      isFollowing: true,
+    });
   } catch (err) {
     console.error('follow error:', err);
     return sendError(res, 500, 'Server error.');
   }
 }
 
-// DELETE /api/unfollow/:targetId
+// DELETE /api/unfollow/:targetId   (also aliased to /api/follow/:targetId)
+//
+// Idempotent: if the follow row doesn't exist, return 200 with the
+// current state instead of 404. Same reasoning as `follow`.
 async function unfollow(req, res) {
   const followerId  = req.actorId;
   const followingId = parseInt(req.params.targetId);
 
   try {
     const existing = await FollowModel.getFollow(followerId, followingId);
-    if (!existing) return sendError(res, 404, 'You are not following this user.');
+    if (!existing) {
+      const followerCount = await FollowModel.getFollowerCount(followingId);
+      return sendOk(res, 200, 'Not following.', {
+        followerCount,
+        isFollowing: false,
+      });
+    }
 
     await FollowModel.removeFollow(followerId, followingId);
 
     const followerCount = await FollowModel.getFollowerCount(followingId);
 
-    return sendOk(res, 200, 'Unfollowed.', { followerCount });
+    return sendOk(res, 200, 'Unfollowed.', {
+      followerCount,
+      isFollowing: false,
+    });
   } catch (err) {
     console.error('unfollow error:', err);
     return sendError(res, 500, 'Server error.');
@@ -57,9 +83,16 @@ async function unfollow(req, res) {
 }
 
 // GET /api/followers/:userId
+//
+// Reads viewerId from req.actorId (set by requireAuth). Falls back to
+// the x-user-id header for backwards compatibility with any non-mobile
+// clients still sending it. Without a viewerId, the list comes back
+// without the isFollowing tag, so the client cannot know which users
+// the viewer already follows.
 async function getFollowers(req, res) {
   const userId   = parseInt(req.params.userId);
-  const viewerId = parseInt(req.headers['x-user-id']) || null;
+  const viewerId = req.actorId
+    || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
 
   try {
     const followers = await FollowModel.getFollowers(userId, viewerId);
@@ -73,7 +106,8 @@ async function getFollowers(req, res) {
 // GET /api/following/:userId
 async function getFollowing(req, res) {
   const userId   = parseInt(req.params.userId);
-  const viewerId = parseInt(req.headers['x-user-id']) || null;
+  const viewerId = req.actorId
+    || (req.headers['x-user-id'] ? parseInt(req.headers['x-user-id']) : null);
 
   try {
     const following = await FollowModel.getFollowing(userId, viewerId);

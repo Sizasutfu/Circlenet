@@ -46,6 +46,7 @@ const whisperRoutes        = require('./routes/whisperRoutes');
 const commentRoutes        = require('./routes/commentRoutes');
 const adRoutes             = require('./routes/adRoutes');
 const videoRoutes          = require('./routes/videoRoutes');
+const verificationRoutes     = require('./routes/verificationRoutes');
 
 // authRoutes is optional (Google OAuth) — only load if the file exists
 let authRoutes = null;
@@ -175,7 +176,7 @@ app.use('/api/whisper',         whisperRoutes);
 app.use('/api/comments',        commentRoutes);
 app.use('/api/ads',             adRoutes);
 app.use('/api/videos',    videoRoutes);
-
+app.use('/api/verification',    verificationRoutes);
 // ── SEO: bot SSR + sitemap + robots.txt ──────────────────
 seoMiddleware(app);
 

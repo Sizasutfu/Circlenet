@@ -1,27 +1,17 @@
 // app/comment/[id]/CommentDetailClient.jsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { resolveMediaUrl } from '@/lib/url';
-
-
-function timeAgo(dateString) {
-  const now = Date.now();
-  const then = new Date(dateString).getTime();
-  const diff = Math.max(0, now - then);
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (minutes > 0) return `${minutes}m ago`;
-  return 'just now';
-}
+import CommentItem from '@/components/post-detail/CommentItem';
+import ReplyInput from '@/components/post-detail/ReplyInput';
+import CommentTimestamp from '@/components/post-detail/CommentTimestamp';
+import Toast from '@/components/post-detail/Toast';
+import { dedupeComments } from '@/lib/comments';
 
 // ─── Uniform avatar placeholder ──────────────────────────
 function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
@@ -46,99 +36,217 @@ function AvatarPlaceholder({ size = 'h-10 w-10', className = '' }) {
 }
 
 function getCommentUser(comment) {
+  if (!comment) return { name: 'Unknown', username: 'unknown', picture: null };
   if (comment.user) {
     return {
-      name: comment.user.name || 'Unknown',
-      username: comment.user.username || 'unknown',
-      picture: comment.user.picture || null,
+      name: comment.user.name || comment.user.displayName || 'Unknown',
+      username: comment.user.username || comment.user.handle || 'unknown',
+      picture: comment.user.picture || comment.user.avatar || null,
     };
   }
-  if (comment.author) {
+  if (comment.author || comment.authorName) {
     return {
-      name: comment.author,
+      name: comment.author || comment.authorName || 'Unknown',
       username: comment.authorUsername || comment.username || 'unknown',
-      picture: comment.authorPicture || null,
+      picture: comment.authorPicture || comment.authorAvatar || null,
     };
   }
-  return { name: 'Unknown', username: 'unknown', picture: null };
+  return {
+    name: comment.name || 'Unknown',
+    username: comment.username || 'unknown',
+    picture: comment.picture || null,
+  };
+}
+
+// ─── Flatten a nested comment tree into a single array with parentId ──
+function flattenComments(input, parentId = null, out = []) {
+  if (!Array.isArray(input)) return out;
+  for (const c of input) {
+    if (!c || c.id == null) continue;
+    const normalized = {
+      ...c,
+      parentId: c.parentId ?? c.parent_id ?? parentId ?? null,
+    };
+    out.push(normalized);
+    if (Array.isArray(c.replies) && c.replies.length) {
+      flattenComments(c.replies, normalized.id, out);
+    }
+    if (Array.isArray(c.children) && c.children.length) {
+      flattenComments(c.children, normalized.id, out);
+    }
+  }
+  return out;
+}
+
+// ─── Pull a flat list of comments out of any of the API's possible shapes ──
+function extractComments(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return flattenComments(payload);
+
+  const candidates =
+    payload.comments ||
+    payload.replies ||
+    payload.thread ||
+    payload.children ||
+    payload.data?.comments ||
+    payload.data?.replies ||
+    payload.data?.thread ||
+    [];
+
+  return flattenComments(candidates);
+}
+
+// ─── Seed state from whatever the server passed in ──────────────────────
+function seedFromInitial(initialComment) {
+  if (!initialComment) return [];
+  const rootId = initialComment.id;
+  const root = {
+    ...initialComment,
+    parentId:
+      initialComment.parentId ?? initialComment.parent_id ?? null,
+  };
+  const children = flattenComments(
+    initialComment.replies ||
+      initialComment.children ||
+      initialComment.comments ||
+      [],
+    rootId
+  );
+  return dedupeComments([root, ...children]);
 }
 
 export default function CommentDetailClient({ commentId, initialComment }) {
   const { user } = useAuth();
   const router = useRouter();
 
-  const [comment, setComment] = useState(initialComment);
-  const [replies, setReplies] = useState([]);
+  const [comment, setComment] = useState(initialComment || null);
+  const [threadComments, setThreadComments] = useState(() =>
+    seedFromInitial(initialComment)
+  );
   const [loading, setLoading] = useState(!initialComment);
   const [error, setError] = useState(null);
-  const [replyText, setReplyText] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [replying, setReplying] = useState(false);
 
+  const showToast = (message, type = 'success') =>
+    setToast({ message, type });
+
+  // ── Fetch the full thread ──────────────────────────────────
   useEffect(() => {
-    if (initialComment) {
-      setReplies(initialComment.replies || []);
-      return;
-    }
-    const fetchComment = async () => {
-      try {
-        const res = await apiClient(`/api/comments/${commentId}`);
-        const data = res.data || res;
-        setComment(data);
-        setReplies(data.replies || []);
-      } catch (err) {
-        setError('Failed to load comment.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchComment();
-  }, [commentId, initialComment]);
+    let cancelled = false;
 
-  const handleReply = async (e) => {
-    e.preventDefault();
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-    const text = replyText.trim();
-    if (!text) return;
-    setSubmitting(true);
-    try {
-      const res = await apiClient(`/api/comments/${commentId}/reply`, {
-        method: 'POST',
-        body: { text },
-      });
-      const newReply = res.data || res;
-      setReplies((prev) => [...prev, newReply]);
-      setReplyText('');
-    } catch (err) {
-      setError(err.message || 'Failed to reply.');
-    } finally {
-      setSubmitting(false);
-    }
+    (async () => {
+      try {
+        const res = await apiClient(`/api/comments/${commentId}/thread`);
+        const payload = res?.data ?? res;
+
+        if (cancelled) return;
+
+        const root =
+          payload?.comment || payload?.data?.comment || payload || null;
+        const fetched = extractComments(payload);
+
+        // Only replace root if we got a usable object
+        if (root && root.id != null) {
+          setComment((prev) =>
+            prev && prev.id === root.id ? { ...prev, ...root } : root
+          );
+        }
+
+        // Never wipe what we already have with an empty response
+        setThreadComments((prev) => {
+          if (!fetched.length) return prev;
+          // Merge: fetched first (fresh data), then anything we already had
+          return dedupeComments([...fetched, ...prev]);
+        });
+
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        // Keep the seeded data — don't blow up the page
+        if (!initialComment) {
+          setError('Failed to load comment.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentId]);
+
+  // ── Handle a new reply at any depth ─────────────────────────
+  const handleCommentAdd = (newComment) => {
+    if (!newComment) return;
+    // Normalize parentId so filtering works
+    const normalized = {
+      ...newComment,
+      parentId:
+        newComment.parentId ?? newComment.parent_id ?? comment?.id ?? null,
+    };
+    setThreadComments((prev) => dedupeComments([normalized, ...prev]));
   };
 
-  if (loading) return <div className="p-8 text-center">Loading...</div>;
-  if (error || !comment) return <div className="p-8 text-center text-[var(--color-rose)]">{error || 'Comment not found.'}</div>;
+  // Direct children of the root comment
+  const rootReplies = useMemo(() => {
+    return threadComments.filter(
+      (c) =>
+        String(c.parentId ?? c.parent_id ?? '') === String(commentId)
+    );
+  }, [threadComments, commentId]);
+
+  if (loading && !comment) {
+    return (
+      <div className="p-8 text-center text-[var(--color-txt2)]">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent" />
+        <p className="mt-4">Loading comment…</p>
+      </div>
+    );
+  }
+
+  if (error || !comment) {
+    return (
+      <div className="p-8 text-center text-[var(--color-rose)]">
+        {error || 'Comment not found.'}
+      </div>
+    );
+  }
 
   const { name, username, picture } = getCommentUser(comment);
   const avatarUrl = resolveMediaUrl(picture);
-  const postedTime = timeAgo(comment.createdAt);
+  const postId = comment.postId ?? comment.post_id;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
       <button
         onClick={() => router.back()}
         className="flex items-center gap-1 text-sm text-[var(--color-txt2)] hover:text-[var(--color-accent)] transition mb-4"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <svg
+          className="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
           <path d="M19 12H5M12 19l-7-7 7-7" />
         </svg>
         Back
       </button>
 
-      {/* ─── Main Comment ───────────────────────────────────── */}
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
+      {/* ─── Root Comment ───────────────────────────────────── */}
+      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-4">
         <div className="flex gap-3">
           {avatarUrl ? (
             <img
@@ -151,94 +259,73 @@ export default function CommentDetailClient({ commentId, initialComment }) {
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-              <Link href={`/profile/${username}`} className="font-semibold text-sm hover:underline">
+              <Link
+                href={`/profile/${username}`}
+                className="font-semibold text-sm hover:underline"
+              >
                 {name}
               </Link>
-              <span className="text-xs text-[var(--color-txt2)]">@{username}</span>
-              <span className="text-xs text-[var(--color-txt3)]">· {postedTime}</span>
+              <span className="text-xs text-[var(--color-txt2)]">
+                @{username}
+              </span>
+              <span className="text-xs text-[var(--color-txt3)]">
+                · <CommentTimestamp date={comment.createdAt} />
+              </span>
             </div>
-            <p className="text-sm text-[var(--color-txt)] mt-1 whitespace-pre-wrap">{comment.text}</p>
-            {comment.parentId && (
+            <p className="text-sm text-[var(--color-txt)] mt-1 whitespace-pre-wrap">
+              {comment.text}
+            </p>
+            {postId && (
               <Link
-                href={`/post/${comment.postId}`}
+                href={`/post/${postId}`}
                 className="text-xs text-[var(--color-accent)] hover:underline mt-2 inline-block"
               >
                 View parent post →
               </Link>
             )}
+
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                onClick={() => setReplying((v) => !v)}
+                className="text-xs text-[var(--color-txt3)] hover:text-[var(--color-accent)] transition"
+              >
+                {replying ? 'Cancel' : 'Reply'}
+              </button>
+            </div>
+
+            {replying && (
+              <div className="mt-3">
+                <ReplyInput
+                  postId={postId}
+                  parentId={comment.id}
+                  onCommentAdd={handleCommentAdd}
+                  showToast={showToast}
+                  onCancel={() => setReplying(false)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ─── Reply composer ────────────────────────────────── */}
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
-        <form onSubmit={handleReply} className="flex gap-3">
-          {user?.picture ? (
-            <img
-              src={resolveMediaUrl(user.picture)}
-              alt={user?.name}
-              className="flex-shrink-0 h-9 w-9 rounded-full object-cover"
-            />
-          ) : (
-            <AvatarPlaceholder size="h-9 w-9" />
-          )}
-          <input
-            type="text"
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            placeholder={user ? 'Write a reply…' : 'Log in to reply'}
-            className="flex-1 bg-[var(--color-surface)] rounded-[var(--radius-radius-sm)] px-4 py-2 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] border border-[var(--color-border)] focus:border-[var(--color-accent)] focus:outline-none"
-            disabled={!user || submitting}
-          />
-          <button
-            type="submit"
-            disabled={!user || submitting || !replyText.trim()}
-            className="px-4 py-2 bg-[var(--color-accent)] text-white rounded-[var(--radius-radius-sm)] text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
-          >
-            {submitting ? '…' : 'Reply'}
-          </button>
-        </form>
-        {!user && (
-          <p className="text-xs text-[var(--color-txt3)] mt-2">
-            <Link href="/login" className="text-[var(--color-accent)] hover:underline">Log in</Link> to join the conversation.
-          </p>
-        )}
-      </div>
-
-      {/* ─── Replies ────────────────────────────────────────── */}
+      {/* ─── Replies (recursive) ────────────────────────────── */}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-[var(--color-txt2)]">Replies ({replies.length})</h3>
-        {replies.length === 0 ? (
+        <h3 className="text-sm font-semibold text-[var(--color-txt2)]">
+          Replies ({rootReplies.length})
+        </h3>
+        {rootReplies.length === 0 ? (
           <p className="text-sm text-[var(--color-txt3)]">No replies yet.</p>
         ) : (
-          replies.map((reply) => {
-            const { name: rName, username: rUsername, picture: rPicture } = getCommentUser(reply);
-            const rAvatarUrl = resolveMediaUrl(rPicture);
-            const rTime = timeAgo(reply.createdAt);
-            return (
-              <div key={reply.id} className="border border-[var(--color-border)] rounded-[var(--radius-radius-sm)] p-3 hover:shadow-[var(--color-shadow)] transition-shadow">
-                <div className="flex gap-3">
-                  {rAvatarUrl ? (
-                    <img
-                      src={rAvatarUrl}
-                      alt={rName}
-                      className="flex-shrink-0 h-8 w-8 rounded-full object-cover"
-                    />
-                  ) : (
-                    <AvatarPlaceholder size="h-8 w-8" />
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm text-[var(--color-txt)]">{rName}</span>
-                      <span className="text-xs text-[var(--color-txt3)]">@{rUsername}</span>
-                      <span className="text-xs text-[var(--color-txt3)]">· {rTime}</span>
-                    </div>
-                    <p className="text-sm text-[var(--color-txt)] mt-0.5">{reply.text}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          rootReplies.map((reply) => (
+            <CommentItem
+              key={reply.id}
+              comment={reply}
+              allComments={threadComments}
+              postId={postId}
+              onCommentAdd={handleCommentAdd}
+              showToast={showToast}
+            />
+          ))
         )}
       </div>
     </div>

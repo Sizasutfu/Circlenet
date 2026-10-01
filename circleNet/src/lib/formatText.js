@@ -1,14 +1,64 @@
 // src/lib/formatText.js
 
+// ─── Named HTML entities (server-side fallback) ─────────────────
+// The browser path uses <textarea>. On the server we only need the
+// common ones — everything numeric is handled generically below.
+const NAMED_ENTITIES = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00A0',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  hellip: '…',
+  mdash: '—',
+  ndash: '–',
+  lsquo: '\u2018',
+  rsquo: '\u2019',
+  ldquo: '\u201C',
+  rdquo: '\u201D',
+  bull: '•',
+  middot: '·',
+  laquo: '«',
+  raquo: '»',
+};
+
 /**
  * Decode HTML entities (e.g., &amp; &lt; &gt; &quot; &#39;)
+ * SSR-safe: falls back to regex decoding when `document` is unavailable.
  */
 function decodeHtmlEntities(str) {
   if (!str) return '';
-  // Use the browser's built-in DOM parser to decode safely
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = str;
-  return textarea.value;
+  const input = String(str);
+
+  // Browser path — DOM parser handles every named entity.
+  if (typeof document !== 'undefined') {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = input;
+    return textarea.value;
+  }
+
+  // Server path — numeric + common named entities.
+  return input.replace(
+    /&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g,
+    (match, entity) => {
+      if (entity[0] === '#') {
+        const isHex = entity[1] === 'x' || entity[1] === 'X';
+        const code = parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+        if (Number.isNaN(code)) return match;
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return match;
+        }
+      }
+      const named = NAMED_ENTITIES[entity.toLowerCase()];
+      return named !== undefined ? named : match;
+    }
+  );
 }
 
 /**
@@ -67,15 +117,15 @@ export function formatPostText(text) {
  */
 export function extractMentions(text) {
   if (!text) return [];
-  
+
   const mentionRegex = /@([\w\u00C0-\u017F\-]+)/g;
   const matches = text.matchAll(mentionRegex);
   const usernames = new Set();
-  
+
   for (const match of matches) {
     usernames.add(match[1].toLowerCase());
   }
-  
+
   return Array.from(usernames);
 }
 
@@ -85,15 +135,15 @@ export function extractMentions(text) {
  */
 export function extractHashtags(text) {
   if (!text) return [];
-  
+
   const hashtagRegex = /#([\w\u00C0-\u017F]+)/g;
   const matches = text.matchAll(hashtagRegex);
   const hashtags = new Set();
-  
+
   for (const match of matches) {
     hashtags.add(match[1].toLowerCase());
   }
-  
+
   return Array.from(hashtags);
 }
 
@@ -103,15 +153,15 @@ export function extractHashtags(text) {
  */
 export function extractUrls(text) {
   if (!text) return [];
-  
+
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const matches = text.matchAll(urlRegex);
   const urls = [];
-  
+
   for (const match of matches) {
     urls.push(match[1]);
   }
-  
+
   return urls;
 }
 
@@ -121,27 +171,38 @@ export function extractUrls(text) {
  */
 export function truncateText(text, maxLength = 150) {
   if (!text || text.length <= maxLength) return text;
-  
+
   const truncated = text.slice(0, maxLength);
   const lastSpace = truncated.lastIndexOf(' ');
-  
+
   if (lastSpace > maxLength * 0.7) {
     return truncated.slice(0, lastSpace) + '…';
   }
-  
+
   return truncated + '…';
 }
 
 /**
  * Get plain text without any markup (for SEO, meta descriptions, etc.)
+ * SSR-safe: uses regex tag-stripping on the server.
  */
 export function getPlainText(html) {
   if (!html) return '';
-  
-  // Remove HTML tags
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
-  return temp.textContent || temp.innerText || '';
+
+  // Browser path — DOM parser gives the most accurate result.
+  if (typeof document !== 'undefined') {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    return temp.textContent || temp.innerText || '';
+  }
+
+  // Server path — strip tags and decode entities with regex.
+  const stripped = String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]*>/g, '');
+
+  return decodeHtmlEntities(stripped);
 }
 
 /**
@@ -150,20 +211,20 @@ export function getPlainText(html) {
  */
 export function findMentionPositions(text) {
   if (!text) return [];
-  
+
   const mentionRegex = /@([\w\u00C0-\u017F\-]+)/g;
   const positions = [];
   let match;
-  
+
   while ((match = mentionRegex.exec(text)) !== null) {
     positions.push({
       username: match[1],
       start: match.index,
       end: match.index + match[0].length,
-      fullMatch: match[0]
+      fullMatch: match[0],
     });
   }
-  
+
   return positions;
 }
 
@@ -192,5 +253,5 @@ export default {
   getPlainText,
   findMentionPositions,
   hasMentions,
-  hasHashtags
+  hasHashtags,
 };

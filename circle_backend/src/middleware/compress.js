@@ -1,9 +1,9 @@
 // ============================================================
 //  middleware/compress.js
 //
-//  Development  → compresses images (Sharp → .webp) and
-//                 videos (FFmpeg → .mp4), saves to /uploads.
-//                 req.compressedFiles = { <fieldName>: {...} }
+//  Development  → compresses images (Sharp → .webp), videos
+//                 (FFmpeg → .mp4) into /uploads, and audio
+//                 (FFmpeg → .m4a) into /storage/music.
 //
 //  Production   → Cloudinary already handled the upload in
 //                 upload.js, so compressUploads is a no-op
@@ -16,10 +16,6 @@
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 // ── Normalise req.files into a { fieldName: File } map ────
-// Handles the three shapes multer can produce:
-//   upload.fields([...])  → { fieldName: [File] }
-//   upload.array(...)     → [File]
-//   upload.single(...)    → File
 function flattenFiles(req) {
   const out = {};
   const raw = req.files;
@@ -79,13 +75,42 @@ const os       = require('os');
 
 ffmpeg.setFfmpegPath(ffmpegP);
 
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// src/middleware → .. → src → .. → circle_backend
+const ROOT = path.join(__dirname, '..', '..');
+
+// Images + videos — general post media
+const UPLOAD_DIR = path.join(ROOT, 'uploads');
+
+// Music tracks — dedicated folder for the music player
+const MUSIC_DIR  = path.join(ROOT, 'storage', 'music');
+
+for (const dir of [UPLOAD_DIR, MUSIC_DIR]) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
 
 const TMP_DIR = os.tmpdir();
 
 // ─────────────────────────────────────────────────────────
-//  Image compression
+//  Field-name → media-type detection
+// ─────────────────────────────────────────────────────────
+function detectKind(file, fieldName = '') {
+  const mt   = (file?.mimetype ?? '').toLowerCase();
+  const name = fieldName.toLowerCase();
+
+  if (mt.startsWith('video/') || name.includes('video')) return 'video';
+  if (
+    mt.startsWith('audio/') ||
+    name.includes('audio') ||
+    name.includes('track') ||
+    name.includes('song')
+  ) {
+    return 'audio';
+  }
+  return 'image';
+}
+
+// ─────────────────────────────────────────────────────────
+//  Image compression  →  uploads/<hex>.webp
 // ─────────────────────────────────────────────────────────
 async function compressImage(buffer, mimetype = '') {
   const filename   = crypto.randomBytes(16).toString('hex') + '.webp';
@@ -94,7 +119,12 @@ async function compressImage(buffer, mimetype = '') {
   if (mimetype === 'image/webp') {
     fs.writeFileSync(outputPath, buffer);
     console.log('[compress] image skipped (already webp from client)');
-    return { filename, savedBytes: 0 };
+    return {
+      filename,
+      relativePath: `uploads/${filename}`,
+      kind: 'image',
+      savedBytes: 0,
+    };
   }
 
   await sharp(buffer)
@@ -104,11 +134,16 @@ async function compressImage(buffer, mimetype = '') {
     .toFile(outputPath);
 
   const { size } = fs.statSync(outputPath);
-  return { filename, savedBytes: buffer.length - size };
+  return {
+    filename,
+    relativePath: `uploads/${filename}`,
+    kind: 'image',
+    savedBytes: buffer.length - size,
+  };
 }
 
 // ─────────────────────────────────────────────────────────
-//  Video compression
+//  Video compression  →  uploads/<hex>.mp4
 // ─────────────────────────────────────────────────────────
 function compressVideo(buffer, clientCompressed = false) {
   return new Promise((resolve, reject) => {
@@ -118,7 +153,12 @@ function compressVideo(buffer, clientCompressed = false) {
     if (clientCompressed) {
       fs.writeFileSync(outputPath, buffer);
       console.log('[compress] video skipped (already compressed by client)');
-      return resolve({ filename, savedBytes: 0 });
+      return resolve({
+        filename,
+        relativePath: `uploads/${filename}`,
+        kind: 'video',
+        savedBytes: 0,
+      });
     }
 
     const tmpName = crypto.randomBytes(16).toString('hex') + '.tmp';
@@ -136,12 +176,105 @@ function compressVideo(buffer, clientCompressed = false) {
       .on('end', () => {
         fs.unlinkSync(tmpPath);
         const { size } = fs.statSync(outputPath);
-        resolve({ filename, savedBytes: buffer.length - size });
+        resolve({
+          filename,
+          relativePath: `uploads/${filename}`,
+          kind: 'video',
+          savedBytes: buffer.length - size,
+        });
       })
       .on('error', (err) => {
         try { fs.unlinkSync(tmpPath); } catch (_) {}
         reject(err);
       })
+      .run();
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+//  Audio compression (buffer → storage/music/<hex>.m4a)
+// ─────────────────────────────────────────────────────────
+function compressAudio(buffer, clientCompressed = false) {
+  return new Promise((resolve, reject) => {
+    const filename   = crypto.randomBytes(16).toString('hex') + '.m4a';
+    const outputPath = path.join(MUSIC_DIR, filename);
+
+    if (clientCompressed) {
+      fs.writeFileSync(outputPath, buffer);
+      console.log('[compress] audio skipped (already compressed by client)');
+      return resolve({
+        filename,
+        relativePath: `storage/music/${filename}`,
+        kind: 'audio',
+        savedBytes: 0,
+      });
+    }
+
+    const tmpName = crypto.randomBytes(16).toString('hex') + '.tmp';
+    const tmpPath = path.join(TMP_DIR, tmpName);
+    fs.writeFileSync(tmpPath, buffer);
+
+    ffmpeg(tmpPath)
+      .audioCodec('aac')
+      .audioBitrate('192k')
+      .addOption('-vn')
+      .addOption('-movflags', '+faststart')
+      .format('ipod')
+      .output(outputPath)
+      .on('end', () => {
+        fs.unlinkSync(tmpPath);
+        const { size } = fs.statSync(outputPath);
+        resolve({
+          filename,
+          relativePath: `storage/music/${filename}`,
+          kind: 'audio',
+          savedBytes: buffer.length - size,
+        });
+      })
+      .on('error', (err) => {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        reject(err);
+      })
+      .run();
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+//  Audio compression (file → storage/music/<hex>.m4a)
+//
+//  Reads an existing file from disk, writes the compressed
+//  output into MUSIC_DIR. Use this when multer is on disk
+//  storage OR when the controller has already written the
+//  buffer to a temp file.
+// ─────────────────────────────────────────────────────────
+function compressAudioFile(inputPath, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const ext        = opts.ext || '.m4a';
+    const filename   = crypto.randomBytes(16).toString('hex') + ext;
+    const outputPath = path.join(MUSIC_DIR, filename);
+
+    const originalSize = fs.existsSync(inputPath)
+      ? fs.statSync(inputPath).size
+      : 0;
+
+    ffmpeg(inputPath)
+      .audioCodec(opts.codec || 'aac')
+      .audioBitrate(opts.bitrate || '192k')
+      .addOption('-vn')
+      .addOption('-movflags', '+faststart')
+      .format(opts.format || 'ipod')
+      .output(outputPath)
+      .on('end', () => {
+        const { size } = fs.statSync(outputPath);
+        resolve({
+          filename,
+          path:          outputPath,
+          kind:          'audio',
+          originalBytes: originalSize,
+          savedBytes:    originalSize - size,
+        });
+      })
+      .on('error', reject)
       .run();
   });
 }
@@ -163,7 +296,6 @@ async function compressUploads(req, _res, next) {
 
     console.log('[compress] processing fields:', fieldNames);
 
-    // Decide which handler to use per field based on mimetype
     await Promise.all(
       fieldNames.map(async (fieldName) => {
         const file = files[fieldName];
@@ -173,27 +305,31 @@ async function compressUploads(req, _res, next) {
         }
 
         try {
-          const isVideo =
-            file.mimetype?.startsWith('video/') ||
-            fieldName.toLowerCase().includes('video');
+          const kind = detectKind(file, fieldName);
 
-          if (isVideo) {
+          if (kind === 'video') {
             const clientCompressed = req.body?.video_compressed === '1';
             const result = await compressVideo(file.buffer, clientCompressed);
             req.compressedFiles[fieldName] = result;
             console.log(
-              `[compress] ${fieldName} (video) saved — reduced by ${(result.savedBytes / 1024 / 1024).toFixed(1)} MB`
+              `[compress] ${fieldName} (video) saved — reduced by ${(result.savedBytes / 1024 / 1024).toFixed(1)} MB → ${result.relativePath}`
+            );
+          } else if (kind === 'audio') {
+            const clientCompressed = req.body?.audio_compressed === '1';
+            const result = await compressAudio(file.buffer, clientCompressed);
+            req.compressedFiles[fieldName] = result;
+            console.log(
+              `[compress] ${fieldName} (audio) saved — reduced by ${(result.savedBytes / 1024 / 1024).toFixed(1)} MB → ${result.relativePath}`
             );
           } else {
             const result = await compressImage(file.buffer, file.mimetype);
             req.compressedFiles[fieldName] = result;
             console.log(
-              `[compress] ${fieldName} (image) saved — reduced by ${(result.savedBytes / 1024).toFixed(0)} KB → ${result.filename}`
+              `[compress] ${fieldName} (image) saved — reduced by ${(result.savedBytes / 1024).toFixed(0)} KB → ${result.relativePath}`
             );
           }
         } catch (err) {
           console.error(`[compress] failed to process ${fieldName}:`, err.message);
-          // Don't throw — leave that field unprocessed so the rest can succeed
         }
       })
     );
@@ -206,4 +342,18 @@ async function compressUploads(req, _res, next) {
   }
 }
 
-module.exports = { compressUploads, compressImage, compressVideo };
+const PATHS = {
+  uploads: UPLOAD_DIR,
+  music:   MUSIC_DIR,
+  root:    ROOT,
+};
+
+module.exports = {
+  compressUploads,
+  compressImage,
+  compressVideo,
+  compressAudio,
+  compressAudioFile,
+  detectKind,
+  PATHS,
+};

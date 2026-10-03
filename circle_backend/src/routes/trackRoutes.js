@@ -6,7 +6,9 @@
 const router          = require('express').Router();
 const trackController = require('../controllers/trackController');
 const { requireAuth } = require('../middleware/auth');
-const uploadAudio     = require('../middleware/uploadAudio');
+
+// uploadAudio.js exports { uploadAudio, MUSIC_DIR }, so destructure it
+const { uploadAudio } = require('../middleware/uploadAudio');
 
 // Browse + stream (public, like the feed)
 router.get('/',            trackController.getTracks);

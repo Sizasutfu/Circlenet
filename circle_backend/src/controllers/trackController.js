@@ -2,14 +2,23 @@
 //  controllers/trackController.js
 //  Request/response logic for music tracks.
 //
+//  Multer is on memory storage, so req.file.buffer is the
+//  uploaded bytes. We write them to a temp file so ffmpeg and
+//  music-metadata can read them, compress into storage/music/,
+//  delete the temp, and store only the compressed filename in
+//  the DB.
+//
 //  Streaming uses res.sendFile, which already handles HTTP Range
-//  requests (seeking), ETag and 206 Partial Content. No extra code.
+//  requests (seeking), ETag and 206 Partial Content.
 // ============================================================
 
 const path       = require('path');
 const fs         = require('fs');
+const os         = require('os');
+const crypto     = require('crypto');
 const TrackModel = require('../models/trackModel');
 const { MUSIC_DIR } = require('../middleware/uploadAudio');
+const { compressAudioFile } = require('../middleware/compress');
 const { sendOk, sendError } = require('../middleware/response');
 
 // ── Shape a DB row for the client ───────────────────────────
@@ -28,9 +37,7 @@ function shapeTrack(row, req) {
   };
 }
 
-// ── Read title / artist / duration from the file's tags ─────
-// music-metadata is ESM-only, so it is loaded with dynamic import.
-// If it is missing or the file has no tags, we just fall back.
+// ── Read title / artist / duration from a file on disk ──────
 async function readMetadata(filePath) {
   try {
     const { parseFile } = await import('music-metadata');
@@ -55,34 +62,90 @@ async function createTrack(req, res) {
   const userId = req.actorId;
   const file   = req.file;
 
-  if (!file) return sendError(res, 400, 'No audio file uploaded (field name: "audio").');
+  if (!file || !file.buffer) {
+    return sendError(res, 400, 'No audio file uploaded (field name: "audio").');
+  }
+
+  // Write the buffer to a temp file so ffmpeg + music-metadata can read it
+  const ext     = path.extname(file.originalname || '') || '.audio';
+  const tmpName = crypto.randomBytes(16).toString('hex') + ext;
+  const tmpPath = path.join(os.tmpdir(), tmpName);
+  fs.writeFileSync(tmpPath, file.buffer);
+
+  let finalFileName = null;
+  let finalSize     = file.size;
+  let finalMime     = file.mimetype;
+  let savedBytes    = 0;
 
   try {
-    const meta = await readMetadata(file.path);
+    // 1. Read metadata from the temp file
+    const meta = await readMetadata(tmpPath);
 
+    // 2. Compress the temp file into MUSIC_DIR
+    try {
+      const compressed = await compressAudioFile(tmpPath);
+      finalFileName = compressed.filename;
+      finalSize     = fs.statSync(compressed.path).size;
+      finalMime     = 'audio/mp4';
+      savedBytes    = compressed.savedBytes;
+
+      console.log(
+        `[tracks] compressed ${file.originalname} → ${finalFileName} ` +
+        `(saved ${(savedBytes / 1024 / 1024).toFixed(1)} MB)`
+      );
+    } catch (compressErr) {
+      // Fallback: store the original buffer in MUSIC_DIR with a fresh name
+      console.warn(
+        '[tracks] compression failed, storing original:',
+        compressErr.message
+      );
+      finalFileName = crypto.randomBytes(16).toString('hex') + ext;
+      fs.writeFileSync(path.join(MUSIC_DIR, finalFileName), file.buffer);
+      finalSize     = file.size;
+      finalMime     = file.mimetype;
+      savedBytes    = 0;
+    }
+
+    // 3. Clean up temp file
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+
+    // 4. Derive display fields
     const title = (
       req.body.title?.trim() ||
       meta.title ||
       path.parse(file.originalname).name
     ).slice(0, 255);
 
-    const artist = (req.body.artist?.trim() || meta.artist || '').slice(0, 255) || null;
+    const artist = (
+      req.body.artist?.trim() ||
+      meta.artist ||
+      ''
+    ).slice(0, 255) || null;
 
+    // 5. Insert DB row
     const id = await TrackModel.create({
       userId,
       title,
       artist,
-      fileName:    file.filename,
-      mimeType:    file.mimetype,
-      sizeBytes:   file.size,
+      fileName:    finalFileName,
+      mimeType:    finalMime,
+      sizeBytes:   finalSize,
       durationSec: meta.durationSec,
     });
 
     const row = await TrackModel.getById(id);
-    return sendOk(res, 201, 'Track uploaded.', shapeTrack(row, req));
+    return sendOk(res, 201, 'Track uploaded.', {
+      ...shapeTrack(row, req),
+      savedBytes,
+    });
   } catch (err) {
     console.error('[tracks] createTrack error:', err);
-    deleteFileQuietly(file.path); // don't leave an orphan file if the DB insert failed
+
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    if (finalFileName) {
+      try { fs.unlinkSync(path.join(MUSIC_DIR, finalFileName)); } catch (_) {}
+    }
+
     return sendError(res, 500, 'Server error.');
   }
 }
@@ -137,7 +200,6 @@ async function streamTrack(req, res) {
       { root: MUSIC_DIR, acceptRanges: true, maxAge: '1d' },
       (err) => {
         if (!err) return;
-        // Client aborting mid-stream (skipping a song) is normal, not an error.
         if (err.code === 'ECONNABORTED' || err.code === 'ECANCELED') return;
         console.error('[tracks] stream error:', err.message);
         if (!res.headersSent) sendError(res, 404, 'Audio file missing.');
@@ -150,8 +212,6 @@ async function streamTrack(req, res) {
 }
 
 // ── POST /api/tracks/:id/play ───────────────────────────────
-// Call this from the player once a track has actually started playing
-// (not on every Range request, or seeking would inflate the count).
 async function recordPlay(req, res) {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return sendError(res, 400, 'Invalid track ID.');
@@ -176,7 +236,9 @@ async function deleteTrack(req, res) {
   try {
     const row = await TrackModel.getById(id);
     if (!row) return sendError(res, 404, 'Track not found.');
-    if (row.user_id !== userId) return sendError(res, 403, 'You can only delete your own tracks.');
+    if (row.user_id !== userId) {
+      return sendError(res, 403, 'You can only delete your own tracks.');
+    }
 
     await TrackModel.remove(id);
     deleteFileQuietly(path.join(MUSIC_DIR, row.file_name));

@@ -10,6 +10,9 @@ import { saveDraft, getDraft, deleteDraft } from '@/lib/drafts';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import { extractMentions } from '@/lib/formatText';
 
+const MAX_AUDIO_SIZE = 50 * 1024 * 1024; // 50 MB
+const AUDIO_ACCEPT = 'audio/*,.mp3,.m4a,.wav,.flac,.ogg,.aac';
+
 function resolveMediaUrl(url) {
   if (!url) return null;
   if (url.startsWith('http')) return url;
@@ -98,10 +101,15 @@ function uploadWithProgress(url, formData, onProgress, token, userId) {
           const response = JSON.parse(xhr.responseText);
           resolve(response);
         } catch {
-          reject(new Error('Invalid response'));
+          resolve({});
         }
       } else {
-        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+        let message = `Upload failed: ${xhr.status} ${xhr.statusText}`;
+        try {
+          const body = JSON.parse(xhr.responseText);
+          if (body?.message) message = body.message;
+        } catch {}
+        reject(new Error(message));
       }
     };
 
@@ -111,6 +119,60 @@ function uploadWithProgress(url, formData, onProgress, token, userId) {
 
     xhr.send(formData);
   });
+}
+
+// ── Music helpers ──
+function formatBytes(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDuration(seconds) {
+  if (!seconds || isNaN(seconds)) return '—';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function readAudioDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(audio.duration);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    audio.src = url;
+  });
+}
+
+function parseFilename(filename) {
+  let s = filename.replace(/\.[^/.]+$/, '');
+  s = s.replace(/_/g, ' ').trim();
+  s = s.replace(/\s*[\(\[]\s*\d{1,4}\s*k(?:bps)?\s*[\)\]]/gi, '');
+  s = s.replace(
+    /\s*[\(\[]\s*official\s*(music\s*)?(audio|video|lyric[s]?\s*video)\s*[\)\]]/gi,
+    ''
+  );
+  s = s.replace(/\s+/g, ' ').trim();
+
+  const m = s.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  if (
+    m &&
+    m[1].length >= 2 &&
+    m[1].length <= 40 &&
+    !/^[\d\s\-–—.]+$/.test(m[1])
+  ) {
+    return { artist: m[1].trim(), title: m[2].trim() };
+  }
+  return { artist: '', title: s };
 }
 
 // ── Mention Autocomplete Component ──
@@ -199,6 +261,112 @@ function MentionAutocomplete({ searchTerm, onSelect, position }) {
   );
 }
 
+// ── One queued track row ──
+function TrackRow({ item, onUpdate, onRemove, disabled }) {
+  return (
+    <div className="border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)]">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-[var(--color-accent-bg)] text-[var(--color-accent)] flex items-center justify-center">
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+        </div>
+
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-center gap-2 text-xs text-[var(--color-txt3)]">
+            <span className="truncate">{item.file.name}</span>
+            <span className="flex-shrink-0">·</span>
+            <span className="flex-shrink-0">{formatBytes(item.file.size)}</span>
+            <span className="flex-shrink-0">·</span>
+            <span className="flex-shrink-0">
+              {item.duration ? formatDuration(item.duration) : 'reading…'}
+            </span>
+          </div>
+
+          <input
+            type="text"
+            value={item.title}
+            onChange={(e) => onUpdate({ title: e.target.value })}
+            placeholder="Title"
+            disabled={disabled}
+            className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none disabled:opacity-60"
+          />
+          <input
+            type="text"
+            value={item.artist}
+            onChange={(e) => onUpdate({ artist: e.target.value })}
+            placeholder="Artist (optional)"
+            disabled={disabled}
+            className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--color-txt)] placeholder:text-[var(--color-txt3)] focus:border-[var(--color-accent)] outline-none disabled:opacity-60"
+          />
+
+          {item.status === 'uploading' && (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-[var(--color-border)] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[var(--color-accent)] transition-all duration-200"
+                  style={{ width: `${item.progress}%` }}
+                />
+              </div>
+              <span className="text-xs text-[var(--color-txt2)] font-mono">
+                {item.progress}%
+              </span>
+            </div>
+          )}
+
+          {item.status === 'done' && (
+            <div className="text-xs text-[var(--color-green)] flex items-center gap-1">
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                viewBox="0 0 24 24"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Uploaded
+            </div>
+          )}
+
+          {item.status === 'error' && (
+            <div className="text-xs text-[var(--color-rose)]">
+              {item.error || 'Upload failed'}
+            </div>
+          )}
+        </div>
+
+        {item.status !== 'done' && (
+          <button
+            onClick={onRemove}
+            disabled={disabled}
+            className="flex-shrink-0 p-1.5 text-[var(--color-txt3)] hover:text-[var(--color-rose)] transition disabled:opacity-40"
+            title="Remove"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ComposePage({ 
   groupId: groupIdProp = null,
   draftId: draftIdProp = null 
@@ -214,6 +382,7 @@ export default function ComposePage({
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
   const videoInputRef = useRef(null);
+  const trackInputRef = useRef(null);
 
   const [postText, setPostText] = useState('');
   const [postImage, setPostImage] = useState(null);
@@ -236,6 +405,9 @@ export default function ComposePage({
   const [articlePublished, setArticlePublished] = useState(false);
   const [articleCover, setArticleCover] = useState(null);
   const [articleCoverPreview, setArticleCoverPreview] = useState(null);
+
+  // ── Track state ──
+  const [tracks, setTracks] = useState([]);
 
   const [groupId, setGroupId] = useState(groupIdProp);
   const [currentDraftId, setCurrentDraftId] = useState(null);
@@ -393,6 +565,9 @@ export default function ComposePage({
   useEffect(() => {
     if (!user) return;
     if (draftIdProp) return;
+    // Tracks can't be serialized to localStorage, so we skip autosave
+    // when the mode is 'track'.
+    if (mode === 'track') return;
     try {
       const stored = localStorage.getItem(draftKey);
       if (stored) {
@@ -426,6 +601,7 @@ export default function ComposePage({
 
   const saveAutoDraft = useCallback(() => {
     if (!user || !autoSaveEnabled) return;
+    if (mode === 'track') return;
 
     let hasContent = false;
     if (mode === 'post') {
@@ -468,6 +644,11 @@ export default function ComposePage({
   const handleSaveDraft = () => {
     if (!user) {
       setError('Please log in to save drafts.');
+      return;
+    }
+
+    if (mode === 'track') {
+      showToast('Music uploads are not saved as drafts. 🎵', 'error');
       return;
     }
 
@@ -620,6 +801,67 @@ export default function ComposePage({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // ── Track handlers ──
+  const handleTrackFiles = async (files) => {
+    setError(null);
+    const incoming = [];
+
+    for (const file of files) {
+      if (file.size > MAX_AUDIO_SIZE) {
+        setError(`${file.name} is over ${formatBytes(MAX_AUDIO_SIZE)}.`);
+        continue;
+      }
+      if (
+        !file.type.startsWith('audio/') &&
+        !/\.(mp3|m4a|wav|flac|ogg|aac)$/i.test(file.name)
+      ) {
+        setError(`${file.name} is not an audio file.`);
+        continue;
+      }
+
+      const parsed = parseFilename(file.name);
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      incoming.push({
+        id,
+        file,
+        title: parsed.title,
+        artist: parsed.artist,
+        duration: null,
+        status: 'ready',
+        progress: 0,
+        error: null,
+      });
+    }
+
+    if (!incoming.length) return;
+
+    setTracks((prev) => [...prev, ...incoming]);
+
+    for (const item of incoming) {
+      const duration = await readAudioDuration(item.file);
+      setTracks((prev) =>
+        prev.map((p) => (p.id === item.id ? { ...p, duration } : p))
+      );
+    }
+  };
+
+  const handleTrackInput = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length) handleTrackFiles(files);
+    if (trackInputRef.current) trackInputRef.current.value = '';
+  };
+
+  const updateTrack = (id, patch) => {
+    setTracks((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...patch } : p))
+    );
+  };
+
+  const removeTrack = (id) => {
+    setTracks((prev) => prev.filter((p) => p.id !== id));
+  };
+
   const handleSubmit = async () => {
     if (!user) {
       setError('Please log in to post.');
@@ -632,6 +874,71 @@ export default function ComposePage({
       return;
     }
 
+    // ── Track upload ──
+    if (mode === 'track') {
+      const ready = tracks.filter((t) => t.status === 'ready');
+      if (!ready.length) {
+        setError('Add at least one audio file.');
+        return;
+      }
+      if (!ready.every((t) => t.title.trim())) {
+        setError('Every track needs a title.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setIsUploading(true);
+      setError(null);
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL
+        ? `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/tracks`
+        : '/api/tracks';
+
+      let successCount = 0;
+      let lastError = null;
+
+      for (const item of ready) {
+        updateTrack(item.id, { status: 'uploading', progress: 0 });
+
+        const formData = new FormData();
+        formData.append('audio', item.file);
+        formData.append('title', item.title.trim());
+        if (item.artist.trim()) formData.append('artist', item.artist.trim());
+        if (item.duration) {
+          formData.append('durationSec', String(Math.round(item.duration)));
+        }
+
+        try {
+          await uploadWithProgress(
+            apiUrl,
+            formData,
+            (progress) => updateTrack(item.id, { progress }),
+            token,
+            userId
+          );
+          updateTrack(item.id, { status: 'done', progress: 100 });
+          successCount += 1;
+        } catch (e) {
+          lastError = e.message || 'Upload failed';
+          updateTrack(item.id, { status: 'error', error: lastError });
+        }
+      }
+
+      setIsSubmitting(false);
+      setIsUploading(false);
+
+      if (successCount > 0) {
+        showToast(
+          `${successCount} track${successCount === 1 ? '' : 's'} uploaded ✅`
+        );
+      }
+      if (lastError && successCount === 0) {
+        setError(lastError);
+      }
+      return;
+    }
+
+    // ── Post ──
     if (mode === 'post') {
       if (!postText.trim() && !postImage && !postVideo) {
         setError('Please write something or add an image/video.');
@@ -680,7 +987,7 @@ export default function ComposePage({
       return;
     }
 
-    // Article mode
+    // ── Article ──
     if (!articleTitle.trim() || !articleContent.trim()) {
       setError('Title and content are required.');
       return;
@@ -725,6 +1032,8 @@ export default function ComposePage({
     setTimeout(() => setToast(null), 4000);
   };
 
+  const readyTrackCount = tracks.filter((t) => t.status === 'ready').length;
+
   if (!user) return null;
 
   return (
@@ -745,7 +1054,11 @@ export default function ComposePage({
           </svg>
         </button>
         <h1 className="text-2xl font-head font-extrabold text-[var(--color-txt)]">
-          {mode === 'post' ? 'Create a post' : 'Write an article'}
+          {mode === 'post'
+            ? 'Create a post'
+            : mode === 'article'
+            ? 'Write an article'
+            : 'Upload music'}
         </h1>
         {groupId && (
           <span className="ml-2 text-sm text-[var(--color-txt2)] bg-[var(--color-surface)] px-3 py-1 rounded-full">
@@ -821,6 +1134,21 @@ export default function ComposePage({
         >
           Article
         </button>
+        <button
+          onClick={() => setMode('track')}
+          className={`flex-1 py-2 text-sm font-medium rounded-lg transition flex items-center justify-center gap-1.5 ${
+            mode === 'track'
+              ? 'bg-[var(--color-accent)] text-white'
+              : 'text-[var(--color-txt2)] hover:text-[var(--color-txt)]'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+          Music
+        </button>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
@@ -836,6 +1164,7 @@ export default function ComposePage({
         <div>
           <p className="text-sm font-semibold text-[var(--color-txt)]">{user?.name || 'You'}</p>
           {mode === 'article' && <p className="text-xs text-[var(--color-txt2)]">Article will appear in Articles</p>}
+          {mode === 'track' && <p className="text-xs text-[var(--color-txt2)]">Tracks will appear in the music app</p>}
         </div>
       </div>
 
@@ -1074,6 +1403,57 @@ export default function ComposePage({
           </>
         )}
 
+        {mode === 'track' && (
+          <>
+            <div
+              onClick={() => trackInputRef.current?.click()}
+              className="border-2 border-dashed border-[var(--color-border)] rounded-2xl p-6 text-center cursor-pointer hover:border-[var(--color-accent)] hover:bg-[var(--color-surface)] transition"
+            >
+              <div className="flex flex-col items-center gap-2 text-[var(--color-txt2)]">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                <p className="text-sm font-medium text-[var(--color-txt)]">
+                  Click to add audio files
+                </p>
+                <p className="text-xs text-[var(--color-txt3)]">
+                  MP3, M4A, WAV, FLAC · up to {formatBytes(MAX_AUDIO_SIZE)} each
+                </p>
+              </div>
+              <input
+                ref={trackInputRef}
+                type="file"
+                accept={AUDIO_ACCEPT}
+                multiple
+                onChange={handleTrackInput}
+                className="hidden"
+              />
+            </div>
+
+            {tracks.length > 0 && (
+              <div className="space-y-3">
+                {tracks.map((item) => (
+                  <TrackRow
+                    key={item.id}
+                    item={item}
+                    onUpdate={(patch) => updateTrack(item.id, patch)}
+                    onRemove={() => removeTrack(item.id)}
+                    disabled={isUploading}
+                  />
+                ))}
+              </div>
+            )}
+
+            {tracks.length > 0 && tracks.every((t) => t.status === 'done') && (
+              <div className="text-sm text-[var(--color-txt2)] bg-[var(--color-surface)] p-3 rounded-lg">
+                All tracks uploaded. Open the music app and tap{' '}
+                <strong className="text-[var(--color-txt)]">Circle</strong> to
+                listen.
+              </div>
+            )}
+          </>
+        )}
+
         {error && (
           <div className="text-sm text-[var(--color-rose)] bg-[var(--color-rose-bg)] p-2 rounded">
             {error}
@@ -1083,15 +1463,26 @@ export default function ComposePage({
         <div className="flex flex-wrap items-center gap-2 pt-2">
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={
+              isSubmitting ||
+              (mode === 'track' && (tracks.length === 0 || readyTrackCount === 0))
+            }
             className="px-6 py-2 bg-[var(--color-accent)] text-white rounded-full text-sm font-medium hover:bg-[var(--color-accent-h)] transition disabled:opacity-50"
           >
-            {isSubmitting ? 'Saving…' : mode === 'post' ? 'Post' : 'Save Article'}
+            {isSubmitting
+              ? 'Saving…'
+              : mode === 'post'
+              ? 'Post'
+              : mode === 'article'
+              ? 'Save Article'
+              : `Upload ${readyTrackCount || ''} ${
+                  readyTrackCount === 1 ? 'track' : 'tracks'
+                }`}
           </button>
           <button
             onClick={handleSaveDraft}
-            disabled={isSubmitting}
-            className="px-4 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition"
+            disabled={isSubmitting || mode === 'track'}
+            className="px-4 py-2 border border-[var(--color-border)] text-[var(--color-txt2)] rounded-full text-sm font-medium hover:bg-[var(--color-surface)] transition disabled:opacity-50"
           >
             💾 Save Draft
           </button>
@@ -1103,7 +1494,7 @@ export default function ComposePage({
           </button>
         </div>
 
-        {isUploading && uploadProgress > 0 && (
+        {isUploading && uploadProgress > 0 && mode !== 'track' && (
           <div className="flex items-center gap-3">
             <div className="flex-1 h-2 bg-[var(--color-surface)] rounded-full overflow-hidden">
               <div

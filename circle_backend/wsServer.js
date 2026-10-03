@@ -292,6 +292,13 @@ function handleClientMessage(ws, userId, msg) {
       _handleRejectBroadcaster(ws, userId, sessionId, targetUserId);
       break;
     }
+    // ─── Peer reset — new broadcaster tells everyone to drop their old PC ───
+    case 'live:peer_reset': {
+      const { sessionId, targetId } = msg;
+      if (!sessionId || !targetId) break;
+      notifyUser(targetId, { type: 'live:peer_reset', sessionId, from: userId });
+      break;
+    }
     // ─── Post interaction handlers ───
     case 'like_update': {
       const { postId, count, userIds } = msg;
@@ -406,7 +413,7 @@ async function _handleApproveBroadcaster(ws, approverId, sessionId, targetUserId
   // Remove from pending
   pending.delete(targetUserId);
   if (pending.size === 0) pendingRequests.delete(sessionId);
-  // Notify everyone
+  // Notify everyone that a new broadcaster joined
   _broadcastToRoom(sessionId, {
     type: 'live:new_broadcaster',
     broadcasterId: targetUserId,
@@ -414,11 +421,23 @@ async function _handleApproveBroadcaster(ws, approverId, sessionId, targetUserId
     broadcasterAvatar: newBroadcaster.avatar,
     broadcasterCount: room.broadcasters.length,
   });
-  // Send existing broadcasters to the new one
-  const existing = room.broadcasters
+  // Send the new broadcaster the full existing roster so it can initiate
+  // fresh peer connections to everyone (broadcasters AND viewers).
+  const existingBroadcasters = room.broadcasters
     .filter(b => b.userId !== targetUserId)
     .map(b => ({ userId: b.userId, name: b.name, avatar: b.avatar }));
-  notifyUser(targetUserId, { type: 'live:existing_broadcasters', broadcasters: existing });
+
+  const existingViewers = Array.from(room.viewers.entries())
+    .map(([vid, v]) => ({ userId: vid, name: v.name || 'Viewer', avatar: v.avatar || '' }));
+
+  notifyUser(targetUserId, {
+    type: 'live:existing_broadcasters',
+    broadcasters: existingBroadcasters,
+  });
+  notifyUser(targetUserId, {
+    type: 'live:existing_viewers',
+    viewers: existingViewers,
+  });
   // Update viewer count
   const viewerCount = room.viewers.size;
   LiveModel().setViewerCount(sessionId, viewerCount).catch(() => {});

@@ -10,3 +10,7 @@ src/sizaBeats+2.pem
 src/sizaBeats+3-key.pem
 src/sizaBeats+3.pem
 src/mkcert.exe
+
+# Audio tracks — keep the folder, ignore its contents
+storage/*
+!storage/.gitkeep

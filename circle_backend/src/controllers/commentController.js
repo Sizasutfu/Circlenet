@@ -39,10 +39,16 @@ async function replyToComment(req, res) {
 }
 
 // ── Get all comments for a post (flat list) ──
+// Reads `req.params.id` because both postRoutes (`/:id/comments`) and
+// commentRoutes (`/:postId/comments`) are mounted under the same path.
+// To make the handler work with either route pattern, accept both names.
 async function getCommentsByPostId(req, res) {
-  // ✅ Fixed: was `req.params.Id` (capital I) — must match `/:postId/comments`
-  const postId = parseInt(req.params.postId);
-  if (!postId || isNaN(postId)) return sendError(res, 400, 'Invalid post ID.');
+  const rawId = req.params.id ?? req.params.postId;
+  const postId = parseInt(rawId);
+
+  if (!postId || isNaN(postId)) {
+    return sendError(res, 400, 'Invalid post ID.');
+  }
 
   try {
     const comments = await CommentModel.getCommentsByPostId(postId);

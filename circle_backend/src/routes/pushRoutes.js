@@ -53,4 +53,42 @@ router.post('/preferences', async (req, res) => {
   }
 });
 
+
+// ── MOBILE: register / refresh an Expo push token ──
+// POST /push/token  { token, platform, deviceName? }
+router.post('/token', async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.userId; // adapt to your auth middleware
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const { token, platform, deviceName } = req.body;
+    if (!token || !platform) {
+      return res.status(400).json({ message: 'token and platform are required' });
+    }
+    if (!['ios', 'android'].includes(platform)) {
+      return res.status(400).json({ message: 'platform must be ios or android' });
+    }
+
+    await pushModel.upsertPushToken(userId, token, platform, deviceName || null);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('push/token error:', err);
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
+// ── MOBILE: unregister a token (call on logout) ──
+// DELETE /push/token  { token }
+router.delete('/token', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ message: 'token required' });
+    await pushModel.deletePushToken(token);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('push/token delete error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

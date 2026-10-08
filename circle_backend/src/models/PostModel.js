@@ -715,11 +715,16 @@ async function getGroupPosts(groupId, page = 1, limit = 20) {
 }
 
 // ── Delete a post ──────────────────────────────────────────
+// Also removes any repost wrapper posts that reference this post,
+// so no orphaned empty reposts remain in users' feeds. The FK on
+// posts.original_post_id is SET NULL, so without this cleanup a
+// reposter's feed would show an empty card when the original is
+// deleted.
 async function deletePost(postId, userId = null) {
   if (!postId || isNaN(postId) || postId <= 0) {
     throw new Error('Invalid post ID');
   }
-  
+
   if (userId) {
     const [post] = await db.query('SELECT user_id FROM posts WHERE id = ?', [postId]);
     if (!post.length) {
@@ -729,8 +734,29 @@ async function deletePost(postId, userId = null) {
       throw new Error('Unauthorized: You do not own this post');
     }
   }
-  
-  await db.query('DELETE FROM posts WHERE id=?', [postId]);
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // Remove repost wrapper posts referencing this post first.
+    // (Their `reposts` rows are cleaned up by the FK CASCADE once
+    // the wrapper post row is deleted.)
+    await connection.query(
+      'DELETE FROM posts WHERE original_post_id = ? AND is_repost = 1',
+      [postId]
+    );
+
+    // Now delete the post itself.
+    await connection.query('DELETE FROM posts WHERE id = ?', [postId]);
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 }
 
 // ── Update a post's text ───────────────────────────────────

@@ -21,12 +21,29 @@ function toMySQLDatetime(date) {
     d = new Date();
   }
 
-  // Check if date is valid
   if (isNaN(d.getTime())) {
     d = new Date();
   }
 
   return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// ── Safe JSON column decoder (handles pre-parsed drivers) ────
+function parseJsonField(v) {
+  if (v == null) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return v;
+}
+
+// ── Attach parsed media_renditions onto a message row ────────
+function withRenditions(msg) {
+  if (!msg) return msg;
+  if (msg.media_renditions) {
+    msg.media_renditions = parseJsonField(msg.media_renditions);
+  }
+  return msg;
 }
 
 // ─── Conversations ───────────────────────────────────────────
@@ -191,6 +208,7 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        m.media_thumbnail,
        m.media_name,
        m.media_size,
+       m.media_renditions,
        m.is_read,
        m.is_encrypted,
        m.created_at,
@@ -232,6 +250,7 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
        NULL AS media_thumbnail,
        NULL AS media_name,
        NULL AS media_size,
+       NULL AS media_renditions,
        NULL AS edited_at,
        'missed_call' AS icon_type,
        u.id AS caller_id
@@ -252,12 +271,12 @@ async function getMessages(conversationId, requestingUserId, { limit = 10, befor
   // Check if there are more messages (for pagination)
   const hasMore = allMessages.length > lim;
 
-  // If we have more than limit, remove the oldest ones (keep newest)
   if (hasMore) {
     allMessages = allMessages.slice(-lim);
   }
 
-  // Return messages in ascending order (oldest to newest)
+  allMessages = allMessages.map(withRenditions);
+
   return { messages: allMessages, hasMore };
 }
 
@@ -271,7 +290,6 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
   // been removed — read state is now only changed via markConversationRead
   // (PATCH /conversations/:id/read).
 
-  // Get regular messages
   const [rows] = await db.query(
     `SELECT
        m.id,
@@ -285,6 +303,7 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        m.media_thumbnail,
        m.media_name,
        m.media_size,
+       m.media_renditions,
        m.is_read,
        m.is_encrypted,
        m.created_at,
@@ -302,7 +321,6 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
     [convId, Number(afterId)]
   );
 
-  // Get missed call notifications as system messages
   const [missedCalls] = await db.query(
     `SELECT
        mn.id,
@@ -325,6 +343,7 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
        NULL AS media_thumbnail,
        NULL AS media_name,
        NULL AS media_size,
+       NULL AS media_renditions,
        NULL AS edited_at,
        'missed_call' AS icon_type,
        u.id AS caller_id
@@ -337,9 +356,10 @@ async function getNewMessages(conversationId, requestingUserId, afterId) {
     [convId, uid, Number(afterId)]
   );
 
-  // Combine and sort by created_at (oldest first)
   let allMessages = [...rows, ...missedCalls];
   allMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  allMessages = allMessages.map(withRenditions);
 
   return allMessages;
 }
@@ -353,15 +373,20 @@ async function sendMessage(conversationId, senderId, body, media = null) {
   let placeholders = ['?', '?', '?'];
 
   if (media) {
-    query += `, media_type, media_url, media_thumbnail, media_name, media_size`;
+    query += `, media_type, media_url, media_thumbnail, media_name, media_size, media_renditions`;
     values.push(
-      media.media_type || 'file',
-      media.media_url || null,
-      media.media_thumbnail || null,
-      media.media_name || null,
-      media.media_size || null
+      media.media_type       || 'file',
+      media.media_url        || null,
+      media.media_thumbnail  || null,
+      media.media_name       || null,
+      media.media_size       || null,
+      media.media_renditions
+        ? (typeof media.media_renditions === 'string'
+            ? media.media_renditions
+            : JSON.stringify(media.media_renditions))
+        : null
     );
-    placeholders.push('?', '?', '?', '?', '?');
+    placeholders.push('?', '?', '?', '?', '?', '?');
   }
 
   query += `) VALUES (${placeholders.join(', ')})`;
@@ -380,6 +405,7 @@ async function sendMessage(conversationId, senderId, body, media = null) {
        m.media_thumbnail,
        m.media_name,
        m.media_size,
+       m.media_renditions,
        m.is_read,
        m.is_encrypted,
        m.created_at,
@@ -390,7 +416,7 @@ async function sendMessage(conversationId, senderId, body, media = null) {
     [result.insertId]
   );
 
-  return rows[0];
+  return withRenditions(rows[0]);
 }
 
 async function saveEncryptedMessage(conversationId, senderId, body, media = null, encrypted = false) {
@@ -402,15 +428,20 @@ async function saveEncryptedMessage(conversationId, senderId, body, media = null
   let placeholders = ['?', '?', '?', '?'];
 
   if (media) {
-    query += `, media_type, media_url, media_thumbnail, media_name, media_size`;
+    query += `, media_type, media_url, media_thumbnail, media_name, media_size, media_renditions`;
     values.push(
-      media.media_type || 'file',
-      media.media_url || null,
-      media.media_thumbnail || null,
-      media.media_name || null,
-      media.media_size || null
+      media.media_type       || 'file',
+      media.media_url        || null,
+      media.media_thumbnail  || null,
+      media.media_name       || null,
+      media.media_size       || null,
+      media.media_renditions
+        ? (typeof media.media_renditions === 'string'
+            ? media.media_renditions
+            : JSON.stringify(media.media_renditions))
+        : null
     );
-    placeholders.push('?', '?', '?', '?', '?');
+    placeholders.push('?', '?', '?', '?', '?', '?');
   }
 
   query += `) VALUES (${placeholders.join(', ')})`;
@@ -429,6 +460,7 @@ async function saveEncryptedMessage(conversationId, senderId, body, media = null
        m.media_thumbnail,
        m.media_name,
        m.media_size,
+       m.media_renditions,
        m.is_read,
        m.is_encrypted,
        m.created_at,
@@ -439,7 +471,7 @@ async function saveEncryptedMessage(conversationId, senderId, body, media = null
     [result.insertId]
   );
 
-  return rows[0];
+  return withRenditions(rows[0]);
 }
 
 // ─── Presence ────────────────────────────────────────────────
@@ -504,12 +536,13 @@ async function editMessage(messageId, senderId, newBody) {
 
   const [updated] = await db.query(
     `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.media_type, m.media_url, 
-            m.media_thumbnail, m.media_name, m.media_size, m.is_read, m.is_encrypted,
+            m.media_thumbnail, m.media_name, m.media_size, m.media_renditions,
+            m.is_read, m.is_encrypted,
             m.created_at, m.edited_at
      FROM dm_messages m WHERE m.id = ?`,
     [Number(messageId)]
   );
-  return updated[0];
+  return withRenditions(updated[0]);
 }
 
 async function deleteMessage(messageId, senderId) {
@@ -582,14 +615,12 @@ async function getOtherParticipant(conversationId, userId) {
 // ─── E2E Key Management ──────────────────────────────────────
 
 async function savePublicKey(userId, publicKey, keyVersion = 1) {
-  // Save to key history
   await db.query(
     `INSERT INTO user_key_history (user_id, public_key, key_version, created_at)
      VALUES (?, ?, ?, NOW())`,
     [Number(userId), publicKey, Number(keyVersion)]
   );
 
-  // Update user's current key
   await db.query(
     `UPDATE users SET public_key = ?, key_version = ?, key_updated_at = NOW()
      WHERE id = ?`,
@@ -626,7 +657,6 @@ async function getPublicKeyVersions(userId) {
 async function saveMissedCall(callerId, recipientId, conversationId, calledAt = null) {
   const now = toMySQLDatetime(calledAt);
 
-  // Insert into missed call notifications
   const [result] = await db.query(
     `INSERT INTO missed_call_notifications 
      (conversation_id, caller_id, recipient_id, called_at, is_read) 
@@ -634,7 +664,6 @@ async function saveMissedCall(callerId, recipientId, conversationId, calledAt = 
     [Number(conversationId), Number(callerId), Number(recipientId), now]
   );
 
-  // Also record in call history
   await db.query(
     `INSERT INTO call_history 
      (caller_id, recipient_id, call_type, status, started_at, ended_at) 

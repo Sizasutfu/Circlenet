@@ -24,16 +24,44 @@ const { notifyUser, isOnline, broadcastToAll } = require('../../wsServer');
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 function resolveFileUrl(compressed, req) {
-  if (!compressed) return { path: null, url: null };
+  if (!compressed) return { path: null, url: null, renditions: null };
 
   if (IS_PROD) {
     const url = compressed.secure_url;
-    return { path: url, url };
+    return {
+      path: url,
+      url,
+      renditions: compressed.renditions || null,
+    };
   }
 
   const relativePath = `/uploads/${compressed.filename}`;
   const baseUrl      = `${req.protocol}://${req.get('host')}`;
-  return { path: relativePath, url: `${baseUrl}${relativePath}` };
+
+  const renditions = (compressed.renditions || []).map((r) => ({
+    quality: r.quality,
+    url:     r.url,               // relative path – stored as-is
+    size:    r.size,
+    width:   r.width,
+    height:  r.height,
+  }));
+
+  return {
+    path: relativePath,
+    url:  `${baseUrl}${relativePath}`,
+    renditions: renditions.length ? renditions : null,
+  };
+}
+
+// Turn stored (relative) rendition URLs into absolute URLs for the
+// immediate createPost response — mirrors how imageUrl/videoUrl work.
+function absolutiseRenditions(renditions, req) {
+  if (!renditions) return null;
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  return renditions.map((r) => ({
+    ...r,
+    url: r.url && r.url.startsWith('http') ? r.url : `${baseUrl}${r.url}`,
+  }));
 }
 
 function extractYouTubeId(text) {
@@ -102,7 +130,11 @@ async function createPost(req, res) {
   const text   = req.body.text || '';
 
   const { path: imagePath, url: imageUrl } = resolveFileUrl(req.compressedFiles?.image, req);
-  const { path: videoPath, url: videoUrl } = resolveFileUrl(req.compressedFiles?.video, req);
+  const {
+    path: videoPath,
+    url: videoUrl,
+    renditions: videoRenditions,
+  } = resolveFileUrl(req.compressedFiles?.video, req);
 
   if (!text && !imagePath && !videoPath)
     return sendError(res, 400, 'A post must have text, an image, or a video.');
@@ -136,7 +168,8 @@ async function createPost(req, res) {
       groupId,
       isLive,
       liveSessionId,
-      youtubeId
+      youtubeId,
+      videoRenditions               // ← NEW
     );
 
     await PostModel.savePostTopics(postId, text);
@@ -246,6 +279,7 @@ async function createPost(req, res) {
       text,
       image:         imageUrl,
       video:         videoUrl,
+      videoRenditions: absolutiseRenditions(videoRenditions, req),  // ← NEW
       groupId:       groupId || null,
       groupName:     groupId ? group.displayName : null,
       groupTopic:    groupId ? group.topic       : null,
@@ -648,9 +682,7 @@ async function repost(req, res) {
       isRepost:       true,
       originalPostId: origId,
       originalPost:   origEmbed,
-      likes: [],
-      reposts: [],
-      comments: [],
+      likes: [], reposts: [], comments: [],
       createdAt:      new Date(),
     });
   } catch (err) {
@@ -845,7 +877,10 @@ async function updatePost(req, res) {
   const { text, isLive, liveSessionId, youtubeId, deleteImage, deleteVideo } = req.body || {};
 
   const { path: newImagePath } = resolveFileUrl(req.compressedFiles?.image, req);
-  const { path: newVideoPath } = resolveFileUrl(req.compressedFiles?.video, req);
+  const {
+    path: newVideoPath,
+    renditions: newVideoRenditions,
+  } = resolveFileUrl(req.compressedFiles?.video, req);
 
   const wantsDeleteImage = deleteImage === true || deleteImage === 'true';
   const wantsDeleteVideo = deleteVideo === true || deleteVideo === 'true';
@@ -905,10 +940,14 @@ async function updatePost(req, res) {
     }
 
     let updatedVideoPath = post.video;
+    let updatedVideoRenditions = post.video_renditions ?? null;
+
     if (newVideoPath) {
       updatedVideoPath = newVideoPath;
+      updatedVideoRenditions = newVideoRenditions;
     } else if (wantsDeleteVideo) {
       updatedVideoPath = null;
+      updatedVideoRenditions = null;
     }
 
     await PostModel.updatePost(
@@ -919,7 +958,8 @@ async function updatePost(req, res) {
       updatedLiveSessionId,
       updatedYoutubeId,
       updatedImagePath,
-      updatedVideoPath
+      updatedVideoPath,
+      updatedVideoRenditions        // ← NEW
     );
 
     return sendOk(res, 200, 'Post updated.');

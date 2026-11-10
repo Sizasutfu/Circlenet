@@ -1,13 +1,18 @@
 // ============================================================
 //  middleware/compress.js
 //
-//  Development  → compresses images (Sharp → .webp), videos
-//                 (FFmpeg → .mp4) into /uploads, and audio
-//                 (FFmpeg → .m4a) into /storage/music.
+//  Development  → compresses images (Sharp → .webp), transcodes
+//                 videos (FFmpeg → multi-resolution .mp4 ladder),
+//                 and compresses audio (FFmpeg → .m4a).
 //
-//  Production   → Cloudinary already handled the upload in
-//                 upload.js, so compressUploads is a no-op
-//                 passthrough. Sharp/FFmpeg are never loaded.
+//  Production   → Cloudinary has already handled the upload in
+//                 upload.js. compressUploads mirrors the
+//                 Cloudinary metadata (including video rendition
+//                 URLs) into req.compressedFiles. Sharp/FFmpeg
+//                 are never loaded.
+//
+//  No ffprobe dependency — the scale filter clamps to source
+//  dimensions via min(), so we never need to probe the input.
 //
 //  Install dependencies (dev only — optional in prod):
 //    npm install sharp fluent-ffmpeg ffmpeg-static
@@ -36,7 +41,7 @@ function flattenFiles(req) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  Production — skip compression, just mirror Cloudinary data
+//  PRODUCTION — passthrough that mirrors Cloudinary metadata
 // ════════════════════════════════════════════════════════════
 if (IS_PROD) {
   async function compressUploads(req, _res, next) {
@@ -45,14 +50,23 @@ if (IS_PROD) {
     const files = flattenFiles(req);
 
     for (const [fieldName, file] of Object.entries(files)) {
-      if (file.cloudinary) {
-        req.compressedFiles[fieldName] = {
-          secure_url:    file.cloudinary.secure_url,
-          public_id:     file.cloudinary.public_id,
-          resource_type: file.cloudinary.resource_type,
-          savedBytes:    null,
-        };
-      }
+      if (!file.cloudinary) continue;
+
+      const isVideo = (file.mimetype || '').startsWith('video/');
+      const renditions = isVideo ? file.cloudinary.renditions ?? null : null;
+      const primary = isVideo && renditions?.length
+        ? renditions[renditions.length - 1].quality
+        : null;
+
+      req.compressedFiles[fieldName] = {
+        secure_url:    file.cloudinary.url,
+        public_id:     file.cloudinary.public_id,
+        resource_type: file.cloudinary.resource_type,
+        savedBytes:    null,
+        kind:          isVideo ? 'video' : undefined,
+        primary,
+        renditions,
+      };
     }
 
     next();
@@ -63,7 +77,7 @@ if (IS_PROD) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  Development — full Sharp + FFmpeg pipeline
+//  DEVELOPMENT — full Sharp + FFmpeg pipeline
 // ════════════════════════════════════════════════════════════
 const sharp    = require('sharp');
 const ffmpeg   = require('fluent-ffmpeg');
@@ -73,15 +87,14 @@ const fs       = require('fs');
 const crypto   = require('crypto');
 const os       = require('os');
 
+const { VIDEO_PRESETS } = require('../utils/videoPresets');
+
 ffmpeg.setFfmpegPath(ffmpegP);
 
 // src/middleware → .. → src → .. → circle_backend
 const ROOT = path.join(__dirname, '..', '..');
 
-// Images + videos — general post media
 const UPLOAD_DIR = path.join(ROOT, 'uploads');
-
-// Music tracks — dedicated folder for the music player
 const MUSIC_DIR  = path.join(ROOT, 'storage', 'music');
 
 for (const dir of [UPLOAD_DIR, MUSIC_DIR]) {
@@ -143,7 +156,7 @@ async function compressImage(buffer, mimetype = '') {
 }
 
 // ─────────────────────────────────────────────────────────
-//  Video compression  →  uploads/<hex>.mp4
+//  Video compression — single rendition (kept for back-compat)
 // ─────────────────────────────────────────────────────────
 function compressVideo(buffer, clientCompressed = false) {
   return new Promise((resolve, reject) => {
@@ -189,6 +202,137 @@ function compressVideo(buffer, clientCompressed = false) {
       })
       .run();
   });
+}
+
+// ─────────────────────────────────────────────────────────
+//  Video compression — multi-resolution ladder
+//
+//  No ffprobe needed. The min(<box>, iw/ih) expression caps
+//  the output at the source dimensions, so presets larger
+//  than the source just re-encode at source size — never
+//  upscale.
+// ─────────────────────────────────────────────────────────
+function scaleFilter(box) {
+  return (
+    `scale='min(${box},iw)':'min(${box},ih)':` +
+    `force_original_aspect_ratio=decrease:force_divisible_by=2`
+  );
+}
+
+function transcodeToResolution(inputPath, outputPath, preset) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .videoCodec('libx264')
+      .audioCodec('aac')
+      .videoBitrate(preset.videoBitrate)
+      .audioBitrate(preset.audioBitrate)
+      .addOption('-preset', 'fast')
+      .addOption('-movflags', '+faststart')
+      .addOption('-profile:v', 'main')
+      .addOption('-nostdin')
+      .videoFilters(scaleFilter(preset.box))
+      .output(outputPath)
+      .on('end', resolve)
+      .on('error', reject)
+      .run();
+  });
+}function transcodeToResolution(inputPath, outputPath, preset) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .videoCodec('libx264')
+      .audioCodec('aac')
+      .audioBitrate(preset.audioBitrate)
+      // ── Quality-driven encode with a hard bitrate ceiling ──
+      .addOption('-crf', String(preset.crf))
+      .addOption('-maxrate', preset.maxrate)
+      .addOption('-bufsize', preset.bufsize)
+      // ── Speed / compatibility ──
+      .addOption('-preset', 'veryfast')
+      .addOption('-pix_fmt', 'yuv420p')     // 8-bit 4:2:0, plays everywhere
+      .addOption('-profile:v', 'main')
+      .addOption('-movflags', '+faststart')
+      .addOption('-nostdin')
+      // ── Dimensions ──
+      .videoFilters(
+        `scale='min(${preset.box},iw)':'min(${preset.box},ih)':` +
+        `force_original_aspect_ratio=decrease:force_divisible_by=2`
+      )
+      .output(outputPath)
+      .on('end', resolve)
+      .on('error', reject)
+      .run();
+  });
+}
+
+async function compressVideoMultiResolution(buffer, clientCompressed = false) {
+  const baseName   = crypto.randomBytes(16).toString('hex');
+  const sourceSize = buffer.length;
+
+  // ── Client already compressed it → single rendition, as-is ──
+  if (clientCompressed) {
+    const filename   = `${baseName}_original.mp4`;
+    const outputPath = path.join(UPLOAD_DIR, filename);
+    fs.writeFileSync(outputPath, buffer);
+    const { size } = fs.statSync(outputPath);
+
+    return {
+      kind: 'video',
+      primary: 'original',
+      filename,
+      relativePath: `uploads/${filename}`,
+      savedBytes: 0,
+      renditions: [{
+        quality: 'original',
+        filename,
+        relativePath: `uploads/${filename}`,
+        url: `/uploads/${filename}`,
+        size,
+        mimeType: 'video/mp4',
+      }],
+    };
+  }
+
+  const tmpPath = path.join(TMP_DIR, `${baseName}.tmp`);
+  fs.writeFileSync(tmpPath, buffer);
+
+  try {
+    const renditions = [];
+
+    for (const preset of VIDEO_PRESETS) {
+      const filename   = `${baseName}_${preset.quality}.mp4`;
+      const outputPath = path.join(UPLOAD_DIR, filename);
+
+      await transcodeToResolution(tmpPath, outputPath, preset);
+
+      const { size } = fs.statSync(outputPath);
+      renditions.push({
+        quality: preset.quality,
+        filename,
+        relativePath: `uploads/${filename}`,
+        url: `/uploads/${filename}`,
+        size,
+        mimeType: 'video/mp4',
+      });
+      console.log(
+        `[compress] video ${preset.quality} → ${filename} (${(
+          size / 1024 / 1024
+        ).toFixed(1)} MB)`
+      );
+    }
+
+    const primary = renditions[renditions.length - 1];
+
+    return {
+      kind: 'video',
+      primary: primary.quality,
+      filename: primary.filename,
+      relativePath: primary.relativePath,
+      savedBytes: sourceSize - primary.size,
+      renditions,
+    };
+  } finally {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -241,11 +385,6 @@ function compressAudio(buffer, clientCompressed = false) {
 
 // ─────────────────────────────────────────────────────────
 //  Audio compression (file → storage/music/<hex>.m4a)
-//
-//  Reads an existing file from disk, writes the compressed
-//  output into MUSIC_DIR. Use this when multer is on disk
-//  storage OR when the controller has already written the
-//  buffer to a temp file.
 // ─────────────────────────────────────────────────────────
 function compressAudioFile(inputPath, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -268,10 +407,10 @@ function compressAudioFile(inputPath, opts = {}) {
         const { size } = fs.statSync(outputPath);
         resolve({
           filename,
-          path:          outputPath,
-          kind:          'audio',
+          path: outputPath,
+          kind: 'audio',
           originalBytes: originalSize,
-          savedBytes:    originalSize - size,
+          savedBytes: originalSize - size,
         });
       })
       .on('error', reject)
@@ -309,32 +448,57 @@ async function compressUploads(req, _res, next) {
 
           if (kind === 'video') {
             const clientCompressed = req.body?.video_compressed === '1';
-            const result = await compressVideo(file.buffer, clientCompressed);
+            const result = await compressVideoMultiResolution(
+              file.buffer,
+              clientCompressed
+            );
             req.compressedFiles[fieldName] = result;
+
+            const totalMB =
+              result.renditions.reduce((s, r) => s + r.size, 0) /
+              1024 / 1024;
             console.log(
-              `[compress] ${fieldName} (video) saved — reduced by ${(result.savedBytes / 1024 / 1024).toFixed(1)} MB → ${result.relativePath}`
+              `[compress] ${fieldName} (video) → ${
+                result.renditions.length
+              } rendition(s) [${result.renditions
+                .map((r) => r.quality)
+                .join(', ')}], primary=${result.primary}, total ${totalMB.toFixed(
+                1
+              )} MB`
             );
           } else if (kind === 'audio') {
             const clientCompressed = req.body?.audio_compressed === '1';
             const result = await compressAudio(file.buffer, clientCompressed);
             req.compressedFiles[fieldName] = result;
             console.log(
-              `[compress] ${fieldName} (audio) saved — reduced by ${(result.savedBytes / 1024 / 1024).toFixed(1)} MB → ${result.relativePath}`
+              `[compress] ${fieldName} (audio) saved — reduced by ${(
+                result.savedBytes /
+                1024 /
+                1024
+              ).toFixed(1)} MB → ${result.relativePath}`
             );
           } else {
             const result = await compressImage(file.buffer, file.mimetype);
             req.compressedFiles[fieldName] = result;
             console.log(
-              `[compress] ${fieldName} (image) saved — reduced by ${(result.savedBytes / 1024).toFixed(0)} KB → ${result.relativePath}`
+              `[compress] ${fieldName} (image) saved — reduced by ${(
+                result.savedBytes / 1024
+              ).toFixed(0)} KB → ${result.relativePath}`
             );
           }
         } catch (err) {
-          console.error(`[compress] failed to process ${fieldName}:`, err.message);
+          console.error(
+            `[compress] failed to process ${fieldName}:`,
+            err.message
+          );
         }
       })
     );
 
-    console.log('[compress] compressedFiles keys:', Object.keys(req.compressedFiles));
+    console.log(
+      '[compress] compressedFiles keys:',
+      Object.keys(req.compressedFiles)
+    );
     next();
   } catch (err) {
     console.error('[compress] error:', err.message);
@@ -352,6 +516,7 @@ module.exports = {
   compressUploads,
   compressImage,
   compressVideo,
+  compressVideoMultiResolution,
   compressAudio,
   compressAudioFile,
   detectKind,

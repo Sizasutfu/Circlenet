@@ -26,7 +26,7 @@
 
 const { db }                          = require('../config/db');
 const PostModel                       = require('../models/postModel');
-const UserModel                       = require('../models/UserModel');
+const UserModel                       = require('../models/userModel');
 const TopicPreferenceModel            = require('../models/topicPreferenceModel');
 const NegativeSignalModel             = require('../models/negativeSignalModel');
 const ContentTypePreference           = require('../models/contentTypePreferenceModel');
@@ -193,6 +193,7 @@ async function getPostsPage(
        p.text,
        p.image,
        p.video,
+       p.video_renditions,
        p.is_repost        AS isRepost,
        p.original_post_id AS originalPostId,
        p.group_id         AS groupId,

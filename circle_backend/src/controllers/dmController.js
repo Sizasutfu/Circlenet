@@ -124,15 +124,16 @@ async function sendMessage(req, res) {
     // Check if the body is encrypted
     const isEncrypted = body.startsWith('e2e:');
 
-    // Process media if it exists
+    // Process media if it exists — forward renditions unchanged
     let processedMedia = null;
     if (media) {
       processedMedia = {
-        media_type: media.type || media.media_type || 'file',
-        media_url: media.url || media.media_url,
-        media_thumbnail: media.thumbnail || media.media_thumbnail || null,
-        media_name: media.name || media.media_name || 'file',
-        media_size: media.size || media.media_size || null,
+        media_type:       media.type         || media.media_type       || 'file',
+        media_url:        media.url          || media.media_url,
+        media_thumbnail:  media.thumbnail    || media.media_thumbnail  || null,
+        media_name:       media.name         || media.media_name       || 'file',
+        media_size:       media.size         || media.media_size       || null,
+        media_renditions: media.renditions   || media.media_renditions || null,
       };
     }
 
@@ -190,7 +191,10 @@ async function uploadMedia(req, res) {
     }
 
     try {
-      // Use the uploadMediaWithMetadata function from middleware
+      // uploadMediaWithMetadata returns { url, thumbnail, type, name, size,
+      //   public_id, format, width, height, primary, renditions }
+      // in both dev and prod. The client must forward `renditions` back
+      // when calling sendMessage.
       const result = await uploadMediaWithMetadata(
         file.buffer,
         file.originalname,

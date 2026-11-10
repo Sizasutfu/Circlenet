@@ -17,6 +17,7 @@ import ShareButton from './ShareButton';
 import AvatarPlaceholder from '@/components/ui/AvatarPlaceholder';
 import VerificationBadge from '@/components/ui/VerificationBadge';
 import { resolveMediaUrl } from '@/lib/url';
+import { useOptimistic } from 'react';
 
 let currentlyPlayingVideo = null;
 
@@ -60,6 +61,24 @@ function ensureArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'number') return [];
   return [];
+}
+
+// ── Video rendition helpers ──
+function parseRenditions(value) {
+  if (value == null) return null;
+  let arr = value;
+  if (typeof arr === 'string') {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const filtered = arr.filter(
+    (r) => r && typeof r.url === 'string' && typeof r.quality === 'string',
+  );
+  return filtered.length > 0 ? filtered : null;
 }
 
 const cardClasses =
@@ -107,6 +126,79 @@ export default function PostCard({
     groupId = null,
     reasons = [],
   } = post;
+
+  // ── Compute media URLs early (needed by video quality state) ──
+  const postImageUrl = resolveMediaUrl(image);
+  const postVideoUrl = resolveMediaUrl(video);
+
+  // ── Normalize renditions ──
+  // Accepts both `videoRenditions` (camelCase, from hydratePosts) and
+  // `video_renditions` (snake_case, from raw SQL paths). Each rendition
+  // URL is resolved to an absolute URL the same way `video` is.
+  const normalizedRenditions = useMemo(() => {
+    const raw =
+      parseRenditions(post.videoRenditions) ||
+      parseRenditions(post.video_renditions);
+    if (!raw) return null;
+    return raw.map((r) => ({
+      quality: r.quality,
+      url: resolveMediaUrl(r.url),
+      size: r.size,
+      width: r.width,
+      height: r.height,
+    }));
+  }, [post.videoRenditions, post.video_renditions]);
+
+  // ── Build quality options (adds "Auto" if primary doesn't match) ──
+  const qualityOptions = useMemo(() => {
+    if (!postVideoUrl || !normalizedRenditions) return [];
+    const opts = normalizedRenditions.map((r) => ({
+      quality: r.quality,
+      url: r.url,
+      label: r.quality,
+    }));
+    const hasMatch = opts.some((o) => o.url === postVideoUrl);
+    if (!hasMatch) {
+      opts.unshift({ quality: 'auto', url: postVideoUrl, label: 'Auto' });
+    }
+    return opts;
+  }, [postVideoUrl, normalizedRenditions]);
+
+  const hasQualityPicker = qualityOptions.length > 0;
+
+  // ── Default quality ──
+  const defaultQuality = useMemo(() => {
+    if (!normalizedRenditions || !postVideoUrl) return null;
+    const matched = normalizedRenditions.find((r) => r.url === postVideoUrl);
+    return matched?.quality || 'auto';
+  }, [normalizedRenditions, postVideoUrl]);
+
+  // ── Video quality state ──
+  const [selectedQuality, setSelectedQuality] = useState(defaultQuality);
+  const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
+  const [isSwitchingQuality, setIsSwitchingQuality] = useState(false);
+  const qualityDropdownRef = useRef(null);
+  const pendingVideoStateRef = useRef(null);
+  const hasInitializedQualityRef = useRef(defaultQuality !== null);
+
+  // If renditions arrive after mount, set the default once.
+  useEffect(() => {
+    if (hasInitializedQualityRef.current) return;
+    if (!defaultQuality) return;
+    hasInitializedQualityRef.current = true;
+    setSelectedQuality(defaultQuality);
+  }, [defaultQuality]);
+
+  // ── Current URL to play ──
+  const currentVideoUrl = useMemo(() => {
+    if (!selectedQuality || selectedQuality === 'auto') return postVideoUrl;
+    return qualityOptions.find((o) => o.quality === selectedQuality)?.url || postVideoUrl;
+  }, [selectedQuality, postVideoUrl, qualityOptions]);
+
+  const currentQualityLabel = useMemo(() => {
+    if (!selectedQuality) return '';
+    return qualityOptions.find((o) => o.quality === selectedQuality)?.label || selectedQuality;
+  }, [selectedQuality, qualityOptions]);
 
   // Ensure arrays
   const safeLikes = ensureArray(likes);
@@ -313,6 +405,55 @@ export default function PostCard({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ── Close quality menu on outside click ──
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (qualityDropdownRef.current && !qualityDropdownRef.current.contains(e.target)) {
+        setIsQualityMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ── Video quality: swap source, preserve playback state ──
+  const handleQualityChange = (quality) => {
+    setIsQualityMenuOpen(false);
+    if (quality === selectedQuality) return;
+
+    const videoEl = videoRef.current;
+    if (videoEl) {
+      pendingVideoStateRef.current = {
+        currentTime: videoEl.currentTime,
+        paused: videoEl.paused,
+        volume: videoEl.volume,
+        muted: videoEl.muted,
+      };
+      setIsSwitchingQuality(true);
+    }
+
+    setSelectedQuality(quality);
+  };
+
+  const handleVideoLoadedMetadata = () => {
+    const saved = pendingVideoStateRef.current;
+    const videoEl = videoRef.current;
+
+    if (saved && videoEl) {
+      pendingVideoStateRef.current = null;
+      try {
+        if (saved.currentTime > 0) videoEl.currentTime = saved.currentTime;
+        if (typeof saved.volume === 'number') videoEl.volume = saved.volume;
+        if (typeof saved.muted === 'boolean') videoEl.muted = saved.muted;
+        if (!saved.paused) {
+          videoEl.play().catch(() => {});
+        }
+      } catch (_) {}
+    }
+
+    setIsSwitchingQuality(false);
+  };
+
   // ── Like handler ──
   const handleLike = () => {
     if (onLike) onLike(id);
@@ -325,9 +466,6 @@ export default function PostCard({
 
   const toggleExpand = () => setIsExpanded(!isExpanded);
   const shouldTruncate = text?.length > 200 && !isExpanded;
-
-  const postImageUrl = resolveMediaUrl(image);
-  const postVideoUrl = resolveMediaUrl(video);
 
   const handleImageClick = (e) => {
     e.preventDefault();
@@ -355,7 +493,7 @@ export default function PostCard({
         videoRef.current.pause();
       }
       const videoItem = {
-        src: postVideoUrl,
+        src: currentVideoUrl || postVideoUrl,
         type: 'video',
         meta: {
           postId: id,
@@ -375,7 +513,7 @@ export default function PostCard({
   };
 
   const handleVideoError = () => {
-    console.warn('⚠️ Video failed to load:', postVideoUrl);
+    console.warn('⚠️ Video failed to load:', currentVideoUrl || postVideoUrl);
     setVideoError(true);
   };
 
@@ -485,8 +623,7 @@ export default function PostCard({
       return (
         <div
           ref={videoContainerRef}
-          className="mt-3 -mx-4 overflow-hidden border-y border-[var(--color-border)] bg-black/5 relative cursor-pointer"
-          onClick={handleVideoClick}
+          className="mt-3 -mx-4 border-y border-[var(--color-border)] bg-black/5 relative"
           onDoubleClick={handleVideoDblClick}
         >
           {videoError ? (
@@ -502,7 +639,7 @@ export default function PostCard({
               </svg>
               <p>Video failed to load</p>
               <a
-                href={postVideoUrl}
+                href={currentVideoUrl || postVideoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--color-accent)] hover:underline text-xs"
@@ -511,19 +648,107 @@ export default function PostCard({
               </a>
             </div>
           ) : (
-            <>
+            <div className="relative">
               <video
                 ref={videoRef}
-                src={postVideoUrl}
+                src={currentVideoUrl || postVideoUrl}
                 controls
                 playsInline
-                className="w-full h-auto object-contain max-h-96 sm:max-h-[500px]"
+                className="w-full h-auto object-contain max-h-96 sm:max-h-[500px] block"
                 poster={postImageUrl || undefined}
                 onError={handleVideoError}
+                onLoadedMetadata={handleVideoLoadedMetadata}
                 preload="metadata"
                 onClick={(e) => e.stopPropagation()}
               />
-              <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 pointer-events-none">
+
+              {/* Video quality picker — top-right, always rendered when a
+                  ladder exists so the label is visible immediately. */}
+              {hasQualityPicker && (
+                <div
+                  ref={qualityDropdownRef}
+                  className="absolute top-2 right-2 z-20"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsQualityMenuOpen((v) => !v);
+                    }}
+                    className="bg-black/60 hover:bg-black/80 text-white text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 transition-colors backdrop-blur-sm"
+                    title="Video quality"
+                  >
+                    <span>{currentQualityLabel || 'Auto'}</span>
+                    {qualityOptions.length > 1 && (
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        viewBox="0 0 24 24"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    )}
+                  </button>
+
+                  {isQualityMenuOpen && qualityOptions.length > 1 && (
+                    <div className="absolute right-0 top-full mt-1 bg-black/95 backdrop-blur-sm rounded-lg py-1 min-w-[120px] shadow-xl ring-1 ring-white/10">
+                      <div className="text-[10px] font-bold text-white/60 uppercase tracking-wider px-3 pt-1.5 pb-1">
+                        Quality
+                      </div>
+                      {qualityOptions.map((opt) => {
+                        const active = opt.quality === selectedQuality;
+                        return (
+                          <button
+                            key={opt.quality}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQualityChange(opt.quality);
+                            }}
+                            className={`flex items-center justify-between gap-3 w-full px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition-colors ${
+                              active ? 'bg-blue-500/30 text-blue-100' : ''
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                            {active && (
+                              <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3"
+                                viewBox="0 0 24 24"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Loading spinner during quality swap */}
+              {isSwitchingQuality && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none z-10">
+                  <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                </div>
+              )}
+
+              {/* Expand badge — sits above the native controls bar */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleVideoClick(e);
+                }}
+                className="absolute bottom-14 right-2 bg-black/60 hover:bg-black/80 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 transition-colors z-10"
+                title="Expand video"
+              >
                 <svg
                   className="w-3 h-3"
                   fill="none"
@@ -537,8 +762,8 @@ export default function PostCard({
                   <line x1="3" y1="21" x2="10" y2="14" />
                 </svg>
                 Expand
-              </div>
-            </>
+              </button>
+            </div>
           )}
         </div>
       );
@@ -833,8 +1058,8 @@ export default function PostCard({
           </svg>
           <span className="truncate">
             {profileUrl ? (
-              <Link 
-                href={profileUrl} 
+              <Link
+                href={profileUrl}
                 className="font-medium text-[var(--color-txt)] hover:underline"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -847,7 +1072,7 @@ export default function PostCard({
           </span>
           <span className="text-[var(--color-txt3)] flex-shrink-0">· {relativeTime}</span>
         </div>
-        
+
         {/* Original post */}
         <PostCard
           post={originalPost}
@@ -874,8 +1099,8 @@ export default function PostCard({
           </svg>
           <span className="truncate">
             {profileUrl ? (
-              <Link 
-                href={profileUrl} 
+              <Link
+                href={profileUrl}
                 className="font-medium text-[var(--color-txt)] hover:underline"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -888,7 +1113,7 @@ export default function PostCard({
           </span>
           <span className="text-[var(--color-txt3)] flex-shrink-0">· {relativeTime}</span>
         </div>
-        
+
         {/* Quote content */}
         <div className="flex items-start gap-3">
           {profileUrl ? (
@@ -1063,10 +1288,10 @@ export default function PostCard({
 
             {/* Engagement on original post */}
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-              <LikeButton 
-                count={originalPost.likes?.length || 0} 
-                active={originalPost.likes?.some(id => id === currentUser?.id) || false} 
-                onToggle={() => onLike && onLike(originalPost.id)} 
+              <LikeButton
+                count={originalPost.likes?.length || 0}
+                active={originalPost.likes?.some(id => id === currentUser?.id) || false}
+                onToggle={() => onLike && onLike(originalPost.id)}
               />
               <CommentButton
                 count={originalPost.commentCount || 0}
@@ -1273,9 +1498,9 @@ export default function PostCard({
 
             {/* Engagement buttons with WebSocket */}
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-              <LikeButton 
-                count={likeCount} 
-                active={liked} 
+              <LikeButton
+                count={likeCount}
+                active={liked}
                 onToggle={handleLike}
                 postId={id}
               />
@@ -1489,9 +1714,9 @@ export default function PostCard({
 
           {/* Engagement buttons with WebSocket */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[var(--color-txt2)] text-xs">
-            <LikeButton 
-              count={likeCount} 
-              active={liked} 
+            <LikeButton
+              count={likeCount}
+              active={liked}
               onToggle={handleLike}
               postId={id}
             />
